@@ -4,11 +4,13 @@ All timestamps are strict ISO-8601 with local timezone offset,
 e.g. 2026-09-17T14:03:22-05:00.
 """
 
+import shutil
 import sqlite3
 from datetime import datetime, date
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "crm.db"
+BACKUP_DIR = Path(__file__).parent / "backups"
 
 PREFERRED_CONTACT_METHODS = ["Email", "Call", "Text", "Unknown"]
 
@@ -57,6 +59,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
     pipeline_milestone TEXT NOT NULL DEFAULT 'None / In Cadence',
     cadence_start TEXT NOT NULL,          -- ISO date the cadence clock starts from
+    next_follow_up TEXT DEFAULT '',       -- ISO date; pins to dashboard when due
+    follow_up_note TEXT DEFAULT '',
     created_at TEXT NOT NULL,             -- ISO timestamp
     updated_at TEXT NOT NULL              -- ISO timestamp
 );
@@ -239,9 +243,37 @@ Best,
 ]
 
 
+def _migrate(conn) -> None:
+    """Add columns introduced after the first release to existing databases."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)")}
+    if "next_follow_up" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN next_follow_up TEXT DEFAULT ''")
+    if "follow_up_note" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN follow_up_note TEXT DEFAULT ''")
+
+
+def backup_db(keep: int = 14):
+    """Copy crm.db into backups/ (at most once per day), keep the newest
+    `keep` copies. Returns the new backup path, or None if skipped."""
+    if not DB_PATH.exists():
+        return None
+    BACKUP_DIR.mkdir(exist_ok=True)
+    today_tag = date.today().strftime("%Y%m%d")
+    existing = sorted(BACKUP_DIR.glob("crm-*.db"))
+    made = None
+    if not any(f.name.startswith(f"crm-{today_tag}-") for f in existing):
+        made = BACKUP_DIR / f"crm-{today_tag}-{datetime.now().strftime('%H%M%S')}.db"
+        shutil.copy2(DB_PATH, made)
+        existing.append(made)
+    for old in existing[:-keep]:
+        old.unlink(missing_ok=True)
+    return made
+
+
 def init_db() -> None:
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         for key, value in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
                          (key, value))
