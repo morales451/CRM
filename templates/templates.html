@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Templates — Roof CRM{% endblock %}
+{% block content %}
+<h1 class="mb-3">Outreach Templates</h1>
+
+<div class="card p-3 mb-3">
+  <h5>Your Info</h5>
+  <p class="small text-muted mb-2">Fills into every script wherever <code>{my_name}</code>, <code>{my_company}</code>, or <code>{my_phone}</code> appears.</p>
+  <form method="post" action="{{ url_for('save_settings') }}" class="row g-2">
+    <div class="col-12 col-md-4"><input name="my_name" class="form-control form-control-sm" placeholder="Your name" value="{{ settings.get('my_name', '') }}"></div>
+    <div class="col-12 col-md-4"><input name="my_company" class="form-control form-control-sm" placeholder="Your company" value="{{ settings.get('my_company', '') }}"></div>
+    <div class="col-12 col-md-3"><input name="my_phone" type="tel" class="form-control form-control-sm" placeholder="Your phone number" value="{{ settings.get('my_phone', '') }}"></div>
+    <div class="col-12 col-md-1"><button class="btn btn-sm btn-primary w-100">Save</button></div>
+  </form>
+</div>
+
+<div class="alert alert-light small border">
+  <strong>Placeholders you can use:</strong>
+  <code>{first_name}</code> <code>{last_name}</code> <code>{title}</code>
+  <code>{company}</code> <code>{num_properties}</code>
+  <code>{my_name}</code> <code>{my_company}</code> <code>{my_phone}</code>
+  — they're replaced with each account's real values when you open a script.
+</div>
+
+{% for t in templates %}
+<div class="card p-3 mb-3">
+  <form method="post" action="{{ url_for('save_template', template_id=t.id) }}">
+    <div class="row g-2">
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Name</label>
+        <input name="name" class="form-control form-control-sm" value="{{ t.name }}">
+      </div>
+      <div class="col-12 col-md-6">
+        <label class="form-label small mb-0">Type</label>
+        <select name="kind" class="form-select form-select-sm">
+          <option value="email" {{ 'selected' if t.kind == 'email' }}>✉️ Email (opens email app)</option>
+          <option value="call" {{ 'selected' if t.kind == 'call' }}>📞 Call script (dial button)</option>
+          <option value="text" {{ 'selected' if t.kind == 'text' }}>💬 Text message (opens Messages)</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-0">Shows up for cadence steps:</label><br>
+        {% set t_steps = t.steps.split(',') %}
+        {% for s in cadence_steps %}
+        <label class="me-3 small"><input type="checkbox" name="steps" value="{{ s }}" {{ 'checked' if s in t_steps }}> {{ s }}</label>
+        {% endfor %}
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-0">Subject <span class="text-muted">(emails only)</span></label>
+        <input name="subject" class="form-control form-control-sm" value="{{ t.subject }}">
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-0">Body</label>
+        <textarea name="body" class="form-control" rows="{{ [t.body.count('\n') + 2, 16]|min }}">{{ t.body }}</textarea>
+      </div>
+      <div class="col-12">
+        <button class="btn btn-sm btn-primary">Save Template</button>
+        <span class="text-muted small ms-2">Last saved {{ t.updated_at|dt }}</span>
+      </div>
+    </div>
+  </form>
+</div>
+{% endfor %}
+{% endblock %}

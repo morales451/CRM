@@ -42,6 +42,8 @@
             {% if r.days_overdue > 0 %}<br><span class="overdue">{{ r.days_overdue }}d overdue</span>{% endif %}
           </td>
           <td class="text-end text-nowrap">
+            <a href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}"
+               class="btn btn-sm btn-outline-primary" title="Open the personalized script for this step">📄 Script</a>
             <form method="post" action="{{ url_for('quick_log') }}" class="d-inline">
               <input type="hidden" name="account_id" value="{{ r.account_id }}">
               <input type="hidden" name="step_type" value="{{ r.step_type }}">

@@ -83,6 +83,24 @@ CREATE TABLE IF NOT EXISTS interactions (
     created_at TEXT NOT NULL              -- ISO timestamp
 );
 
+-- Editable outreach scripts (seeded from the user's cold-call/email doc).
+-- steps = comma-separated cadence step names this template applies to.
+CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'email',   -- email | call | text
+    steps TEXT DEFAULT '',
+    subject TEXT DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+
 -- A manually checked-off cadence step ("clear the task without logging it").
 CREATE TABLE IF NOT EXISTS cadence_dismissals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,9 +131,127 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 
+# Default settings and outreach templates, seeded on first run.
+# Placeholders: {first_name} {last_name} {title} {company} {num_properties}
+#               {my_name} {my_company} {my_phone}
+DEFAULT_SETTINGS = {
+    "my_name": "Alex",
+    "my_company": "Silicone Roof Pros",
+    "my_phone": "",
+}
+
+SEED_TEMPLATES = [
+    {
+        "name": "Cold Call Script", "kind": "call",
+        "steps": "Call & Text,Call 2", "subject": "", "sort_order": 1,
+        "body": """{first_name}?
+
+This is {my_name} with {my_company}.
+
+(Pause. Wait for response)
+
+I'll be honest, this is a cold call, but it's a well-researched one. Would you be open to giving me 30 seconds to explain why I'm reaching out?
+
+(Pause. Wait for response)
+
+I noticed you're the {title} at {company}, and that you manage several properties built before the 1980s. When commercial buildings hit that age, owners are usually staring down a massive, highly disruptive full roof replacement.
+
+We help businesses bypass that entirely. We restore aging roofs with a silicone coating system that cuts the cost of a full replacement by 50% and keeps the building fully operational while we work.
+
+Would you be open to learning how this might work for your properties?""",
+    },
+    {
+        "name": "Voicemail Script", "kind": "call",
+        "steps": "Call & Text,Call 2", "subject": "", "sort_order": 2,
+        "body": """Hi {first_name}, this is {my_name} with {my_company}.
+
+I'm calling because I noticed {company} manages several properties built before the 1980s. Usually, that means you're bracing for a massive, disruptive roof replacement.
+
+We help businesses bypass that entirely with a silicone system that cuts costs by 50% and keeps the building operational.
+
+I'll email you my contact info so you can easily reply, but if you want to chat, my number is {my_phone}.
+
+Again, {my_name} at {my_phone}. Thanks.""",
+    },
+    {
+        "name": "Text Message", "kind": "text",
+        "steps": "Call & Text", "subject": "", "sort_order": 3,
+        "body": "Hi {first_name}, this is {my_name} with {my_company} — just left you a "
+                "voicemail. We restore aging commercial roofs for about 50% less than a "
+                "full replacement, with no tear-off. Worth a quick chat about {company}'s "
+                "properties?",
+    },
+    {
+        "name": "Email 1", "kind": "email",
+        "steps": "Email 1", "sort_order": 4,
+        "subject": "{company}'s {num_properties} older properties",
+        "body": """Hi {first_name},
+
+I noticed you're the {title} at {company}, and it looks like you manage roughly {num_properties} properties built before the 1980s.
+
+When commercial buildings hit that age, owners are usually staring down a massive, highly disruptive full roof replacement.
+
+We help businesses bypass that process entirely. We restore aging roofs using a commercial silicone system that:
+
+- Cuts the cost of a full replacement by up to 50%
+- Eliminates the need for an expensive tear-off
+- Keeps the building fully operational while we work
+
+Would you be open to learning how this might work for your portfolio?
+
+Best,
+{my_name}""",
+    },
+    {
+        "name": "Email 2", "kind": "email",
+        "steps": "Email 2", "sort_order": 5,
+        "subject": "Extending the life of {company}'s roofs",
+        "body": """Hi {first_name},
+
+I know how busy things get, so I'll keep this brief.
+
+When managers at companies like {company} evaluate older roofs, the biggest headache often isn't just the replacement cost, it's the operational downtime and tenant disruption of a full tear-off.
+
+Because our fluid-applied silicone systems skip the tear-off entirely, we can safely extend the life of those aging roofs by 10, 15, or even 20 years with zero disruption to the businesses inside.
+
+Is extending the life of these older assets a priority for you this year, or is this currently on the back burner?
+
+Best,
+{my_name}""",
+    },
+    {
+        "name": "Breakup Email", "kind": "email",
+        "steps": "Breakup Email", "sort_order": 6,
+        "subject": "Closing the loop",
+        "body": """Hi {first_name},
+
+I haven't heard back, so I'm going to assume that restoring those pre-1980s properties isn't a priority right now, or you already have a trusted maintenance plan in place.
+
+I'll stop reaching out here, but I want to leave my contact info below in case you ever need a second opinion before pulling the trigger on a massive replacement project.
+
+If things change and you want to see how skipping the tear-off can cut your capital expenditures by 50%, my door is always open.
+
+Best,
+{my_name}
+{my_company}
+{my_phone}""",
+    },
+]
+
+
 def init_db() -> None:
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        for key, value in DEFAULT_SETTINGS.items():
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
+                         (key, value))
+        if conn.execute("SELECT COUNT(*) FROM templates").fetchone()[0] == 0:
+            for t in SEED_TEMPLATES:
+                conn.execute(
+                    "INSERT INTO templates (name, kind, steps, subject, body, "
+                    "sort_order, updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (t["name"], t["kind"], t["steps"], t["subject"], t["body"],
+                     t["sort_order"], now_iso()))
 
 
 if __name__ == "__main__":
