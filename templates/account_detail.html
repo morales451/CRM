@@ -14,6 +14,10 @@
     {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞 Call</a>
     <a href="sms:{{ phone }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
     {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
+    <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ account.company_name)|urlencode }}"
+       target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find people at this company on ZoomInfo">🔎 ZoomInfo</a>
+    <a href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}"
+       target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find this company on LinkedIn">in</a>
   </div>
 </div>
 
@@ -124,8 +128,74 @@
     </div>
   </div>
 
-  <!-- Right column: log form + timeline -->
+  <!-- Right column: contacts + log form + timeline -->
   <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Contacts</h5>
+      <ul class="list-group list-group-flush">
+        {% if account.first_name or account.last_name or account.email %}
+        <li class="list-group-item px-0">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+            <div>
+              <strong>{{ account.first_name }} {{ account.last_name }}</strong>
+              <span class="badge text-bg-primary">Primary</span>
+              {% if account.title %}<div class="small text-muted">{{ account.title }}</div>{% endif %}
+              <div class="small">
+                {% if account.email %}<a href="mailto:{{ account.email }}">{{ account.email }}</a><br>{% endif %}
+                {% if account.work_phone %}<a href="tel:{{ account.work_phone }}">{{ account.work_phone }}</a> (work) {% endif %}
+                {% if account.mobile_phone %}<a href="tel:{{ account.mobile_phone }}">{{ account.mobile_phone }}</a> (mobile){% endif %}
+              </div>
+            </div>
+          </div>
+        </li>
+        {% endif %}
+        {% for c in contacts %}
+        <li class="list-group-item px-0">
+          <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+            <div>
+              <strong>{{ c.first_name }} {{ c.last_name }}</strong>
+              {% if c.title %}<div class="small text-muted">{{ c.title }}</div>{% endif %}
+              <div class="small">
+                {% if c.email %}<a href="mailto:{{ c.email }}">{{ c.email }}</a><br>{% endif %}
+                {% if c.work_phone %}<a href="tel:{{ c.work_phone }}">{{ c.work_phone }}</a> (work) {% endif %}
+                {% if c.mobile_phone %}<a href="tel:{{ c.mobile_phone }}">{{ c.mobile_phone }}</a> (mobile){% endif %}
+              </div>
+            </div>
+            <div class="text-nowrap">
+              <form method="post" action="{{ url_for('promote_contact', account_id=account.id, contact_id=c.id) }}" class="d-inline">
+                <button class="btn btn-sm btn-outline-primary" title="Make primary contact">★</button>
+              </form>
+              <form method="post" action="{{ url_for('delete_contact', account_id=account.id, contact_id=c.id) }}" class="d-inline"
+                    onsubmit="return confirm('Remove this contact?')">
+                <button class="btn btn-sm btn-outline-danger" title="Remove contact">✕</button>
+              </form>
+            </div>
+          </div>
+        </li>
+        {% endfor %}
+        {% if not contacts and not (account.first_name or account.last_name or account.email) %}
+        <li class="list-group-item px-0 text-muted small">No contacts yet — use the 🔎 ZoomInfo button above to find decision-makers, then add them here.</li>
+        {% endif %}
+      </ul>
+      <details class="mt-2" {{ 'open' if not (account.first_name or account.last_name or account.email) }}>
+        <summary class="fw-semibold" style="cursor:pointer">+ Add Contact</summary>
+        <form method="post" action="{{ url_for('add_contact', account_id=account.id) }}" class="mt-2">
+          <div class="row g-2">
+            <div class="col-6"><input name="first_name" class="form-control form-control-sm" placeholder="First name"></div>
+            <div class="col-6"><input name="last_name" class="form-control form-control-sm" placeholder="Last name"></div>
+            <div class="col-12"><input name="title" class="form-control form-control-sm" placeholder="Title (e.g. Facilities Manager)"></div>
+            <div class="col-12"><input name="email" type="email" class="form-control form-control-sm" placeholder="Email"></div>
+            <div class="col-6"><input name="work_phone" type="tel" class="form-control form-control-sm" placeholder="Direct phone"></div>
+            <div class="col-6"><input name="mobile_phone" type="tel" class="form-control form-control-sm" placeholder="Mobile phone"></div>
+            <div class="col-12 d-flex align-items-center gap-2">
+              <button class="btn btn-sm btn-success">+ Add Contact</button>
+              <label class="small"><input type="checkbox" name="set_primary" value="1"> Make primary</label>
+            </div>
+          </div>
+        </form>
+      </details>
+    </div>
+
     <div class="card p-3 mb-3">
       <h5>Log an Interaction</h5>
       <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">

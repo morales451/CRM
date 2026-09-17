@@ -27,7 +27,8 @@ COLUMN_SYNONYMS = {
     "email": ["email", "emailaddress", "workemail", "contactemail", "mail"],
     "work_phone": [
         "workphone", "phone", "phonenumber", "officephone", "businessphone",
-        "directphone", "telephone", "companyphone", "mainphone", "work",
+        "directphone", "directphonenumber", "telephone", "companyphone",
+        "mainphone", "hqphone", "work",
     ],
     "mobile_phone": [
         "mobilephone", "mobile", "cell", "cellphone", "cellular",
@@ -192,4 +193,117 @@ def import_accounts(conn, file_storage) -> dict:
         "unmapped_columns": [str(c) for c in df.columns
                              if c not in mapping.values()
                              and c not in context_mapping.values()],
+    }
+
+
+def _company_key(name: str) -> str:
+    """Normalize a company name for matching: lowercase, strip punctuation
+    and common legal suffixes (LLC, Inc, LP, ...)."""
+    s = re.sub(r"[^a-z0-9 ]", "", str(name).lower())
+    s = re.sub(r"\b(llc|llp|lp|inc|incorporated|corp|corporation|co|company|ltd|limited)\b",
+               "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def import_contacts(conn, file_storage) -> dict:
+    """Attach a contact export (e.g. from ZoomInfo) to existing accounts.
+
+    Rows are matched to accounts by normalized company name. The first
+    contact for an account with no primary contact becomes the primary
+    (filling the account's own contact fields); the rest become contacts
+    rows. Duplicate people (same email, or same first+last name) on an
+    account are skipped. Unmatched company names are reported back.
+    """
+    df = read_file(file_storage)
+    mapping = map_columns(df.columns)
+
+    if "company_name" not in mapping:
+        raise ValueError(
+            "Could not find a company column to match contacts against. "
+            f"Found columns: {', '.join(str(c) for c in df.columns)}")
+    if "first_name" not in mapping and "last_name" not in mapping:
+        raise ValueError(
+            "Could not find a contact name column (e.g. 'First Name' / "
+            f"'Last Name'). Found columns: {', '.join(str(c) for c in df.columns)}")
+
+    accounts_by_key: dict[str, int] = {}
+    for row in conn.execute("SELECT id, company_name FROM accounts"):
+        accounts_by_key.setdefault(_company_key(row["company_name"]), row["id"])
+
+    attached = skipped_dupe = skipped_blank = 0
+    unmatched: dict[str, int] = {}
+    matched_accounts: set[int] = set()
+    ts = now_iso()
+
+    for _, row in df.iterrows():
+        company = _clean(row.get(mapping["company_name"]))
+        if not company:
+            skipped_blank += 1
+            continue
+        account_id = accounts_by_key.get(_company_key(company))
+        if account_id is None:
+            unmatched[company] = unmatched.get(company, 0) + 1
+            continue
+
+        def field(name):
+            return _clean(row.get(mapping[name])) if name in mapping else ""
+
+        person = {
+            "first_name": field("first_name"),
+            "last_name": field("last_name"),
+            "title": field("title"),
+            "email": field("email"),
+            "work_phone": _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
+            "mobile_phone": _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
+        }
+        if not (person["first_name"] or person["last_name"]):
+            skipped_blank += 1
+            continue
+
+        acct = conn.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+        existing_people = [dict(acct)] + [
+            dict(r) for r in conn.execute(
+                "SELECT * FROM contacts WHERE account_id=?", (account_id,))]
+        name_key = (person["first_name"].lower(), person["last_name"].lower())
+        is_dupe = any(
+            (person["email"] and p["email"].lower() == person["email"].lower())
+            or (p["first_name"].lower(), p["last_name"].lower()) == name_key
+            for p in existing_people)
+        if is_dupe:
+            skipped_dupe += 1
+            continue
+
+        has_primary = any(acct[c] for c in ("first_name", "last_name", "email"))
+        if not has_primary:
+            # The person's direct phone beats the company main line; keep the
+            # main line in Notes so it isn't lost.
+            work_phone = person["work_phone"] or acct["work_phone"]
+            notes = acct["notes"]
+            if person["work_phone"] and acct["work_phone"] \
+                    and person["work_phone"] != acct["work_phone"]:
+                notes = (notes + "\n" if notes else "") \
+                    + f"Company main line: {acct['work_phone']}"
+            conn.execute(
+                "UPDATE accounts SET first_name=?, last_name=?, title=?, email=?, "
+                "work_phone=?, mobile_phone=?, notes=?, updated_at=? WHERE id=?",
+                (person["first_name"], person["last_name"], person["title"],
+                 person["email"], work_phone, person["mobile_phone"], notes,
+                 ts, account_id))
+        else:
+            conn.execute(
+                "INSERT INTO contacts (account_id, first_name, last_name, title, "
+                "email, work_phone, mobile_phone, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (account_id, *person.values(), ts))
+        matched_accounts.add(account_id)
+        attached += 1
+
+    conn.commit()
+    return {
+        "attached": attached,
+        "companies_matched": len(matched_accounts),
+        "skipped_duplicates": skipped_dupe,
+        "skipped_blank": skipped_blank,
+        "unmatched": unmatched,          # {company name: row count}
+        "total_rows": len(df),
+        "mapped_columns": {f: str(c) for f, c in mapping.items()},
     }
