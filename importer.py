@@ -36,16 +36,27 @@ COLUMN_SYNONYMS = {
     "notes": ["notes", "note", "comments", "comment", "description", "remarks"],
 }
 
+# Context columns (e.g. from CoStar-style property exports) that don't map to
+# account fields directly but are worth keeping — they get appended to Notes.
+CONTEXT_SYNONYMS = {
+    "address": ["companyaddress", "address", "streetaddress", "mailingaddress"],
+    "city": ["city", "town"],
+    "state": ["statecountry", "state", "stateprovince"],
+    "zip": ["zipcode", "zip", "postalcode"],
+    "website": ["website", "url", "web", "companywebsite"],
+    "portfolio_sf": ["portfoliosf", "totalsf", "buildingsf"],
+}
+
 
 def _normalize(header: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(header).lower())
 
 
-def map_columns(columns) -> dict:
-    """Map dataframe columns to account fields. Returns {field: original_column}."""
+def map_columns(columns, synonym_table=COLUMN_SYNONYMS) -> dict:
+    """Map dataframe columns to fields. Returns {field: original_column}."""
     mapping = {}
     normalized = {_normalize(c): c for c in columns}
-    for field, synonyms in COLUMN_SYNONYMS.items():
+    for field, synonyms in synonym_table.items():
         for syn in synonyms:
             if syn in normalized:
                 mapping[field] = normalized[syn]
@@ -75,6 +86,11 @@ def _clean(value) -> str:
     return "" if s.lower() in ("nan", "none", "null") else s
 
 
+def _clean_phone(value) -> str:
+    # CoStar-style exports suffix numbers with "(p)" / "(f)" / "(m)" markers
+    return re.sub(r"\s*\([pfmo]\)\s*$", "", _clean(value), flags=re.I)
+
+
 def _clean_int(value):
     s = _clean(value)
     if not s:
@@ -98,6 +114,8 @@ def import_accounts(conn, file_storage) -> dict:
     """
     df = read_file(file_storage)
     mapping = map_columns(df.columns)
+    context_mapping = map_columns(
+        [c for c in df.columns if c not in mapping.values()], CONTEXT_SYNONYMS)
 
     if "company_name" not in mapping:
         raise ValueError(
@@ -127,6 +145,24 @@ def import_accounts(conn, file_storage) -> dict:
         def field(name):
             return _clean(row.get(mapping[name])) if name in mapping else ""
 
+        def ctx(name):
+            return _clean(row.get(context_mapping[name])) if name in context_mapping else ""
+
+        # Keep useful location/context columns by appending them to Notes.
+        notes = field("notes")
+        addr_parts = [p for p in (ctx("address"), ctx("city"), ctx("state")) if p]
+        addr = ", ".join(addr_parts) + (f" {ctx('zip')}" if ctx("zip") and addr_parts else "")
+        extras = []
+        if addr:
+            extras.append(f"Address: {addr}")
+        if ctx("website"):
+            extras.append(f"Website: {ctx('website')}")
+        sf = _clean_int(row.get(context_mapping["portfolio_sf"])) if "portfolio_sf" in context_mapping else None
+        if sf:
+            extras.append(f"Portfolio SF: {sf:,}")
+        if extras:
+            notes = (notes + "\n" if notes else "") + "\n".join(extras)
+
         conn.execute(
             """INSERT INTO accounts
                (company_name, first_name, last_name, title, num_properties,
@@ -136,8 +172,10 @@ def import_accounts(conn, file_storage) -> dict:
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (company, field("first_name"), field("last_name"), field("title"),
              _clean_int(row.get(mapping["num_properties"])) if "num_properties" in mapping else None,
-             field("email"), field("work_phone"), field("mobile_phone"),
-             "Unknown", field("notes"),
+             field("email"),
+             _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
+             _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
+             "Unknown", notes,
              "Prospecting", "None / In Cadence", start, ts, ts),
         )
         existing.add(company.lower())
@@ -150,5 +188,8 @@ def import_accounts(conn, file_storage) -> dict:
         "skipped_blank": skipped_blank,
         "total_rows": len(df),
         "mapped_columns": {f: str(c) for f, c in mapping.items()},
-        "unmapped_columns": [str(c) for c in df.columns if c not in mapping.values()],
+        "context_columns": {f: str(c) for f, c in context_mapping.items()},
+        "unmapped_columns": [str(c) for c in df.columns
+                             if c not in mapping.values()
+                             and c not in context_mapping.values()],
     }
