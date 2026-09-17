@@ -53,6 +53,16 @@ computer's firewall (Windows will usually prompt you the first time — choose
   matched to accounts by company name (LLC/Inc suffixes ignored), the first
   person on an empty account becomes its primary contact, and duplicates are
   skipped.
+- **Outreach Templates & Scripts** — your cold call script, voicemail,
+  text message, and three cadence emails live in the app (Templates page)
+  and are fully editable, with placeholders like `{first_name}`, `{company}`,
+  and `{num_properties}`. Every dashboard reminder has a **📄 Script** button
+  that opens the right script personalized for that account: one-tap
+  **Open in Email app** (subject and body pre-filled), **Dial**, or
+  **Open in Messages**, plus Copy buttons and a **✓ Log** button to record
+  the step when done. Missing info (no first name yet, etc.) is flagged in
+  [brackets] so nothing goes out half-baked. Set your own name, company, and
+  phone once on the Templates page and they fill into every script.
 - **Import** — upload `.xlsx` or `.csv` prospecting lists (e.g.
   `HTX_Office_5kto10k.xlsx`). Column headers are matched automatically and
   duplicates (same company name) are skipped, so re-uploads are safe.

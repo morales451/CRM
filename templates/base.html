@@ -39,6 +39,7 @@
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'dashboard' }}" href="{{ url_for('dashboard') }}">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'accounts' }}" href="{{ url_for('accounts') }}">Accounts</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'new_account' }}" href="{{ url_for('new_account') }}">+ Add Account</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'templates_page' }}" href="{{ url_for('templates_page') }}">Templates</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'import_page' }}" href="{{ url_for('import_page') }}">Import</a></li>
       </ul>
     </div>

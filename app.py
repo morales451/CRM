@@ -5,8 +5,10 @@ Then open http://<your-local-ip>:8000 from any device on your Wi-Fi.
 """
 
 import io
+import re
 import socket
 from datetime import datetime
+from urllib.parse import quote
 
 from flask import (Flask, flash, redirect, render_template, request,
                    send_file, url_for)
@@ -390,6 +392,139 @@ def delete_contact(account_id, contact_id):
         conn.close()
     flash("Contact removed.", "warning")
     return redirect(url_for("account_detail", account_id=account_id))
+
+
+# --------------------------------------------------- Templates & scripts
+
+PLACEHOLDER_LABELS = {
+    "first_name": "first name", "last_name": "last name", "title": "title",
+    "company": "company", "num_properties": "number of properties",
+    "email": "email", "my_name": "your name", "my_company": "your company",
+    "my_phone": "your phone number",
+}
+
+
+def _get_settings(conn) -> dict:
+    return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")}
+
+
+def render_script(text: str, acct, settings: dict):
+    """Fill {placeholders} with account + settings values.
+
+    Returns (rendered_text, missing_labels). Missing values stay visible as
+    bracketed hints like [first name] so nothing gets sent half-baked
+    unnoticed.
+    """
+    values = {
+        "first_name": acct["first_name"],
+        "last_name": acct["last_name"],
+        "title": acct["title"],
+        "company": acct["company_name"],
+        "num_properties": str(acct["num_properties"]) if acct["num_properties"] else "",
+        "email": acct["email"],
+        "my_name": settings.get("my_name", ""),
+        "my_company": settings.get("my_company", ""),
+        "my_phone": settings.get("my_phone", ""),
+    }
+    missing = []
+
+    def sub(match):
+        key = match.group(1)
+        if key not in values:
+            return match.group(0)
+        if values[key]:
+            return values[key]
+        label = PLACEHOLDER_LABELS.get(key, key)
+        if label not in missing:
+            missing.append(label)
+        return f"[{label}]"
+
+    return re.sub(r"\{(\w+)\}", sub, text or ""), missing
+
+
+@app.route("/templates", methods=["GET"])
+def templates_page():
+    conn = get_db()
+    try:
+        templates = conn.execute(
+            "SELECT * FROM templates ORDER BY sort_order, id").fetchall()
+        settings = _get_settings(conn)
+    finally:
+        conn.close()
+    return render_template("templates.html", templates=templates,
+                           settings=settings,
+                           cadence_steps=[s for _, s in cadence.CADENCE_STEPS])
+
+
+@app.route("/templates/<int:template_id>", methods=["POST"])
+def save_template(template_id):
+    steps = ",".join(request.form.getlist("steps"))
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE templates SET name=?, kind=?, steps=?, subject=?, body=?, "
+            "updated_at=? WHERE id=?",
+            (request.form.get("name", "").strip() or "Untitled",
+             request.form.get("kind", "email"), steps,
+             request.form.get("subject", "").strip(),
+             request.form.get("body", ""), now_iso(), template_id))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Template saved.", "success")
+    return redirect(url_for("templates_page"))
+
+
+@app.route("/settings", methods=["POST"])
+def save_settings():
+    conn = get_db()
+    try:
+        for key in ("my_name", "my_company", "my_phone"):
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, request.form.get(key, "").strip()))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Your info saved — it now fills into every script.", "success")
+    return redirect(url_for("templates_page"))
+
+
+@app.route("/accounts/<int:account_id>/scripts")
+def account_scripts(account_id):
+    """Templates rendered for one account, optionally filtered to a cadence step."""
+    step = request.args.get("step", "")
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        settings = _get_settings(conn)
+        rows = conn.execute(
+            "SELECT * FROM templates ORDER BY sort_order, id").fetchall()
+    finally:
+        conn.close()
+
+    scripts = []
+    for t in rows:
+        t_steps = [s.strip() for s in (t["steps"] or "").split(",") if s.strip()]
+        if step and step not in t_steps:
+            continue
+        subject, missing_s = render_script(t["subject"], acct, settings)
+        body, missing_b = render_script(t["body"], acct, settings)
+        action_url = ""
+        if t["kind"] == "email" and acct["email"]:
+            action_url = (f"mailto:{acct['email']}?subject={quote(subject)}"
+                          f"&body={quote(body)}")
+        elif t["kind"] == "call" and (acct["work_phone"] or acct["mobile_phone"]):
+            action_url = f"tel:{acct['work_phone'] or acct['mobile_phone']}"
+        elif t["kind"] == "text" and acct["mobile_phone"]:
+            action_url = f"sms:{acct['mobile_phone']}?body={quote(body)}"
+        scripts.append({
+            "template": t, "subject": subject, "body": body,
+            "missing": list(dict.fromkeys(missing_s + missing_b)),
+            "action_url": action_url, "log_steps": t_steps,
+        })
+    return render_template("scripts.html", account=acct, scripts=scripts, step=step)
 
 
 # ------------------------------------------------------------------- Import

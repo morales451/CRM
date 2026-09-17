@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Scripts — {{ account.company_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="mb-0">Scripts{% if step %}: {{ step }}{% endif %}</h1>
+    <div class="text-muted">for <a href="{{ url_for('account_detail', account_id=account.id) }}">{{ account.company_name }}</a>
+      {% if account.first_name or account.last_name %} — {{ account.first_name }} {{ account.last_name }}{% endif %}</div>
+  </div>
+  {% if step %}<a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-outline-secondary">Show all scripts</a>{% endif %}
+</div>
+
+{% for s in scripts %}
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h5 class="mb-0">
+      {% if s.template.kind == 'email' %}✉️{% elif s.template.kind == 'text' %}💬{% else %}📞{% endif %}
+      {{ s.template.name }}
+    </h5>
+    <div class="d-flex gap-2 flex-wrap">
+      {% if s.action_url %}
+        <a href="{{ s.action_url }}" class="btn btn-sm btn-primary">
+          {% if s.template.kind == 'email' %}Open in Email app{% elif s.template.kind == 'text' %}Open in Messages{% else %}📞 Dial{% endif %}
+        </a>
+      {% endif %}
+      {% for step_name in s.log_steps %}
+      <form method="post" action="{{ url_for('quick_log') }}" class="d-inline">
+        <input type="hidden" name="account_id" value="{{ account.id }}">
+        <input type="hidden" name="step_type" value="{{ step_name }}">
+        <input type="hidden" name="next" value="{{ url_for('account_detail', account_id=account.id) }}">
+        <button class="btn btn-sm btn-success">✓ Log {{ step_name }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+  {% if s.missing %}
+  <div class="alert alert-warning py-1 px-2 small mt-2 mb-0">
+    ⚠️ Missing info shown as [brackets]: {{ s.missing|join(', ') }}.
+    {% if 'your phone number' in s.missing or 'your name' in s.missing or 'your company' in s.missing %}
+      Fill in your info on the <a href="{{ url_for('templates_page') }}">Templates page</a>.
+    {% else %}
+      Add it on the <a href="{{ url_for('account_detail', account_id=account.id) }}">account page</a>.
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if s.template.kind == 'email' %}
+  <div class="mt-2 d-flex gap-2 align-items-center">
+    <strong class="small">Subject:</strong>
+    <input id="subj-{{ s.template.id }}" class="form-control form-control-sm" readonly value="{{ s.subject }}">
+    <button class="btn btn-sm btn-outline-secondary" onclick="copyField('subj-{{ s.template.id }}', this)">Copy</button>
+  </div>
+  {% endif %}
+  <div class="mt-2">
+    <textarea id="body-{{ s.template.id }}" class="form-control" readonly
+              rows="{{ [s.body.count('\n') + 2, 18]|min }}">{{ s.body }}</textarea>
+    <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy {{ 'email' if s.template.kind == 'email' else 'script' }}</button>
+  </div>
+</div>
+{% else %}
+<div class="card p-3 text-muted">No templates match this step. Manage them on the <a href="{{ url_for('templates_page') }}">Templates page</a>.</div>
+{% endfor %}
+
+<script>
+function copyField(id, btn) {
+  const el = document.getElementById(id);
+  el.focus(); el.select();
+  if (el.setSelectionRange) el.setSelectionRange(0, el.value.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) {}
+  if (navigator.clipboard) navigator.clipboard.writeText(el.value).catch(() => {});
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { btn.textContent = btn.textContent.replace('Copied ✓', 'Copy'); }, 1500);
+}
+</script>
+{% endblock %}
