@@ -33,6 +33,9 @@
     {% for field, col in result.mapped_columns.items() %}
     <li><code>{{ col }}</code> → {{ field.replace('_', ' ') }}</li>
     {% endfor %}
+    {% for field, col in result.context_columns.items() %}
+    <li><code>{{ col }}</code> → notes ({{ field.replace('_', ' ') }})</li>
+    {% endfor %}
     {% if result.unmapped_columns %}
     <li class="text-muted">Ignored columns: {{ result.unmapped_columns|join(', ') }}</li>
     {% endif %}
