@@ -61,6 +61,20 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at TEXT NOT NULL              -- ISO timestamp
 );
 
+-- Additional people at an account. The account's own first/last/email/phone
+-- fields hold the PRIMARY contact; these rows are the rest of the org chart.
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    first_name TEXT DEFAULT '',
+    last_name TEXT DEFAULT '',
+    title TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    work_phone TEXT DEFAULT '',
+    mobile_phone TEXT DEFAULT '',
+    created_at TEXT NOT NULL              -- ISO timestamp
+);
+
 CREATE TABLE IF NOT EXISTS interactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -79,6 +93,7 @@ CREATE TABLE IF NOT EXISTS cadence_dismissals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_interactions_account ON interactions(account_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_account ON contacts(account_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(prospecting_status, pipeline_milestone);
 """
 

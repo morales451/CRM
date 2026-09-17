@@ -208,6 +208,10 @@ def account_detail(account_id):
     conn = get_db()
     try:
         acct = _account_or_404(conn, account_id)
+        contacts = conn.execute(
+            "SELECT * FROM contacts WHERE account_id = ? "
+            "ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE",
+            (account_id,)).fetchall()
         interactions = conn.execute(
             "SELECT * FROM interactions WHERE account_id = ? "
             "ORDER BY created_at DESC, id DESC", (account_id,)).fetchall()
@@ -217,8 +221,8 @@ def account_detail(account_id):
     finally:
         conn.close()
     return render_template("account_detail.html", account=acct,
-                           interactions=interactions, steps=steps,
-                           in_cadence=in_cadence)
+                           contacts=contacts, interactions=interactions,
+                           steps=steps, in_cadence=in_cadence)
 
 
 @app.route("/accounts/<int:account_id>/edit", methods=["POST"])
@@ -301,6 +305,93 @@ def log_interaction(account_id):
     return redirect(url_for("account_detail", account_id=account_id))
 
 
+# ----------------------------------------------------------------- Contacts
+
+CONTACT_COLS = ("first_name", "last_name", "title", "email", "work_phone", "mobile_phone")
+
+
+def _has_primary_contact(acct) -> bool:
+    return any(acct[c] for c in ("first_name", "last_name", "email"))
+
+
+def _demote_primary_to_contact(conn, acct):
+    """Move the account's current primary-contact fields into a contacts row."""
+    if _has_primary_contact(acct):
+        conn.execute(
+            "INSERT INTO contacts (account_id, first_name, last_name, title, "
+            "email, work_phone, mobile_phone, created_at) VALUES (?,?,?,?,?,?,?,?)",
+            (acct["id"], acct["first_name"], acct["last_name"], acct["title"],
+             acct["email"], acct["work_phone"], acct["mobile_phone"], now_iso()))
+
+
+def _set_primary_contact(conn, account_id, person: dict):
+    conn.execute(
+        "UPDATE accounts SET first_name=?, last_name=?, title=?, email=?, "
+        "work_phone=?, mobile_phone=?, updated_at=? WHERE id=?",
+        (person["first_name"], person["last_name"], person["title"],
+         person["email"], person["work_phone"], person["mobile_phone"],
+         now_iso(), account_id))
+
+
+@app.route("/accounts/<int:account_id>/contacts/add", methods=["POST"])
+def add_contact(account_id):
+    person = {c: request.form.get(c, "").strip() for c in CONTACT_COLS}
+    if not (person["first_name"] or person["last_name"]):
+        flash("Contact needs at least a first or last name.", "danger")
+        return redirect(url_for("account_detail", account_id=account_id))
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        make_primary = bool(request.form.get("set_primary")) or not _has_primary_contact(acct)
+        if make_primary:
+            _demote_primary_to_contact(conn, acct)
+            _set_primary_contact(conn, account_id, person)
+        else:
+            conn.execute(
+                "INSERT INTO contacts (account_id, first_name, last_name, title, "
+                "email, work_phone, mobile_phone, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                (account_id, *person.values(), now_iso()))
+        conn.commit()
+    finally:
+        conn.close()
+    flash(f"Contact {person['first_name']} {person['last_name']} added"
+          + (" as primary." if make_primary else "."), "success")
+    return redirect(url_for("account_detail", account_id=account_id))
+
+
+@app.route("/accounts/<int:account_id>/contacts/<int:contact_id>/promote", methods=["POST"])
+def promote_contact(account_id, contact_id):
+    """Swap a contact with the account's primary-contact fields."""
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        row = conn.execute("SELECT * FROM contacts WHERE id=? AND account_id=?",
+                           (contact_id, account_id)).fetchone()
+        if row:
+            _demote_primary_to_contact(conn, acct)
+            _set_primary_contact(conn, account_id, dict(row))
+            conn.execute("DELETE FROM contacts WHERE id=?", (contact_id,))
+            conn.commit()
+            flash(f"{row['first_name']} {row['last_name']} is now the primary contact.",
+                  "success")
+    finally:
+        conn.close()
+    return redirect(url_for("account_detail", account_id=account_id))
+
+
+@app.route("/accounts/<int:account_id>/contacts/<int:contact_id>/delete", methods=["POST"])
+def delete_contact(account_id, contact_id):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM contacts WHERE id=? AND account_id=?",
+                     (contact_id, account_id))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Contact removed.", "warning")
+    return redirect(url_for("account_detail", account_id=account_id))
+
+
 # ------------------------------------------------------------------- Import
 
 @app.route("/import", methods=["GET", "POST"])
@@ -322,6 +413,29 @@ def import_page():
             finally:
                 conn.close()
     return render_template("import.html", result=result)
+
+
+@app.route("/import/contacts", methods=["POST"])
+def import_contacts_route():
+    """Bulk-attach a ZoomInfo (or similar) contact export to existing accounts."""
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Choose a .xlsx or .csv contact file first.", "danger")
+        return render_template("import.html", result=None)
+    conn = get_db()
+    try:
+        contact_result = importer.import_contacts(conn, file)
+        flash(f"Attached {contact_result['attached']} contact(s) to "
+              f"{contact_result['companies_matched']} account(s).", "success")
+    except ValueError as e:
+        flash(str(e), "danger")
+        contact_result = None
+    except Exception as e:
+        flash(f"Contact import failed: {e}", "danger")
+        contact_result = None
+    finally:
+        conn.close()
+    return render_template("import.html", result=None, contact_result=contact_result)
 
 
 @app.route("/import/template")

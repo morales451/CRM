@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Import Accounts — Roof CRM{% endblock %}
 {% block content %}
-<h1 class="mb-3">Import Accounts</h1>
+<h1 class="mb-3">Import</h1>
 
 <div class="card p-3 mb-3">
+  <h5>Import Accounts <span class="text-muted fs-6">(prospecting list)</span></h5>
   <p class="mb-2">Upload your prospecting list (e.g. <code>HTX_Office_5kto10k.xlsx</code>). Accepts <strong>.xlsx</strong> and <strong>.csv</strong>.</p>
   <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
     <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
@@ -18,6 +19,43 @@
     <a href="{{ url_for('import_template') }}">Download a blank CSV template</a>.
   </div>
 </div>
+
+<div class="card p-3 mb-3">
+  <h5>Import Contacts <span class="text-muted fs-6">(ZoomInfo export)</span></h5>
+  <p class="mb-2 small">Export contacts from ZoomInfo (or any list with <strong>Company Name</strong> +
+    <strong>First/Last Name</strong> columns) and upload it here. Each person is matched to your existing
+    accounts by company name — legal suffixes like LLC/Inc are ignored when matching.
+    The first person added to an account becomes its primary contact; more people stack under
+    the account's Contacts list. Duplicate people are skipped, so re-uploads are safe.</p>
+  <form method="post" action="{{ url_for('import_contacts_route') }}" enctype="multipart/form-data"
+        class="d-flex gap-2 flex-wrap align-items-center">
+    <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
+    <button class="btn btn-primary">Upload Contacts</button>
+  </form>
+</div>
+
+{% if contact_result %}
+<div class="card p-3 mb-3">
+  <h5>Contact Import Summary</h5>
+  <ul class="mb-2">
+    <li><strong>{{ contact_result.attached }}</strong> contact(s) attached to {{ contact_result.companies_matched }} account(s)</li>
+    <li>{{ contact_result.skipped_duplicates }} skipped (person already on the account)</li>
+    <li>{{ contact_result.skipped_blank }} skipped (no name or company)</li>
+    <li>{{ contact_result.total_rows }} row(s) in file</li>
+  </ul>
+  {% if contact_result.unmatched %}
+  <h6>⚠️ Companies not found in your accounts ({{ contact_result.unmatched|length }})</h6>
+  <p class="small text-muted mb-1">These rows were skipped — the company name didn't match any account.
+    Check for spelling differences, or add the account first.</p>
+  <ul class="small">
+    {% for name, count in contact_result.unmatched.items() %}
+    <li>{{ name }}{% if count > 1 %} ({{ count }} contacts){% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-primary mt-2" style="max-width: 180px;">View Accounts →</a>
+</div>
+{% endif %}
 
 {% if result %}
 <div class="card p-3">

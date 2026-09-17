@@ -45,6 +45,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   Pipeline Milestone; tap-to-call / tap-to-text / tap-to-email links on mobile.
 - **Account Detail** — edit everything in place, log interactions, see a
   chronological history timeline and live cadence progress.
+- **Contacts** — each account holds a primary contact plus unlimited
+  additional people (from ZoomInfo research). Add them on the account detail
+  page, promote anyone to primary with ★, and use the 🔎 ZoomInfo / LinkedIn
+  buttons to jump straight to research for that company. You can also
+  bulk-upload a ZoomInfo contact export on the Import page — people are
+  matched to accounts by company name (LLC/Inc suffixes ignored), the first
+  person on an empty account becomes its primary contact, and duplicates are
+  skipped.
 - **Import** — upload `.xlsx` or `.csv` prospecting lists (e.g.
   `HTX_Office_5kto10k.xlsx`). Column headers are matched automatically and
   duplicates (same company name) are skipped, so re-uploads are safe.
