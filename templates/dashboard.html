@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Roof CRM{% endblock %}
+{% block content %}
+<h1 class="mb-3">Daily Dashboard</h1>
+
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3"><div class="card text-center p-2">
+    <div class="stat-value">{{ reminders|length }}</div><div class="text-muted small">Tasks Due</div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card text-center p-2">
+    <div class="stat-value">{{ stats.active_prospects }}</div><div class="text-muted small">Active Prospects</div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card text-center p-2">
+    <div class="stat-value">{{ stats.in_cadence }}</div><div class="text-muted small">In Cadence</div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card text-center p-2">
+    <div class="stat-value">{{ stats.closed_won }}</div><div class="text-muted small">Closed Won</div>
+  </div></div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-header bg-white fw-bold">📌 Due Reminders</div>
+  {% if reminders %}
+  <div class="table-responsive">
+    <table class="table table-hover mb-0">
+      <thead class="table-light"><tr>
+        <th>Company</th><th>Contact</th><th>Step</th><th>Due</th><th class="text-end">Actions</th>
+      </tr></thead>
+      <tbody>
+      {% for r in reminders %}
+        <tr>
+          <td><a href="{{ url_for('account_detail', account_id=r.account_id) }}" class="fw-semibold text-decoration-none">{{ r.company_name }}</a></td>
+          <td class="small">
+            {{ r.first_name }} {{ r.last_name }}
+            {% set phone = r.mobile_phone or r.work_phone %}
+            {% if phone %}<br><a href="tel:{{ phone }}">{{ phone }}</a>{% endif %}
+            {% if r.email %}<br><a href="mailto:{{ r.email }}">{{ r.email }}</a>{% endif %}
+          </td>
+          <td><span class="badge text-bg-primary">Day {{ r.day }}: {{ r.step_type }}</span></td>
+          <td class="small">
+            {{ r.due_date|d }}
+            {% if r.days_overdue > 0 %}<br><span class="overdue">{{ r.days_overdue }}d overdue</span>{% endif %}
+          </td>
+          <td class="text-end text-nowrap">
+            <form method="post" action="{{ url_for('quick_log') }}" class="d-inline">
+              <input type="hidden" name="account_id" value="{{ r.account_id }}">
+              <input type="hidden" name="step_type" value="{{ r.step_type }}">
+              <button class="btn btn-sm btn-success" title="Log this step as done">✓ Log</button>
+            </form>
+            <form method="post" action="{{ url_for('dismiss_reminder') }}" class="d-inline">
+              <input type="hidden" name="account_id" value="{{ r.account_id }}">
+              <input type="hidden" name="step_type" value="{{ r.step_type }}">
+              <button class="btn btn-sm btn-outline-secondary" title="Clear without logging">✕ Skip</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card-body text-muted">🎉 No tasks due — you're all caught up.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-header bg-white fw-bold">🕘 Recent Activity</div>
+  {% if recent %}
+  <ul class="list-group list-group-flush">
+    {% for i in recent %}
+    <li class="list-group-item">
+      <div class="d-flex justify-content-between flex-wrap gap-1">
+        <span>
+          <a href="{{ url_for('account_detail', account_id=i.account_id) }}" class="fw-semibold text-decoration-none">{{ i.company_name }}</a>
+          — <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
+        </span>
+        <small class="text-muted">{{ i.created_at|dt }}</small>
+      </div>
+      {% if i.notes %}<div class="small text-muted mt-1">{{ i.notes }}</div>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="card-body text-muted">No interactions logged yet.</div>
+  {% endif %}
+</div>
+{% endblock %}

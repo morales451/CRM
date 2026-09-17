@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Import Accounts — Roof CRM{% endblock %}
+{% block content %}
+<h1 class="mb-3">Import Accounts</h1>
+
+<div class="card p-3 mb-3">
+  <p class="mb-2">Upload your prospecting list (e.g. <code>HTX_Office_5kto10k.xlsx</code>). Accepts <strong>.xlsx</strong> and <strong>.csv</strong>.</p>
+  <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
+    <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
+    <button class="btn btn-primary">Upload & Import</button>
+  </form>
+  <div class="form-text mt-2">
+    Column headers are matched automatically — "Company Name", "Company", "Account Name", "First Name", "Email",
+    "Phone", "Mobile", "Number of Properties", "Notes", etc. all work.
+    Every imported account starts as <strong>Prospecting</strong> / <strong>None / In Cadence</strong>
+    with the cadence clock starting today, so Day&nbsp;1 (Email&nbsp;1) appears on your dashboard immediately.
+    Rows whose company name already exists are skipped, so re-uploading the same file won't create duplicates.
+    <a href="{{ url_for('import_template') }}">Download a blank CSV template</a>.
+  </div>
+</div>
+
+{% if result %}
+<div class="card p-3">
+  <h5>Import Summary</h5>
+  <ul class="mb-2">
+    <li><strong>{{ result.imported }}</strong> account(s) imported</li>
+    <li>{{ result.skipped_duplicates }} skipped (company already exists)</li>
+    <li>{{ result.skipped_blank }} skipped (blank company name)</li>
+    <li>{{ result.total_rows }} row(s) in file</li>
+  </ul>
+  <h6>Column Mapping</h6>
+  <ul class="small mb-0">
+    {% for field, col in result.mapped_columns.items() %}
+    <li><code>{{ col }}</code> → {{ field.replace('_', ' ') }}</li>
+    {% endfor %}
+    {% if result.unmapped_columns %}
+    <li class="text-muted">Ignored columns: {{ result.unmapped_columns|join(', ') }}</li>
+    {% endif %}
+  </ul>
+  <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-primary mt-3" style="max-width: 180px;">View Accounts →</a>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}New Account — Roof CRM{% endblock %}
+{% block content %}
+<h1 class="mb-3">Add Account</h1>
+<form method="post" class="card p-3">
+  {% set a = account or {} %}
+  <div class="row g-3">
+    <div class="col-12 col-md-6">
+      <label class="form-label">Company Name *</label>
+      <input name="company_name" class="form-control" required value="{{ a.get('company_name', '') }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label">First Name</label>
+      <input name="first_name" class="form-control" value="{{ a.get('first_name', '') }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label">Last Name</label>
+      <input name="last_name" class="form-control" value="{{ a.get('last_name', '') }}">
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label">Title</label>
+      <input name="title" class="form-control" value="{{ a.get('title', '') }}">
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label">Number of Properties</label>
+      <input name="num_properties" type="number" min="0" class="form-control" value="{{ a.get('num_properties', '') }}">
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label">Email</label>
+      <input name="email" type="email" class="form-control" value="{{ a.get('email', '') }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label">Work Phone</label>
+      <input name="work_phone" type="tel" class="form-control" value="{{ a.get('work_phone', '') }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label">Mobile Phone</label>
+      <input name="mobile_phone" type="tel" class="form-control" value="{{ a.get('mobile_phone', '') }}">
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label">Preferred Contact</label>
+      <select name="preferred_contact" class="form-select">
+        {% for c in CONTACT_METHODS %}<option {{ 'selected' if a.get('preferred_contact') == c or (not a.get('preferred_contact') and c == 'Unknown') }}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label">Prospecting Status</label>
+      <select name="prospecting_status" class="form-select">
+        {% for s in STATUSES %}<option {{ 'selected' if a.get('prospecting_status', 'Prospecting') == s }}>{{ s }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label">Pipeline Milestone</label>
+      <select name="pipeline_milestone" class="form-select">
+        {% for m in MILESTONES %}<option {{ 'selected' if a.get('pipeline_milestone', 'None / In Cadence') == m }}>{{ m }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <label class="form-label">Notes</label>
+      <textarea name="notes" rows="3" class="form-control">{{ a.get('notes', '') }}</textarea>
+    </div>
+    <div class="col-12">
+      <button class="btn btn-primary">Create Account</button>
+      <a href="{{ url_for('accounts') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+  </div>
+</form>
+{% endblock %}
