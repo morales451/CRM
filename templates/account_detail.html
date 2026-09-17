@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}{{ account.company_name }} — Roof CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="mb-1">{{ account.company_name }}</h1>
+    <div class="text-muted small">
+      Created {{ account.created_at|dt }}
+      {% if in_cadence %}<span class="badge text-bg-primary ms-1">In Cadence</span>{% endif %}
+    </div>
+  </div>
+  <div class="text-nowrap">
+    {% set phone = account.mobile_phone or account.work_phone %}
+    {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞 Call</a>
+    <a href="sms:{{ phone }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
+    {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Left column: edit form + cadence -->
+  <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Account Info</h5>
+      <form method="post" action="{{ url_for('edit_account', account_id=account.id) }}">
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label small mb-0">Company Name *</label>
+            <input name="company_name" class="form-control form-control-sm" required value="{{ account.company_name }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">First Name</label>
+            <input name="first_name" class="form-control form-control-sm" value="{{ account.first_name }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Last Name</label>
+            <input name="last_name" class="form-control form-control-sm" value="{{ account.last_name }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Title</label>
+            <input name="title" class="form-control form-control-sm" value="{{ account.title }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0"># Properties</label>
+            <input name="num_properties" type="number" min="0" class="form-control form-control-sm" value="{{ account.num_properties if account.num_properties is not none }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Email</label>
+            <input name="email" type="email" class="form-control form-control-sm" value="{{ account.email }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Work Phone</label>
+            <input name="work_phone" type="tel" class="form-control form-control-sm" value="{{ account.work_phone }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Mobile Phone</label>
+            <input name="mobile_phone" type="tel" class="form-control form-control-sm" value="{{ account.mobile_phone }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Preferred Contact</label>
+            <select name="preferred_contact" class="form-select form-select-sm">
+              {% for c in CONTACT_METHODS %}<option {{ 'selected' if account.preferred_contact == c }}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0 fw-bold">Prospecting Status</label>
+            <select name="prospecting_status" class="form-select form-select-sm">
+              {% for s in STATUSES %}<option {{ 'selected' if account.prospecting_status == s }}>{{ s }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0 fw-bold">Pipeline Milestone</label>
+            <select name="pipeline_milestone" class="form-select form-select-sm">
+              {% for m in MILESTONES %}<option {{ 'selected' if account.pipeline_milestone == m }}>{{ m }}</option>{% endfor %}
+            </select>
+            <div class="form-text">Changing status or milestone off "Prospecting" + "None / In Cadence" stops the cadence and clears its reminders.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Notes</label>
+            <textarea name="notes" rows="3" class="form-control form-control-sm">{{ account.notes }}</textarea>
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button class="btn btn-sm btn-primary">Save Changes</button>
+          </div>
+        </div>
+      </form>
+      <hr>
+      <div class="d-flex gap-2 flex-wrap">
+        <form method="post" action="{{ url_for('restart_cadence', account_id=account.id) }}"
+              onsubmit="return confirm('Restart the 10-day cadence from today? Status resets to Prospecting / None-In Cadence.')">
+          <button class="btn btn-sm btn-outline-primary">↻ Restart Cadence</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_account', account_id=account.id) }}"
+              onsubmit="return confirm('Delete this account and all its history? This cannot be undone.')">
+          <button class="btn btn-sm btn-outline-danger">🗑 Delete Account</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <h5>Cadence Progress <span class="text-muted small">(started {{ account.cadence_start|d }})</span></h5>
+      <ul class="list-group list-group-flush">
+        {% for s in steps %}
+        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+          <span>
+            {% if s.state == 'done' %}✅
+            {% elif s.state == 'skipped' %}⏭️
+            {% elif s.state == 'due' %}🔴
+            {% elif s.state == 'inactive' %}⏸️
+            {% else %}⚪{% endif %}
+            <strong>Day {{ s.day }}:</strong> {{ s.step_type }}
+          </span>
+          <span class="small text-muted">
+            {{ s.due_date|d }} ·
+            {% if s.state == 'done' %}Logged
+            {% elif s.state == 'skipped' %}Checked off
+            {% elif s.state == 'due' %}<span class="overdue">Due</span>
+            {% elif s.state == 'inactive' %}Cadence stopped
+            {% else %}Upcoming{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <!-- Right column: log form + timeline -->
+  <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Log an Interaction</h5>
+      <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
+        <div class="mb-2">
+          <select name="interaction_type" class="form-select form-select-sm">
+            {% for t in INTERACTION_TYPES %}<option {{ 'selected' if t == 'General Note' }}>{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <textarea name="notes" rows="3" class="form-control form-control-sm" placeholder="What happened? (optional)"></textarea>
+        </div>
+        <button class="btn btn-sm btn-success">+ Log Interaction</button>
+      </form>
+    </div>
+
+    <div class="card p-3">
+      <h5>History Timeline</h5>
+      {% if interactions %}
+      <div class="timeline mt-2">
+        {% for i in interactions %}
+        <div class="timeline-item">
+          <div class="d-flex justify-content-between flex-wrap gap-1">
+            <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
+            <small class="text-muted">{{ i.created_at|dt }}</small>
+          </div>
+          {% if i.notes %}<div class="small mt-1">{{ i.notes }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">No interactions yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
