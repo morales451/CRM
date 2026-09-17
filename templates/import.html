@@ -8,8 +8,18 @@
   <p class="mb-2">Upload your prospecting list (e.g. <code>HTX_Office_5kto10k.xlsx</code>). Accepts <strong>.xlsx</strong> and <strong>.csv</strong>.</p>
   <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
     <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
+    <div class="input-group input-group-sm" style="max-width: 260px;">
+      <span class="input-group-text">Start</span>
+      <input type="number" name="per_day" min="1" class="form-control" placeholder="all at once">
+      <span class="input-group-text">/business day</span>
+    </div>
     <button class="btn btn-primary">Upload & Import</button>
   </form>
+  <div class="form-text">
+    <strong>Pacing tip:</strong> enter e.g. <strong>25</strong> to stagger cadence starts at 25 accounts per
+    business day (weekends skipped) — a big list becomes a steady daily routine instead of hundreds of
+    Day-1 tasks at once. Leave blank to start everyone today.
+  </div>
   <div class="form-text mt-2">
     Column headers are matched automatically — "Company Name", "Company", "Account Name", "First Name", "Email",
     "Phone", "Mobile", "Number of Properties", "Notes", etc. all work.
@@ -32,6 +42,17 @@
     <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
     <button class="btn btn-primary">Upload Contacts</button>
   </form>
+</div>
+
+<div class="card p-3 mb-3">
+  <h5>Export & Backup</h5>
+  <p class="small text-muted mb-2">Your entire CRM lives in the single file <code>crm.db</code>; a dated copy is
+    saved automatically to the <code>backups/</code> folder each day the app starts (newest 14 kept).
+    Download your data as spreadsheets any time:</p>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">⬇ Export Accounts (CSV)</a>
+    <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">⬇ Export Interaction History (CSV)</a>
+  </div>
 </div>
 
 {% if contact_result %}

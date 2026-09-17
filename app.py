@@ -4,10 +4,11 @@ Run:  python3 app.py
 Then open http://<your-local-ip>:8000 from any device on your Wi-Fi.
 """
 
+import csv
 import io
 import re
 import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 from flask import (Flask, flash, redirect, render_template, request,
@@ -17,7 +18,7 @@ import cadence
 import importer
 from db import (INTERACTION_TYPES, PIPELINE_MILESTONES,
                 PREFERRED_CONTACT_METHODS, PROSPECTING_STATUSES,
-                get_db, init_db, now_iso, today_iso)
+                backup_db, get_db, init_db, now_iso, today_iso)
 
 app = Flask(__name__)
 app.secret_key = "local-crm-flash-messages"  # local single-user app; used only for flash()
@@ -48,6 +49,7 @@ def inject_constants():
         "MILESTONES": PIPELINE_MILESTONES,
         "CONTACT_METHODS": PREFERRED_CONTACT_METHODS,
         "INTERACTION_TYPES": INTERACTION_TYPES,
+        "today": today_iso(),
     }
 
 
@@ -79,11 +81,40 @@ def _account_fields_from_form(form):
 
 # ---------------------------------------------------------------- Dashboard
 
+STALE_DAYS = 14
+STALE_EXCLUDED_MILESTONES = ("None / In Cadence", "Closed Won", "Closed Lost", "On Hold")
+
+
+def _due_followups(conn):
+    return conn.execute(
+        "SELECT * FROM accounts WHERE next_follow_up != '' AND next_follow_up <= ? "
+        "ORDER BY next_follow_up, company_name COLLATE NOCASE",
+        (today_iso(),)).fetchall()
+
+
+def _stale_deals(conn):
+    """Pipeline accounts with no touch in STALE_DAYS days and no follow-up set."""
+    ph = ",".join("?" * len(STALE_EXCLUDED_MILESTONES))
+    rows = conn.execute(
+        f"""SELECT a.*, COALESCE(
+                (SELECT MAX(created_at) FROM interactions i WHERE i.account_id = a.id),
+                a.updated_at) AS last_touch
+            FROM accounts a
+            WHERE a.pipeline_milestone NOT IN ({ph})
+              AND a.prospecting_status != 'Not Interested'
+              AND (a.next_follow_up IS NULL OR a.next_follow_up = '')""",
+        STALE_EXCLUDED_MILESTONES).fetchall()
+    cutoff = (datetime.now() - timedelta(days=STALE_DAYS)).date().isoformat()
+    return [r for r in rows if (r["last_touch"] or "")[:10] <= cutoff]
+
+
 @app.route("/")
 def dashboard():
     conn = get_db()
     try:
         reminders = cadence.get_due_reminders(conn)
+        followups = _due_followups(conn)
+        stale = _stale_deals(conn)
         stats = {
             "total_accounts": conn.execute(
                 "SELECT COUNT(*) c FROM accounts").fetchone()["c"],
@@ -104,7 +135,8 @@ def dashboard():
                JOIN accounts a ON a.id = i.account_id
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
         return render_template("dashboard.html", reminders=reminders,
-                               stats=stats, recent=recent)
+                               followups=followups, stale=stale,
+                               stats=stats, recent=recent, today=today_iso())
     finally:
         conn.close()
 
@@ -142,6 +174,162 @@ def quick_log():
         conn.close()
     flash(f"Logged “{step_type}”.", "success")
     return redirect(request.form.get("next") or url_for("dashboard"))
+
+
+# ------------------------------------------------------- Follow-ups & queue
+
+@app.route("/accounts/<int:account_id>/followup", methods=["POST"])
+def set_followup(account_id):
+    """Set, snooze, or clear an account's follow-up reminder."""
+    conn = get_db()
+    try:
+        _account_or_404(conn, account_id)
+        if request.form.get("clear"):
+            conn.execute(
+                "UPDATE accounts SET next_follow_up='', follow_up_note='', "
+                "updated_at=? WHERE id=?", (now_iso(), account_id))
+            flash("Follow-up cleared.", "success")
+        else:
+            days = request.form.get("days", "")
+            if days.lstrip("-").isdigit():
+                due = (datetime.now() + timedelta(days=int(days))).date().isoformat()
+            else:
+                due = request.form.get("date", "").strip()
+            if not due:
+                flash("Pick a follow-up date.", "danger")
+                return redirect(request.form.get("next")
+                                or url_for("account_detail", account_id=account_id))
+            if "note" in request.form:
+                conn.execute(
+                    "UPDATE accounts SET next_follow_up=?, follow_up_note=?, "
+                    "updated_at=? WHERE id=?",
+                    (due, request.form.get("note", "").strip(), now_iso(), account_id))
+            else:
+                conn.execute(
+                    "UPDATE accounts SET next_follow_up=?, updated_at=? WHERE id=?",
+                    (due, now_iso(), account_id))
+            flash(f"Follow-up set for {due}.", "success")
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(request.form.get("next")
+                    or url_for("account_detail", account_id=account_id))
+
+
+def _build_queue(conn):
+    """Today's work: due cadence steps + due follow-ups, oldest first."""
+    tasks = [{"kind": "cadence", "due": r["due_date"], "account_id": r["account_id"],
+              "reminder": r} for r in cadence.get_due_reminders(conn)]
+    tasks += [{"kind": "followup", "due": a["next_follow_up"], "account_id": a["id"],
+               "note": a["follow_up_note"]} for a in _due_followups(conn)]
+    tasks.sort(key=lambda t: t["due"])
+    return tasks
+
+
+@app.route("/queue")
+def queue():
+    """One-task-at-a-time focus mode: script on screen, log and move on."""
+    conn = get_db()
+    try:
+        tasks = _build_queue(conn)
+        total = len(tasks)
+        if total == 0:
+            return render_template("queue.html", task=None, total=0, pos=0)
+        pos = max(0, min(int(request.args.get("pos", 0) or 0), total - 1))
+        task = tasks[pos]
+        acct = conn.execute("SELECT * FROM accounts WHERE id=?",
+                            (task["account_id"],)).fetchone()
+        scripts = []
+        if task["kind"] == "cadence":
+            settings = _get_settings(conn)
+            rows = conn.execute(
+                "SELECT * FROM templates ORDER BY sort_order, id").fetchall()
+            scripts = _build_scripts(acct, settings, rows,
+                                     task["reminder"]["step_type"])
+    finally:
+        conn.close()
+    return render_template("queue.html", task=task, account=acct,
+                           scripts=scripts, total=total, pos=pos)
+
+
+# ----------------------------------------------------------------- Pipeline
+
+@app.route("/pipeline")
+def pipeline():
+    """Board view: one column per milestone (cadence pool shown as a count)."""
+    conn = get_db()
+    try:
+        columns = []
+        for m in PIPELINE_MILESTONES:
+            rows = conn.execute(
+                """SELECT a.*, (SELECT MAX(created_at) FROM interactions i
+                                WHERE i.account_id = a.id) AS last_activity
+                   FROM accounts a WHERE a.pipeline_milestone = ?
+                   ORDER BY a.updated_at DESC""", (m,)).fetchall()
+            columns.append({"milestone": m, "count": len(rows), "accounts": rows[:20]})
+    finally:
+        conn.close()
+    return render_template("pipeline.html", columns=columns)
+
+
+@app.route("/accounts/<int:account_id>/milestone", methods=["POST"])
+def move_milestone(account_id):
+    milestone = request.form.get("pipeline_milestone", "")
+    if milestone in PIPELINE_MILESTONES:
+        conn = get_db()
+        try:
+            _account_or_404(conn, account_id)
+            conn.execute("UPDATE accounts SET pipeline_milestone=?, updated_at=? "
+                         "WHERE id=?", (milestone, now_iso(), account_id))
+            conn.commit()
+        finally:
+            conn.close()
+        flash(f"Moved to “{milestone}”.", "success")
+    return redirect(request.form.get("next") or url_for("pipeline"))
+
+
+# ------------------------------------------------------------------- Export
+
+def _csv_response(rows, headers, filename):
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(headers)
+    writer.writerows(rows)
+    return send_file(io.BytesIO(buf.getvalue().encode("utf-8-sig")),
+                     mimetype="text/csv", as_attachment=True,
+                     download_name=filename)
+
+
+@app.route("/export/accounts.csv")
+def export_accounts():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM accounts ORDER BY company_name COLLATE NOCASE").fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        headers = ["company_name"]
+        data = []
+    else:
+        headers = rows[0].keys()
+        data = [tuple(r) for r in rows]
+    return _csv_response(data, headers, "crm_accounts.csv")
+
+
+@app.route("/export/interactions.csv")
+def export_interactions():
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT i.id, a.company_name, i.interaction_type, i.notes, i.created_at
+               FROM interactions i JOIN accounts a ON a.id = i.account_id
+               ORDER BY i.created_at""").fetchall()
+    finally:
+        conn.close()
+    return _csv_response([tuple(r) for r in rows],
+                         ["id", "company_name", "interaction_type", "notes",
+                          "created_at"], "crm_interactions.csv")
 
 
 # ----------------------------------------------------------------- Accounts
@@ -491,19 +679,8 @@ def save_settings():
     return redirect(url_for("templates_page"))
 
 
-@app.route("/accounts/<int:account_id>/scripts")
-def account_scripts(account_id):
-    """Templates rendered for one account, optionally filtered to a cadence step."""
-    step = request.args.get("step", "")
-    conn = get_db()
-    try:
-        acct = _account_or_404(conn, account_id)
-        settings = _get_settings(conn)
-        rows = conn.execute(
-            "SELECT * FROM templates ORDER BY sort_order, id").fetchall()
-    finally:
-        conn.close()
-
+def _build_scripts(acct, settings, rows, step=""):
+    """Render templates for an account, optionally filtered to a cadence step."""
     scripts = []
     for t in rows:
         t_steps = [s.strip() for s in (t["steps"] or "").split(",") if s.strip()]
@@ -524,6 +701,21 @@ def account_scripts(account_id):
             "missing": list(dict.fromkeys(missing_s + missing_b)),
             "action_url": action_url, "log_steps": t_steps,
         })
+    return scripts
+
+
+@app.route("/accounts/<int:account_id>/scripts")
+def account_scripts(account_id):
+    step = request.args.get("step", "")
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        settings = _get_settings(conn)
+        rows = conn.execute(
+            "SELECT * FROM templates ORDER BY sort_order, id").fetchall()
+    finally:
+        conn.close()
+    scripts = _build_scripts(acct, settings, rows, step)
     return render_template("scripts.html", account=acct, scripts=scripts, step=step)
 
 
@@ -537,10 +729,16 @@ def import_page():
         if not file or not file.filename:
             flash("Choose a .xlsx or .csv file first.", "danger")
         else:
+            per_day_raw = request.form.get("per_day", "").strip()
+            per_day = int(per_day_raw) if per_day_raw.isdigit() and int(per_day_raw) > 0 else None
             conn = get_db()
             try:
-                result = importer.import_accounts(conn, file)
-                flash(f"Imported {result['imported']} account(s).", "success")
+                result = importer.import_accounts(conn, file, per_day=per_day)
+                msg = f"Imported {result['imported']} account(s)."
+                if per_day:
+                    msg += (f" Cadence starts staggered at {per_day}/business day "
+                            f"through {result['last_start_date']}.")
+                flash(msg, "success")
             except ValueError as e:
                 flash(str(e), "danger")
             except Exception as e:
@@ -620,5 +818,15 @@ def print_network_instructions():
 
 if __name__ == "__main__":
     init_db()
+    backup = backup_db()
+    if backup:
+        print(f"  Daily backup saved: {backup}")
     print_network_instructions()
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    try:
+        from waitress import serve
+        print("  Server: waitress (production WSGI)\n")
+        serve(app, host="0.0.0.0", port=PORT, threads=8)
+    except ImportError:
+        print("  Server: Flask dev server (pip install waitress for the "
+              "production server)\n")
+        app.run(host="0.0.0.0", port=PORT, debug=False)

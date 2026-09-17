@@ -1,11 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Roof CRM{% endblock %}
 {% block content %}
-<h1 class="mb-3">Daily Dashboard</h1>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h1 class="mb-0">Daily Dashboard</h1>
+  {% if reminders or followups %}
+  <a href="{{ url_for('queue') }}" class="btn btn-primary">▶ Work the Queue ({{ reminders|length + followups|length }})</a>
+  {% endif %}
+</div>
 
 <div class="row g-2 mb-4">
   <div class="col-6 col-md-3"><div class="card text-center p-2">
-    <div class="stat-value">{{ reminders|length }}</div><div class="text-muted small">Tasks Due</div>
+    <div class="stat-value">{{ reminders|length + followups|length }}</div><div class="text-muted small">Tasks Due</div>
   </div></div>
   <div class="col-6 col-md-3"><div class="card text-center p-2">
     <div class="stat-value">{{ stats.active_prospects }}</div><div class="text-muted small">Active Prospects</div>
@@ -64,6 +69,66 @@
   <div class="card-body text-muted">🎉 No tasks due — you're all caught up.</div>
   {% endif %}
 </div>
+
+<div class="card mb-4">
+  <div class="card-header bg-white fw-bold">📅 Follow-Ups Due</div>
+  {% if followups %}
+  <ul class="list-group list-group-flush">
+    {% for f in followups %}
+    <li class="list-group-item">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <a href="{{ url_for('account_detail', account_id=f.id) }}" class="fw-semibold text-decoration-none">{{ f.company_name }}</a>
+          {% if f.first_name or f.last_name %}<span class="small text-muted">— {{ f.first_name }} {{ f.last_name }}</span>{% endif %}
+          <span class="small {{ 'overdue' if f.next_follow_up < today }}">· due {{ f.next_follow_up|d }}</span>
+          {% if f.follow_up_note %}<div class="small text-muted">{{ f.follow_up_note }}</div>{% endif %}
+        </div>
+        <div class="text-nowrap">
+          {% set phone = f.mobile_phone or f.work_phone %}
+          {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞</a>{% endif %}
+          {% for label, d in [('+1d', 1), ('+3d', 3), ('+1w', 7)] %}
+          <form method="post" action="{{ url_for('set_followup', account_id=f.id) }}" class="d-inline">
+            <input type="hidden" name="days" value="{{ d }}">
+            <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
+            <button class="btn btn-sm btn-outline-secondary" title="Snooze">{{ label }}</button>
+          </form>
+          {% endfor %}
+          <form method="post" action="{{ url_for('set_followup', account_id=f.id) }}" class="d-inline">
+            <input type="hidden" name="clear" value="1">
+            <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
+            <button class="btn btn-sm btn-success" title="Done — clear follow-up">✓ Done</button>
+          </form>
+        </div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="card-body text-muted">No follow-ups due. Set one on any account page so warm prospects never slip.</div>
+  {% endif %}
+</div>
+
+{% if stale %}
+<div class="card mb-4 border-warning">
+  <div class="card-header bg-warning-subtle fw-bold">🥶 Going Stale — no touch in 14+ days</div>
+  <ul class="list-group list-group-flush">
+    {% for s in stale %}
+    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
+      <span>
+        <a href="{{ url_for('account_detail', account_id=s.id) }}" class="fw-semibold text-decoration-none">{{ s.company_name }}</a>
+        <span class="badge text-bg-secondary">{{ s.pipeline_milestone }}</span>
+        <span class="small text-muted">last touch {{ s.last_touch|dt }}</span>
+      </span>
+      <form method="post" action="{{ url_for('set_followup', account_id=s.id) }}" class="d-inline">
+        <input type="hidden" name="days" value="0">
+        <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
+        <button class="btn btn-sm btn-outline-primary">📅 Follow up today</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 
 <div class="card">
   <div class="card-header bg-white fw-bold">🕘 Recent Activity</div>

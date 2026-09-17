@@ -7,15 +7,20 @@ next to the app.
 
 ## Quick Start
 
-```bash
-# 1. Install dependencies (one time)
-pip install -r requirements.txt
+Double-click **`start.bat`** (Windows) or run **`./start.sh`** (Mac/Linux) —
+it installs dependencies on first run and starts the app. Or manually:
 
-# 2. Run the app
+```bash
+pip install -r requirements.txt
 python3 app.py
 ```
 
-The database (`crm.db`) is created automatically on first run.
+The database (`crm.db`) is created automatically on first run, and a dated
+backup copy is saved to `backups/` once per day on startup (newest 14 kept).
+The app runs on the production-grade `waitress` server.
+
+**Phone tip:** open the app in your phone's browser and use "Add to Home
+Screen" — it installs like an app with its own icon and opens full-screen.
 
 ## Access From Your Phone / Tablet
 
@@ -40,7 +45,18 @@ computer's firewall (Windows will usually prompt you the first time — choose
 ## Features
 
 - **Daily Dashboard** — due cadence reminders (pinned until logged or checked
-  off), active-prospect stats, and recent activity.
+  off), due follow-ups with snooze buttons, stale-deal alerts, active-prospect
+  stats, and recent activity.
+- **Work the Queue** — one-task-at-a-time focus mode: each due cadence step or
+  follow-up appears with the account's info and the personalized script on one
+  screen; log it and the next task loads. Turns a call block into a flow.
+- **Follow-Ups** — set a "next follow-up" date + note on any account (quick
+  buttons: tomorrow / +3 days / +1 week). Due follow-ups pin to the dashboard
+  and queue until done or snoozed — so warm prospects outside the cold cadence
+  never slip. Accounts in the pipeline with no activity for 14+ days and no
+  follow-up set are flagged as **going stale**.
+- **Pipeline board** — a column per milestone with each deal as a card; move
+  deals between milestones right from the board.
 - **Accounts** — searchable list with filters for Prospecting Status and
   Pipeline Milestone; tap-to-call / tap-to-text / tap-to-email links on mobile.
 - **Account Detail** — edit everything in place, log interactions, see a
@@ -67,7 +83,11 @@ computer's firewall (Windows will usually prompt you the first time — choose
   `HTX_Office_5kto10k.xlsx`). Column headers are matched automatically and
   duplicates (same company name) are skipped, so re-uploads are safe.
   Imported accounts default to **Prospecting / None / In Cadence** and enter
-  the cadence immediately.
+  the cadence immediately — or use the **pacing option** to stagger starts
+  (e.g. 25 accounts per business day) so a big list becomes a steady daily
+  routine instead of hundreds of Day-1 tasks at once.
+- **Export** — download accounts and interaction history as CSV from the
+  Import page any time.
 
 ## Cadence Logic
 
@@ -95,5 +115,7 @@ Rules:
 
 ## Backup
 
-Your entire CRM is the single file `crm.db`. Copy it anywhere (USB drive,
-cloud folder) to back up; restore by copying it back.
+Your entire CRM is the single file `crm.db`. A dated copy lands in
+`backups/` automatically each day the app starts (newest 14 kept). To back up
+off-machine, copy `crm.db` anywhere (USB drive, cloud folder); restore by
+copying it back. CSV exports are on the Import page.

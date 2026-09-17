@@ -2,5 +2,6 @@ __pycache__/
 *.pyc
 crm.db
 *.db-journal
+backups/
 .venv/
 venv/

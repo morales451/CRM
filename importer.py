@@ -6,6 +6,8 @@ needing exact column names.
 """
 
 import re
+from datetime import date, timedelta
+
 import pandas as pd
 
 from db import now_iso, today_iso
@@ -102,13 +104,23 @@ def _clean_int(value):
         return None
 
 
-def import_accounts(conn, file_storage) -> dict:
+def _next_business_day(d: date) -> date:
+    while d.weekday() >= 5:  # Sat=5, Sun=6
+        d += timedelta(days=1)
+    return d
+
+
+def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
     """Import rows as accounts. Returns summary dict.
 
     Defaults for every imported account:
       prospecting_status = 'Prospecting'
       pipeline_milestone = 'None / In Cadence'
       cadence_start      = today  (so they enter the cadence immediately)
+
+    per_day: if set, stagger cadence starts so only that many accounts enter
+    the cadence per business day (weekends skipped) — keeps the daily task
+    list workable on big imports.
 
     Duplicate rule: skip a row when an account with the same company name
     (case-insensitive) already exists.
@@ -132,7 +144,8 @@ def import_accounts(conn, file_storage) -> dict:
 
     imported = skipped_dupe = skipped_blank = 0
     ts = now_iso()
-    start = today_iso()
+    start_date = _next_business_day(date.today()) if per_day else date.today()
+    start = start_date.isoformat()
 
     for _, row in df.iterrows():
         company = _clean(row.get(mapping["company_name"]))
@@ -181,6 +194,9 @@ def import_accounts(conn, file_storage) -> dict:
         )
         existing.add(company.lower())
         imported += 1
+        if per_day and imported % per_day == 0:
+            start_date = _next_business_day(start_date + timedelta(days=1))
+            start = start_date.isoformat()
 
     conn.commit()
     return {
@@ -188,6 +204,8 @@ def import_accounts(conn, file_storage) -> dict:
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "total_rows": len(df),
+        "per_day": per_day,
+        "last_start_date": start,
         "mapped_columns": {f: str(c) for f, c in mapping.items()},
         "context_columns": {f: str(c) for f, c in context_mapping.items()},
         "unmapped_columns": [str(c) for c in df.columns

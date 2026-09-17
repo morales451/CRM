@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Pipeline — Roof CRM{% endblock %}
+{% block content %}
+<h1 class="mb-3">Pipeline</h1>
+<div class="d-flex gap-2 pb-3" style="overflow-x: auto;">
+  {% for col in columns %}
+  <div class="flex-shrink-0" style="width: 270px;">
+    <div class="card">
+      <div class="card-header bg-white fw-bold small d-flex justify-content-between">
+        <span>{{ col.milestone }}</span>
+        <span class="badge text-bg-secondary">{{ col.count }}</span>
+      </div>
+      <div class="card-body p-2" style="max-height: 70vh; overflow-y: auto;">
+        {% for a in col.accounts %}
+        <div class="card p-2 mb-2">
+          <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none small">{{ a.company_name }}</a>
+          <div class="small text-muted">
+            {{ a.first_name }} {{ a.last_name }}
+            {% if a.last_activity %}<br>last touch {{ a.last_activity|d }}{% endif %}
+            {% if a.next_follow_up %}<br>📅 {{ a.next_follow_up|d }}{% endif %}
+          </div>
+          <form method="post" action="{{ url_for('move_milestone', account_id=a.id) }}" class="mt-1">
+            <input type="hidden" name="next" value="{{ url_for('pipeline') }}">
+            <select name="pipeline_milestone" class="form-select form-select-sm" onchange="this.form.submit()" title="Move to milestone">
+              {% for m in MILESTONES %}<option {{ 'selected' if m == a.pipeline_milestone }}>{{ m }}</option>{% endfor %}
+            </select>
+          </form>
+        </div>
+        {% else %}
+        <div class="text-muted small text-center py-2">—</div>
+        {% endfor %}
+        {% if col.count > col.accounts|length %}
+        <a href="{{ url_for('accounts', milestone=col.milestone) }}" class="small">…and {{ col.count - col.accounts|length }} more</a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

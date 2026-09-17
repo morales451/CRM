@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Work Queue — Roof CRM{% endblock %}
+{% block content %}
+{% if not task %}
+<div class="card p-4 text-center">
+  <h2>🎉 Queue clear!</h2>
+  <p class="text-muted mb-2">No cadence steps or follow-ups due right now.</p>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-primary mx-auto" style="max-width:200px">← Back to Dashboard</a>
+</div>
+{% else %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <h1 class="mb-0">Task {{ pos + 1 }} of {{ total }}</h1>
+  <div>
+    {% if pos + 1 < total %}
+    <a href="{{ url_for('queue', pos=pos + 1) }}" class="btn btn-outline-secondary">Skip for now →</a>
+    {% endif %}
+    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Exit</a>
+  </div>
+</div>
+
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+      <h4 class="mb-1"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h4>
+      <div class="small text-muted">
+        {{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}
+        {% if account.num_properties %} · {{ account.num_properties }} properties{% endif %}
+      </div>
+      <div class="mt-1">
+        {% if task.kind == 'cadence' %}
+          <span class="badge text-bg-primary fs-6">Day {{ task.reminder.day }}: {{ task.reminder.step_type }}</span>
+          {% if task.reminder.days_overdue > 0 %}<span class="overdue small">{{ task.reminder.days_overdue }}d overdue</span>{% endif %}
+        {% else %}
+          <span class="badge text-bg-info fs-6">📅 Follow-up</span>
+          <span class="small {{ 'overdue' if task.due < today }}">due {{ task.due|d }}</span>
+          {% if task.note %}<div class="mt-1"><strong>Note:</strong> {{ task.note }}</div>{% endif %}
+        {% endif %}
+      </div>
+    </div>
+    <div class="text-nowrap">
+      {% set phone = account.mobile_phone or account.work_phone %}
+      {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞 Call</a>
+      <a href="sms:{{ phone }}" class="btn btn-sm btn-info">💬</a>{% endif %}
+      {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️</a>{% endif %}
+    </div>
+  </div>
+  {% if account.notes %}
+  <details class="mt-2 small"><summary class="text-muted" style="cursor:pointer">Account notes</summary>
+    <div class="mt-1" style="white-space: pre-line">{{ account.notes }}</div></details>
+  {% endif %}
+</div>
+
+{% if task.kind == 'cadence' %}
+  {% for s in scripts %}
+  <div class="card p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h5 class="mb-0">
+        {% if s.template.kind == 'email' %}✉️{% elif s.template.kind == 'text' %}💬{% else %}📞{% endif %}
+        {{ s.template.name }}
+      </h5>
+      {% if s.action_url %}
+      <a href="{{ s.action_url }}" class="btn btn-sm btn-primary">
+        {% if s.template.kind == 'email' %}Open in Email app{% elif s.template.kind == 'text' %}Open in Messages{% else %}📞 Dial{% endif %}
+      </a>
+      {% endif %}
+    </div>
+    {% if s.missing %}
+    <div class="alert alert-warning py-1 px-2 small mt-2 mb-0">⚠️ Missing: {{ s.missing|join(', ') }} —
+      <a href="{{ url_for('account_detail', account_id=account.id) }}">fix on account page</a></div>
+    {% endif %}
+    {% if s.template.kind == 'email' %}
+    <div class="mt-2 d-flex gap-2 align-items-center">
+      <strong class="small">Subject:</strong>
+      <input id="subj-{{ s.template.id }}" class="form-control form-control-sm" readonly value="{{ s.subject }}">
+      <button class="btn btn-sm btn-outline-secondary" onclick="copyField('subj-{{ s.template.id }}', this)">Copy</button>
+    </div>
+    {% endif %}
+    <div class="mt-2">
+      <textarea id="body-{{ s.template.id }}" class="form-control" readonly
+                rows="{{ [s.body.count('\n') + 2, 14]|min }}">{{ s.body }}</textarea>
+      <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy</button>
+    </div>
+  </div>
+  {% endfor %}
+
+  <div class="card p-3 mb-3 border-success">
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+      <form method="post" action="{{ url_for('quick_log') }}" class="d-inline">
+        <input type="hidden" name="account_id" value="{{ account.id }}">
+        <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
+        <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
+        <button class="btn btn-success">✓ Log “{{ task.reminder.step_type }}” & Next</button>
+      </form>
+      <form method="post" action="{{ url_for('dismiss_reminder') }}" class="d-inline">
+        <input type="hidden" name="account_id" value="{{ account.id }}">
+        <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
+        <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
+        <button class="btn btn-outline-secondary">✕ Skip this step & Next</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <div class="card p-3 mb-3">
+    <h5>Log what happened</h5>
+    <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
+      <div class="row g-2">
+        <div class="col-12 col-md-4">
+          <select name="interaction_type" class="form-select form-select-sm">
+            {% for t in INTERACTION_TYPES %}<option {{ 'selected' if t == 'General Note' }}>{{ t }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-6"><input name="notes" class="form-control form-control-sm" placeholder="What happened?"></div>
+        <div class="col-12 col-md-2"><button class="btn btn-sm btn-success w-100">+ Log</button></div>
+      </div>
+    </form>
+  </div>
+  <div class="card p-3 mb-3 border-success">
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+      <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
+        <input type="hidden" name="clear" value="1">
+        <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
+        <button class="btn btn-success">✓ Done & Next</button>
+      </form>
+      {% for label, d in [('Snooze +1d', 1), ('+3d', 3), ('+1w', 7)] %}
+      <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
+        <input type="hidden" name="days" value="{{ d }}">
+        <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
+        <button class="btn btn-outline-secondary">{{ label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<script>
+function copyField(id, btn) {
+  const el = document.getElementById(id);
+  el.focus(); el.select();
+  if (el.setSelectionRange) el.setSelectionRange(0, el.value.length);
+  try { document.execCommand('copy'); } catch (e) {}
+  if (navigator.clipboard) navigator.clipboard.writeText(el.value).catch(() => {});
+  btn.textContent = 'Copied ✓';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+}
+</script>
+{% endif %}
+{% endblock %}
