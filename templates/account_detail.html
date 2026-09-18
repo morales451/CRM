@@ -132,6 +132,30 @@
     {% endif %}
 
     <div class="card p-3 mb-3">
+      <h5>📑 Roof Reports / Bids</h5>
+      {% if bids %}
+      <ul class="list-group list-group-flush mb-2">
+        {% for b in bids %}
+        <li class="list-group-item px-0 d-flex justify-content-between align-items-center flex-wrap gap-1">
+          <span class="small">
+            <a href="{{ url_for('bid_edit', bid_id=b.id) }}" class="fw-semibold text-decoration-none">{{ b.roof_address or 'Roof report' }}</a>
+            {% if b.roof_size_sqft %}· {{ '{:,}'.format(b.roof_size_sqft) }} sq ft{% endif %}
+            {% if b.price %}· {{ b.price|money }}{% endif %}
+          </span>
+          <a href="{{ url_for('bid_report', bid_id=b.id) }}" target="_blank" class="btn btn-sm btn-warning">📑 Report</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <form method="post" action="{{ url_for('new_bid', account_id=account.id) }}" class="row g-2">
+        <div class="col-12 col-md-6"><input name="roof_address" class="form-control form-control-sm" placeholder="Roof address (auto-fills from notes)"></div>
+        <div class="col-6 col-md-3"><input name="roof_size_sqft" type="number" min="0" class="form-control form-control-sm" placeholder="Sq ft"></div>
+        <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">+ New Report</button></div>
+      </form>
+      <div class="form-text">Creates a roof report with your full proposal: CEO letter, process, spec, materials quote (computed from square footage), warranty, site assessment photos, and signature page.</div>
+    </div>
+
+    <div class="card p-3 mb-3">
       <h5>📅 Follow-Up</h5>
       {% if account.next_follow_up %}
       <p class="mb-2">Next follow-up: <strong class="{{ 'overdue' if account.next_follow_up <= today }}">{{ account.next_follow_up|d }}</strong>

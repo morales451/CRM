@@ -66,10 +66,21 @@
   <p class="small text-muted mb-2">Your entire CRM lives in the single file <code>crm.db</code>; a dated copy is
     saved automatically to the <code>backups/</code> folder each day the app starts (newest 14 kept).
     Download your data as spreadsheets any time:</p>
-  <div class="d-flex gap-2 flex-wrap">
+  <div class="d-flex gap-2 flex-wrap mb-3">
+    <a href="{{ url_for('download_backup') }}" class="btn btn-sm btn-primary">⬇ Download Full Backup (.db)</a>
     <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">⬇ Export Accounts (CSV)</a>
     <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">⬇ Export Interaction History (CSV)</a>
   </div>
+  <h6>Off-Machine Backup Folder</h6>
+  <p class="small text-muted mb-2">Point this at a folder that syncs off this computer — OneDrive, Google Drive, or Dropbox
+    (e.g. <code>C:\Users\alexi\OneDrive\CRM Backups</code>). The daily backup is copied there automatically,
+    so a dead laptop can't take your pipeline with it.</p>
+  <form method="post" action="{{ url_for('save_settings') }}" class="d-flex gap-2 flex-wrap align-items-center">
+    <input type="hidden" name="next" value="{{ url_for('import_page') }}">
+    <input name="backup_dir" class="form-control form-control-sm" style="max-width: 420px;"
+           placeholder="Folder path for off-machine backups" value="{{ backup_dir }}">
+    <button class="btn btn-sm btn-outline-primary">Save Folder</button>
+  </form>
 </div>
 
 {% if contact_result %}

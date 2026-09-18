@@ -758,6 +758,109 @@ check("projects: delete cascades tasks + invoices",
                        (proj["id"],)).fetchone()["c"] == 0)
 conn.close()
 
+# ---- 22. Bid / roof report generator
+import app as app_mod
+app_mod.PHOTO_DIR = db.DB_PATH.parent / "bid_photos"
+
+# quote math must reproduce the template's own example: 3,900 - 300 = 3,600 sqft
+q = app_mod.materials_quote(3600)
+check("bid quote: squares match template example", q["squares"] == 37.8, q)
+base, top, mastic = q["lines"]
+check("bid quote: basecoat 50 gal -> 10 pails", base["gallons"] == 50 and base["pails"] == 10)
+check("bid quote: topcoat 80 gal -> 16 pails", top["gallons"] == 80 and top["pails"] == 16)
+check("bid quote: mastic 5 pails", mastic["pails"] == 5, mastic)
+check("bid words: 15000", app_mod.dollars_in_words(15000) == "FIFTEEN THOUSAND DOLLARS")
+check("bid words: 24750", app_mod.dollars_in_words(24750)
+      == "TWENTY-FOUR THOUSAND SEVEN HUNDRED FIFTY DOLLARS")
+
+conn = db.get_db()
+bid_acct = conn.execute("SELECT id FROM accounts WHERE company_name LIKE 'Sallyport%'").fetchone()["id"]
+conn.execute("UPDATE accounts SET notes = 'Address: 123 Main St, Houston, TX 77002' "
+             "|| char(10) || notes WHERE id=?", (bid_acct,))
+conn.commit(); conn.close()
+r = client.post(f"/accounts/{bid_acct}/bids/new", data={"roof_size_sqft": "3900"},
+                follow_redirects=True)
+check("bid: created, address prefilled from notes", r.status_code == 200
+      and b"Roof Report" in r.data)
+conn = db.get_db()
+bid = conn.execute("SELECT * FROM bids WHERE account_id=?", (bid_acct,)).fetchone()
+conn.close()
+check("bid: address from notes", "123 Main St" in bid["roof_address"])
+r = client.post(f"/bids/{bid['id']}/edit", data={
+    "roof_address": "5231 Braesvalley Drive, Houston, TX 77096",
+    "roof_size_sqft": "3900", "deduction_sqft": "300", "surface_type": "Capsheet",
+    "candidate": "Yes", "warranty_years": "10", "price": "$15,000",
+    "assessment_date": "2026-09-05",
+    "assessment_notes": "Ponding at NW corner\n- Cracked seams along HVAC curb"},
+    follow_redirects=True)
+check("bid: saved", r.status_code == 200)
+# photo upload with auto-resize
+from PIL import Image as _Img
+big = io.BytesIO()
+_Img.new("RGB", (3200, 2400), (120, 40, 40)).save(big, "PNG")
+big.seek(0)
+r = client.post(f"/bids/{bid['id']}/photos", data={"photos": (big, "roof.png")},
+                content_type="multipart/form-data", follow_redirects=True)
+check("bid photo: uploaded", b"Added 1 photo" in r.data, r.data[:300])
+conn = db.get_db()
+ph = conn.execute("SELECT * FROM bid_photos WHERE bid_id=?", (bid["id"],)).fetchone()
+conn.close()
+saved = _Img.open(app_mod.PHOTO_DIR / ph["filename"])
+check("bid photo: auto-resized to fit", max(saved.size) == 1600 and saved.format == "JPEG",
+      saved.size)
+r = client.post(f"/bids/photos/{ph['id']}/caption", data={"caption": "Ponding at NW corner"},
+                follow_redirects=True)
+check("bid photo: caption saved", b"Ponding at NW corner" in r.data)
+# junk file rejected gracefully
+r = client.post(f"/bids/{bid['id']}/photos", data={"photos": (io.BytesIO(b"junk"), "x.jpg")},
+                content_type="multipart/form-data", follow_redirects=True)
+check("bid photo: unreadable file handled", b"could not be read" in r.data)
+# the report
+r = client.get(f"/bids/{bid['id']}/report")
+html = r.data.decode()
+check("bid report: 200 + sections", r.status_code == 200
+      and "Letter From The CEO" in html and "Roof Examined" in html
+      and "Site Assessment" in html and "Material Plus" in html)
+check("bid report: personalized", "Dear Doug," in html
+      and "5231 Braesvalley Drive" in html and "3,900" in html)
+check("bid report: quote computed", "37.8 squares" in html and "10 pails" in html
+      and "16 pails" in html)
+check("bid report: price in words", "FOR THE SUM OF FIFTEEN THOUSAND DOLLARS" in html
+      and "$15,000" in html)
+check("bid report: photo + caption in survey", ph["filename"] in html
+      and "Ponding at NW corner" in html)
+check("bid report: observations as bullets", "<li>Cracked seams along HVAC curb</li>" in html)
+r = client.get(f"/accounts/{bid_acct}")
+check("account page: bid listed", b"Roof Reports / Bids" in r.data
+      and b"5231 Braesvalley" in r.data)
+# photo file served
+r = client.get(f"/uploads/bid_photos/{ph['filename']}")
+check("bid photo: served", r.status_code == 200 and r.data[:2] == b"\xff\xd8")
+# delete cleans up files
+r = client.post(f"/bids/{bid['id']}/delete", follow_redirects=True)
+check("bid: delete removes photo file", not (app_mod.PHOTO_DIR / ph["filename"]).exists())
+
+# ---- 23. Off-machine backup
+mirror_dir = db.DB_PATH.parent / "mirror"
+r = client.post("/settings", data={"backup_dir": str(mirror_dir)}, follow_redirects=True)
+check("backup: dir setting saved", r.status_code == 200)
+db.BACKUP_DIR = db.DB_PATH.parent / "b2"
+import shutil as _sh
+_sh.rmtree(db.BACKUP_DIR, ignore_errors=True); _sh.rmtree(mirror_dir, ignore_errors=True)
+made = db.backup_db()
+check("backup: mirrored off-machine", made is not None
+      and (mirror_dir / made.name).exists())
+db.backup_db()  # second call same day: no new backup, mirror unchanged
+check("backup: mirror not duplicated", len(list(mirror_dir.glob("crm-*.db"))) == 1)
+r = client.get("/backup/download")
+check("backup: download snapshot", r.status_code == 200
+      and r.data[:16] == b"SQLite format 3\x00"
+      and "crm-backup-" in r.headers.get("Content-Disposition", ""))
+_sh.rmtree(db.BACKUP_DIR, ignore_errors=True); _sh.rmtree(mirror_dir, ignore_errors=True)
+r = client.get("/import")
+check("import page: backup UI present", b"Off-Machine Backup Folder" in r.data
+      and b"Download Full Backup" in r.data)
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

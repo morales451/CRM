@@ -132,6 +132,35 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL DEFAULT ''
 );
 
+-- Roof report / bid per account: feeds the printable proposal generator.
+CREATE TABLE IF NOT EXISTS bids (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    roof_address TEXT DEFAULT '',
+    roof_size_sqft INTEGER,
+    deduction_sqft INTEGER DEFAULT 0,     -- non-coated area (e.g. skylights)
+    surface_type TEXT DEFAULT '',
+    candidate TEXT DEFAULT 'Yes',
+    warranty_years INTEGER DEFAULT 10,
+    price REAL,
+    assessment_date TEXT DEFAULT '',      -- ISO date
+    assessment_notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS bid_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bid_id INTEGER NOT NULL REFERENCES bids(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    caption TEXT DEFAULT '',
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bids_account ON bids(account_id);
+CREATE INDEX IF NOT EXISTS idx_bid_photos_bid ON bid_photos(bid_id);
+
 -- Post-sale: one project per won deal, with a task checklist and invoices.
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -346,9 +375,23 @@ def _migrate(conn) -> None:
                      "subject = REPLACE(subject, '{num_properties}', '{matching_properties}')")
 
 
+def _get_backup_dir_setting() -> str:
+    """The user's off-machine backup folder (e.g. a OneDrive/Dropbox path)."""
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='backup_dir'").fetchone()
+            return (row[0] or "").strip() if row else ""
+    except sqlite3.Error:
+        return ""
+
+
 def backup_db(keep: int = 14):
     """Copy crm.db into backups/ (at most once per day), keep the newest
-    `keep` copies. Returns the new backup path, or None if skipped."""
+    `keep` copies. Also mirrors the backup into the user's configured
+    off-machine folder (backup_dir setting) when one is set — pointing that
+    at a synced folder (OneDrive, Google Drive, Dropbox) protects the data
+    if this computer dies. Returns the new backup path, or None if skipped."""
     if not DB_PATH.exists():
         return None
     BACKUP_DIR.mkdir(exist_ok=True)
@@ -361,6 +404,19 @@ def backup_db(keep: int = 14):
         existing.append(made)
     for old in existing[:-keep]:
         old.unlink(missing_ok=True)
+
+    mirror = _get_backup_dir_setting()
+    latest = existing[-1] if existing else None
+    if mirror and latest:
+        try:
+            mdir = Path(mirror).expanduser()
+            mdir.mkdir(parents=True, exist_ok=True)
+            if not (mdir / latest.name).exists():
+                shutil.copy2(latest, mdir / latest.name)
+            for old in sorted(mdir.glob("crm-*.db"))[:-30]:
+                old.unlink(missing_ok=True)
+        except OSError:
+            pass  # never let a bad mirror path break startup
     return made
 
 

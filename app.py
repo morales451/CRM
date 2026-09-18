@@ -6,9 +6,12 @@ Then open http://<your-local-ip>:8000 from any device on your Wi-Fi.
 
 import csv
 import io
+import math
 import re
 import socket
+import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 from urllib.parse import quote
 
 from flask import (Flask, flash, redirect, render_template, request,
@@ -24,6 +27,8 @@ from db import (DEFAULT_PROJECT_TASKS, INTERACTION_TYPES, INVOICE_STATUSES,
 app = Flask(__name__)
 app.secret_key = "local-crm-flash-messages"  # local single-user app; used only for flash()
 PORT = 8000
+PHOTO_DIR = Path(__file__).parent / "uploads" / "bid_photos"
+PHOTO_MAX_DIM = 1600  # uploaded photos are resized to fit the report/PDF
 
 
 @app.template_filter("dt")
@@ -439,6 +444,261 @@ def move_milestone(account_id):
     return redirect(request.form.get("next") or url_for("pipeline"))
 
 
+# ------------------------------------------------------- Bids & roof reports
+
+# System spec rates from the SRP proposal template (per square = 100 sq ft)
+SPEC_BASECOAT_RATE = 1.25   # Henry #294 Basecoat, gal/square
+SPEC_TOPCOAT_RATE = 2.0     # Henry #988 Silicone Coating, gal/square
+SPEC_WASTE_FACTOR = 1.05
+PAIL_GALLONS = 5
+
+_ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT",
+         "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN",
+         "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"]
+_TENS = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY",
+         "EIGHTY", "NINETY"]
+
+
+def dollars_in_words(amount) -> str:
+    """15000 -> 'FIFTEEN THOUSAND DOLLARS' (contract-style quotation line)."""
+    def words(n):
+        if n < 20:
+            return _ONES[n]
+        if n < 100:
+            return (_TENS[n // 10] + ("-" + _ONES[n % 10] if n % 10 else "")).strip()
+        if n < 1000:
+            return (_ONES[n // 100] + " HUNDRED"
+                    + (" " + words(n % 100) if n % 100 else ""))
+        for div, name in ((1_000_000, "MILLION"), (1_000, "THOUSAND")):
+            if n >= div:
+                return (words(n // div) + " " + name
+                        + (" " + words(n % div) if n % div else ""))
+        return ""
+    n = int(round(amount or 0))
+    if n <= 0:
+        return ""
+    return words(n) + " DOLLARS"
+
+
+def materials_quote(net_sqft):
+    """Materials list per the SRP 10-year system spec, rounded to 5-gal pails."""
+    squares = net_sqft / 100 * SPEC_WASTE_FACTOR
+    def line(product, spec, rate):
+        gal = rate * squares
+        rounded = math.ceil(gal / PAIL_GALLONS) * PAIL_GALLONS
+        return {"product": product, "spec": spec,
+                "calc": f"{rate:g} × {squares:.1f} = {gal:.1f} gal",
+                "gallons": rounded, "pails": rounded // PAIL_GALLONS}
+    mastic_pails = max(2, math.ceil(squares / 8))
+    return {
+        "squares": round(squares, 1),
+        "lines": [
+            line("Henry #294 (Basecoat)", f"{SPEC_BASECOAT_RATE:g} gal / square",
+                 SPEC_BASECOAT_RATE),
+            line("Henry #988 (Silicone Topcoat)", f"{SPEC_TOPCOAT_RATE:g} gal / square",
+                 SPEC_TOPCOAT_RATE),
+            {"product": "Henry #923 (Butter Grade Mastic)",
+             "spec": "Seams & penetrations", "calc": "—",
+             "gallons": mastic_pails * PAIL_GALLONS, "pails": mastic_pails},
+        ],
+    }
+
+
+def _bid_or_404(conn, bid_id):
+    bid = conn.execute(
+        """SELECT b.*, a.company_name, a.first_name, a.last_name, a.title,
+                  a.email, a.work_phone, a.mobile_phone, a.notes AS account_notes
+           FROM bids b JOIN accounts a ON a.id = b.account_id
+           WHERE b.id = ?""", (bid_id,)).fetchone()
+    if bid is None:
+        from flask import abort
+        abort(404)
+    return bid
+
+
+@app.route("/accounts/<int:account_id>/bids/new", methods=["POST"])
+def new_bid(account_id):
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        ts = now_iso()
+        address = (request.form.get("roof_address", "").strip()
+                   or _address_from_notes(acct["notes"]))
+        sqft_raw = request.form.get("roof_size_sqft", "").strip()
+        cur = conn.execute(
+            """INSERT INTO bids (account_id, roof_address, roof_size_sqft,
+               surface_type, assessment_date, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (account_id, address, int(sqft_raw) if sqft_raw.isdigit() else None,
+             request.form.get("surface_type", "").strip(), today_iso(), ts, ts))
+        conn.commit()
+        bid_id = cur.lastrowid
+    finally:
+        conn.close()
+    flash("Roof report created — fill in the details, add photos, then open "
+          "the report.", "success")
+    return redirect(url_for("bid_edit", bid_id=bid_id))
+
+
+@app.route("/bids/<int:bid_id>")
+def bid_edit(bid_id):
+    conn = get_db()
+    try:
+        bid = _bid_or_404(conn, bid_id)
+        photos = conn.execute(
+            "SELECT * FROM bid_photos WHERE bid_id = ? ORDER BY sort_order, id",
+            (bid_id,)).fetchall()
+    finally:
+        conn.close()
+    return render_template("bid_edit.html", bid=bid, photos=photos)
+
+
+@app.route("/bids/<int:bid_id>/edit", methods=["POST"])
+def save_bid(bid_id):
+    def num(name):
+        raw = request.form.get(name, "").strip()
+        return int(raw) if raw.isdigit() else None
+    conn = get_db()
+    try:
+        _bid_or_404(conn, bid_id)
+        conn.execute(
+            """UPDATE bids SET roof_address=?, roof_size_sqft=?, deduction_sqft=?,
+               surface_type=?, candidate=?, warranty_years=?, price=?,
+               assessment_date=?, assessment_notes=?, updated_at=? WHERE id=?""",
+            (request.form.get("roof_address", "").strip(), num("roof_size_sqft"),
+             num("deduction_sqft") or 0,
+             request.form.get("surface_type", "").strip(),
+             request.form.get("candidate", "Yes"),
+             num("warranty_years") or 10,
+             _parse_amount(request.form.get("price")),
+             request.form.get("assessment_date", "").strip(),
+             request.form.get("assessment_notes", "").strip(),
+             now_iso(), bid_id))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Roof report saved.", "success")
+    return redirect(url_for("bid_edit", bid_id=bid_id))
+
+
+@app.route("/bids/<int:bid_id>/delete", methods=["POST"])
+def delete_bid(bid_id):
+    conn = get_db()
+    try:
+        bid = _bid_or_404(conn, bid_id)
+        for row in conn.execute("SELECT filename FROM bid_photos WHERE bid_id=?",
+                                (bid_id,)):
+            (PHOTO_DIR / row["filename"]).unlink(missing_ok=True)
+        conn.execute("DELETE FROM bids WHERE id=?", (bid_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Roof report deleted.", "warning")
+    return redirect(url_for("account_detail", account_id=bid["account_id"]))
+
+
+@app.route("/bids/<int:bid_id>/photos", methods=["POST"])
+def add_bid_photos(bid_id):
+    """Upload assessment photos; each is auto-resized to fit the report."""
+    from PIL import Image, ImageOps
+    files = request.files.getlist("photos")
+    added = failed = 0
+    conn = get_db()
+    try:
+        _bid_or_404(conn, bid_id)
+        PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+        last = conn.execute(
+            "SELECT COALESCE(MAX(sort_order), -1) FROM bid_photos WHERE bid_id=?",
+            (bid_id,)).fetchone()[0]
+        for f in files:
+            if not f or not f.filename:
+                continue
+            try:
+                img = Image.open(f.stream)
+                img = ImageOps.exif_transpose(img)  # honor phone orientation
+                img.thumbnail((PHOTO_MAX_DIM, PHOTO_MAX_DIM))
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                name = f"bid{bid_id}_{uuid.uuid4().hex[:10]}.jpg"
+                img.save(PHOTO_DIR / name, "JPEG", quality=85, optimize=True)
+            except Exception:
+                failed += 1
+                continue
+            last += 1
+            conn.execute(
+                "INSERT INTO bid_photos (bid_id, filename, caption, sort_order, "
+                "created_at) VALUES (?,?,?,?,?)",
+                (bid_id, name, "", last, now_iso()))
+            added += 1
+        conn.commit()
+    finally:
+        conn.close()
+    msg = f"Added {added} photo(s)."
+    if failed:
+        msg += (f" {failed} file(s) could not be read — use JPEG or PNG "
+                "(on iPhone: Settings > Camera > Formats > Most Compatible).")
+    flash(msg, "success" if added else "danger")
+    return redirect(url_for("bid_edit", bid_id=bid_id))
+
+
+@app.route("/bids/photos/<int:photo_id>/caption", methods=["POST"])
+def caption_bid_photo(photo_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT bid_id FROM bid_photos WHERE id=?",
+                           (photo_id,)).fetchone()
+        if row:
+            conn.execute("UPDATE bid_photos SET caption=? WHERE id=?",
+                         (request.form.get("caption", "").strip(), photo_id))
+            conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("bid_edit", bid_id=row["bid_id"]) if row
+                    else url_for("accounts"))
+
+
+@app.route("/bids/photos/<int:photo_id>/delete", methods=["POST"])
+def delete_bid_photo(photo_id):
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM bid_photos WHERE id=?",
+                           (photo_id,)).fetchone()
+        if row:
+            (PHOTO_DIR / row["filename"]).unlink(missing_ok=True)
+            conn.execute("DELETE FROM bid_photos WHERE id=?", (photo_id,))
+            conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("bid_edit", bid_id=row["bid_id"]) if row
+                    else url_for("accounts"))
+
+
+@app.route("/uploads/bid_photos/<path:filename>")
+def bid_photo_file(filename):
+    from flask import send_from_directory
+    return send_from_directory(PHOTO_DIR, filename)
+
+
+@app.route("/bids/<int:bid_id>/report")
+def bid_report(bid_id):
+    """The full branded, printable roof report / proposal."""
+    conn = get_db()
+    try:
+        bid = _bid_or_404(conn, bid_id)
+        photos = conn.execute(
+            "SELECT * FROM bid_photos WHERE bid_id = ? ORDER BY sort_order, id",
+            (bid_id,)).fetchall()
+        settings = _get_settings(conn)
+    finally:
+        conn.close()
+    net_sqft = (bid["roof_size_sqft"] or 0) - (bid["deduction_sqft"] or 0)
+    quote_data = materials_quote(net_sqft) if net_sqft > 0 else None
+    return render_template("bid_report.html", bid=bid, photos=photos,
+                           settings=settings, quote=quote_data,
+                           net_sqft=net_sqft,
+                           price_words=dollars_in_words(bid["price"]))
+
+
 # ----------------------------------------------------- Projects & invoicing
 
 def _parse_amount(raw):
@@ -766,6 +1026,29 @@ def _csv_response(rows, headers, filename):
                      download_name=filename)
 
 
+@app.route("/backup/download")
+def download_backup():
+    """Consistent snapshot of the whole database, sent as a file — an easy
+    off-machine copy from any device (including the phone)."""
+    import sqlite3 as _sq
+    import tempfile
+    from db import DB_PATH
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tf:
+        tmp_path = tf.name
+    src = _sq.connect(DB_PATH)
+    dst = _sq.connect(tmp_path)
+    try:
+        src.backup(dst)  # sqlite's online backup: safe while the app is in use
+    finally:
+        dst.close()
+        src.close()
+    data = Path(tmp_path).read_bytes()
+    Path(tmp_path).unlink(missing_ok=True)
+    return send_file(io.BytesIO(data), mimetype="application/octet-stream",
+                     as_attachment=True,
+                     download_name=f"crm-backup-{today_iso()}.db")
+
+
 @app.route("/export/accounts.csv")
 def export_accounts():
     conn = get_db()
@@ -876,11 +1159,15 @@ def account_detail(account_id):
                       and acct["pipeline_milestone"] == cadence.ACTIVE_MILESTONE)
         project = conn.execute("SELECT * FROM projects WHERE account_id = ?",
                                (account_id,)).fetchone()
+        bids = conn.execute(
+            "SELECT * FROM bids WHERE account_id = ? ORDER BY created_at DESC",
+            (account_id,)).fetchall()
     finally:
         conn.close()
     return render_template("account_detail.html", account=acct,
                            contacts=contacts, interactions=interactions,
-                           steps=steps, in_cadence=in_cadence, project=project)
+                           steps=steps, in_cadence=in_cadence, project=project,
+                           bids=bids)
 
 
 @app.route("/accounts/<int:account_id>/edit", methods=["POST"])
@@ -1141,7 +1428,7 @@ def save_settings():
     conn = get_db()
     try:
         for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
-                    "my_website", "my_address", "invoice_terms"):
+                    "my_website", "my_address", "invoice_terms", "backup_dir"):
             if key in request.form:  # only touch submitted fields
                 conn.execute(
                     "INSERT INTO settings (key, value) VALUES (?,?) "
@@ -1150,8 +1437,8 @@ def save_settings():
         conn.commit()
     finally:
         conn.close()
-    flash("Your info saved — it now fills into every script.", "success")
-    return redirect(url_for("templates_page"))
+    flash("Settings saved.", "success")
+    return redirect(request.form.get("next") or url_for("templates_page"))
 
 
 def _build_scripts(acct, settings, rows, step=""):
@@ -1196,6 +1483,16 @@ def account_scripts(account_id):
 
 # ------------------------------------------------------------------- Import
 
+def _backup_dir_setting():
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key='backup_dir'").fetchone()
+        return row["value"] if row else ""
+    finally:
+        conn.close()
+
+
 @app.route("/import", methods=["GET", "POST"])
 def import_page():
     result = None
@@ -1220,7 +1517,8 @@ def import_page():
                 flash(f"Import failed: {e}", "danger")
             finally:
                 conn.close()
-    return render_template("import.html", result=result)
+    return render_template("import.html", result=result,
+                           backup_dir=_backup_dir_setting())
 
 
 @app.route("/repace", methods=["POST"])
@@ -1270,7 +1568,8 @@ def import_contacts_route():
     file = request.files.get("file")
     if not file or not file.filename:
         flash("Choose a .xlsx or .csv contact file first.", "danger")
-        return render_template("import.html", result=None)
+        return render_template("import.html", result=None,
+                               backup_dir=_backup_dir_setting())
     conn = get_db()
     try:
         contact_result = importer.import_contacts(conn, file)
@@ -1284,7 +1583,9 @@ def import_contacts_route():
         contact_result = None
     finally:
         conn.close()
-    return render_template("import.html", result=None, contact_result=contact_result)
+    return render_template("import.html", result=None,
+                           contact_result=contact_result,
+                           backup_dir=_backup_dir_setting())
 
 
 @app.route("/import/template")
