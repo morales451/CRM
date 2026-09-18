@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Insights — Roof CRM{% endblock %}
+{% block content %}
+<style>
+  .viz { --viz-hue: #2a78d6; }
+  .hbar-row { display: flex; align-items: center; gap: .5rem; margin-bottom: 6px; }
+  .hbar-label { width: 42%; min-width: 130px; font-size: .82rem; color: #52514e;
+                text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { flex: 1; }
+  .hbar { height: 18px; background: var(--viz-hue); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hbar-zero { background: none; }
+  .hbar-value { font-size: .82rem; color: #0b0b0b; font-weight: 600; white-space: nowrap; }
+  .cols { display: flex; align-items: flex-end; gap: 2px; height: 150px; }
+  .col-slot { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
+              align-items: center; height: 100%; }
+  .col-bar { width: 70%; max-width: 24px; background: var(--viz-hue);
+             border-radius: 4px 4px 0 0; }
+  .col-value { font-size: .78rem; color: #0b0b0b; font-weight: 600; margin-bottom: 2px; }
+  .col-label { font-size: .72rem; color: #52514e; margin-top: 4px; white-space: nowrap; }
+  .cols-baseline { border-top: 1px solid #e4e4e2; margin-top: 0; }
+  .tile-delta-up { color: #008300; }
+  .tile-delta-down { color: #b3261e; }
+</style>
+
+<h1 class="mb-3">Insights</h1>
+
+<div class="viz">
+  <div class="row g-2 mb-4">
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ tiles.tasks_due }}</div><div class="text-muted small">Tasks due today</div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ tiles.this_week }}</div>
+      <div class="text-muted small">Touches this week
+        {% if tiles.week_delta != 0 %}
+        <span class="{{ 'tile-delta-up' if tiles.week_delta > 0 else 'tile-delta-down' }}">
+          {{ '▲' if tiles.week_delta > 0 else '▼' }} {{ tiles.week_delta|abs }} vs last wk</span>
+        {% endif %}
+      </div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ tiles.active_prospects }}</div><div class="text-muted small">Active prospects</div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ tiles.in_cadence }}</div><div class="text-muted small">In cold cadence</div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ tiles.won }}</div><div class="text-muted small">Closed won</div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ tiles.win_rate ~ '%' if tiles.win_rate is not none else '—' }}</div>
+      <div class="text-muted small">Win rate {{ '(no closed deals yet)' if tiles.win_rate is none }}</div>
+    </div></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="card p-3 h-100">
+        <h5 class="mb-1">Weekly activity</h5>
+        <div class="text-muted small mb-3">Interactions logged per week, last 8 weeks</div>
+        <div class="cols">
+          {% for w in weekly %}
+          <div class="col-slot" title="Week of {{ w.label }}: {{ w.count }} interaction(s)">
+            <div class="col-value">{{ w.count if w.count }}</div>
+            <div class="col-bar" style="height: {{ w.pct }}%;"></div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="cols cols-baseline" style="height:auto">
+          {% for w in weekly %}<div class="col-slot"><div class="col-label">{{ w.label }}</div></div>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card p-3 h-100">
+        <h5 class="mb-1">Pipeline</h5>
+        <div class="text-muted small mb-3">Accounts at each milestone (cadence pool excluded)</div>
+        {% for b in pipeline_bars %}
+        <div class="hbar-row" title="{{ b.label }}: {{ b.count }} account(s)">
+          <div class="hbar-label">{{ b.label }}</div>
+          <div class="hbar-track"><div class="hbar {{ 'hbar-zero' if not b.count }}" style="width: {{ b.pct }}%"></div></div>
+          <div class="hbar-value">{{ b.count }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card p-3 h-100">
+        <h5 class="mb-1">Cadence reach</h5>
+        <div class="text-muted small mb-3">Accounts that have received each cadence step</div>
+        {% for b in cadence_bars %}
+        <div class="hbar-row" title="{{ b.label }}: {{ b.count }} account(s){% if b.share is not none %} ({{ b.share }}% of all accounts){% endif %}">
+          <div class="hbar-label">{{ b.label }}</div>
+          <div class="hbar-track"><div class="hbar {{ 'hbar-zero' if not b.count }}" style="width: {{ b.pct }}%"></div></div>
+          <div class="hbar-value">{{ b.count }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card p-3 h-100">
+        <h5 class="mb-1">Prospecting status</h5>
+        <div class="text-muted small mb-3">All accounts by status</div>
+        {% for b in status_bars %}
+        <div class="hbar-row" title="{{ b.label }}: {{ b.count }} account(s){% if b.share is not none %} ({{ b.share }}%){% endif %}">
+          <div class="hbar-label">{{ b.label }}</div>
+          <div class="hbar-track"><div class="hbar {{ 'hbar-zero' if not b.count }}" style="width: {{ b.pct }}%"></div></div>
+          <div class="hbar-value">{{ b.count }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card p-3 h-100">
+        <h5 class="mb-1">Activity mix</h5>
+        <div class="text-muted small mb-3">Interactions by type, last 30 days</div>
+        {% for b in type_bars %}
+        <div class="hbar-row" title="{{ b.label }}: {{ b.count }} interaction(s)">
+          <div class="hbar-label">{{ b.label }}</div>
+          <div class="hbar-track"><div class="hbar" style="width: {{ b.pct }}%"></div></div>
+          <div class="hbar-value">{{ b.count }}</div>
+        </div>
+        {% else %}
+        <p class="text-muted small mb-0">No interactions logged in the last 30 days yet — numbers appear as you work the queue.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
