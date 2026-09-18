@@ -5,12 +5,20 @@
 
 <div class="card p-3 mb-3">
   <h5>Your Info</h5>
-  <p class="small text-muted mb-2">Fills into every script wherever <code>{my_name}</code>, <code>{my_company}</code>, or <code>{my_phone}</code> appears.</p>
+  <p class="small text-muted mb-2">Fills into every script wherever <code>{my_name}</code>, <code>{my_company}</code>, or <code>{my_phone}</code> appears — and onto printed invoices.</p>
   <form method="post" action="{{ url_for('save_settings') }}" class="row g-2">
-    <div class="col-12 col-md-4"><input name="my_name" class="form-control form-control-sm" placeholder="Your name" value="{{ settings.get('my_name', '') }}"></div>
-    <div class="col-12 col-md-4"><input name="my_company" class="form-control form-control-sm" placeholder="Your company" value="{{ settings.get('my_company', '') }}"></div>
-    <div class="col-12 col-md-3"><input name="my_phone" type="tel" class="form-control form-control-sm" placeholder="Your phone number" value="{{ settings.get('my_phone', '') }}"></div>
-    <div class="col-12 col-md-1"><button class="btn btn-sm btn-primary w-100">Save</button></div>
+    <div class="col-6 col-md-3"><input name="my_name" class="form-control form-control-sm" placeholder="Your name" value="{{ settings.get('my_name', '') }}"></div>
+    <div class="col-6 col-md-3"><input name="my_title" class="form-control form-control-sm" placeholder="Your title" value="{{ settings.get('my_title', '') }}"></div>
+    <div class="col-6 col-md-3"><input name="my_company" class="form-control form-control-sm" placeholder="Company (legal name)" value="{{ settings.get('my_company', '') }}"></div>
+    <div class="col-6 col-md-3"><input name="my_phone" type="tel" class="form-control form-control-sm" placeholder="Phone" value="{{ settings.get('my_phone', '') }}"></div>
+    <div class="col-6 col-md-4"><input name="my_email" type="email" class="form-control form-control-sm" placeholder="Email" value="{{ settings.get('my_email', '') }}"></div>
+    <div class="col-6 col-md-3"><input name="my_website" class="form-control form-control-sm" placeholder="Website" value="{{ settings.get('my_website', '') }}"></div>
+    <div class="col-12 col-md-5"><input name="my_address" class="form-control form-control-sm" placeholder="Business address (shows on invoices)" value="{{ settings.get('my_address', '') }}"></div>
+    <div class="col-12">
+      <label class="form-label small mb-0 text-muted">Invoice payment terms (printed at the bottom of every invoice)</label>
+      <textarea name="invoice_terms" rows="2" class="form-control form-control-sm">{{ settings.get('invoice_terms', '') }}</textarea>
+    </div>
+    <div class="col-12"><button class="btn btn-sm btn-primary">Save</button></div>
   </form>
 </div>
 

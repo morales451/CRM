@@ -212,9 +212,22 @@ def get_db() -> sqlite3.Connection:
 # Placeholders: {first_name} {last_name} {title} {company} {num_properties}
 #               {matching_properties} {my_name} {my_company} {my_phone}
 DEFAULT_SETTINGS = {
-    "my_name": "Alex",
-    "my_company": "Silicone Roof Pros",
-    "my_phone": "",
+    "my_name": "Alexis Morales",
+    "my_title": "President & CEO",
+    "my_company": "Silicone Roof Pros, Inc.",
+    "my_phone": "(832) 303-3183",
+    "my_email": "sales@siliconeroofpros.com",
+    "my_website": "siliconeroofpros.com",
+    "my_address": "",
+    # Shown at the bottom of printed invoices; drawn from the standard
+    # SRP contract payment terms. Editable on the Templates page.
+    "invoice_terms": (
+        "Payment accepted by check, bank transfer, or credit/debit card "
+        "(a 3% processing fee applies to credit and debit card transactions). "
+        "Invoices not paid within the specified term are subject to a late fee "
+        "of 1.5% per month (18% per annum) on the outstanding balance. "
+        "Upon receipt of payment, a conditional lien waiver will be provided; "
+        "a final unconditional lien waiver follows final payment."),
 }
 
 SEED_TEMPLATES = [
