@@ -25,6 +25,7 @@
       <div class="small text-muted">
         {{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}
         {% if account.num_properties %} · {{ account.num_properties }} properties{% endif %}
+        {% if account.preferred_contact|pref %}<span class="badge text-bg-light border">{{ account.preferred_contact|pref }}</span>{% endif %}
       </div>
       <div class="mt-1">
         {% if task.kind == 'cadence' %}
@@ -103,6 +104,7 @@
   <div class="card p-3 mb-3">
     <h5>Log what happened</h5>
     <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
+      <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
       <div class="row g-2">
         <div class="col-12 col-md-4">
           <select name="interaction_type" class="form-select form-select-sm">

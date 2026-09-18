@@ -85,7 +85,9 @@ computer's firewall (Windows will usually prompt you the first time — choose
   Imported accounts default to **Prospecting / None / In Cadence** and enter
   the cadence immediately — or use the **pacing option** to stagger starts
   (e.g. 25 accounts per business day) so a big list becomes a steady daily
-  routine instead of hundreds of Day-1 tasks at once.
+  routine instead of hundreds of Day-1 tasks at once. Forgot to pace? The
+  **Re-Pace Cadence** tool on the Import page re-staggers all untouched
+  in-cadence accounts after the fact.
 - **Export** — download accounts and interaction history as CSV from the
   Import page any time.
 
@@ -119,3 +121,13 @@ Your entire CRM is the single file `crm.db`. A dated copy lands in
 `backups/` automatically each day the app starts (newest 14 kept). To back up
 off-machine, copy `crm.db` anywhere (USB drive, cloud folder); restore by
 copying it back. CSV exports are on the Import page.
+
+## Tests
+
+The end-to-end test suite lives in `tests/test_crm.py` and covers imports,
+cadence rules, follow-ups, the queue, templates, insights, exports, and
+backups against a throwaway database (your `crm.db` is never touched):
+
+```bash
+python3 tests/test_crm.py
+```

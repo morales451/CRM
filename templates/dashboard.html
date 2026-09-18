@@ -37,6 +37,7 @@
           <td><a href="{{ url_for('account_detail', account_id=r.account_id) }}" class="fw-semibold text-decoration-none">{{ r.company_name }}</a></td>
           <td class="small">
             {{ r.first_name }} {{ r.last_name }}
+            {% if r.preferred_contact|pref %}<span class="badge text-bg-light border">{{ r.preferred_contact|pref }}</span>{% endif %}
             {% set phone = r.mobile_phone or r.work_phone %}
             {% if phone %}<br><a href="tel:{{ phone }}">{{ phone }}</a>{% endif %}
             {% if r.email %}<br><a href="mailto:{{ r.email }}">{{ r.email }}</a>{% endif %}
@@ -80,6 +81,7 @@
         <div>
           <a href="{{ url_for('account_detail', account_id=f.id) }}" class="fw-semibold text-decoration-none">{{ f.company_name }}</a>
           {% if f.first_name or f.last_name %}<span class="small text-muted">— {{ f.first_name }} {{ f.last_name }}</span>{% endif %}
+          {% if f.preferred_contact|pref %}<span class="badge text-bg-light border">{{ f.preferred_contact|pref }}</span>{% endif %}
           <span class="small {{ 'overdue' if f.next_follow_up < today }}">· due {{ f.next_follow_up|d }}</span>
           {% if f.follow_up_note %}<div class="small text-muted">{{ f.follow_up_note }}</div>{% endif %}
         </div>
