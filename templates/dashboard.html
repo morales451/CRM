@@ -39,7 +39,7 @@
             {{ r.first_name }} {{ r.last_name }}
             {% if r.preferred_contact|pref %}<span class="badge text-bg-light border">{{ r.preferred_contact|pref }}</span>{% endif %}
             {% set phone = r.mobile_phone or r.work_phone %}
-            {% if phone %}<br><a href="tel:{{ phone }}">{{ phone }}</a>{% endif %}
+            {% if phone %}<br><a href="tel:{{ phone|tel }}">{{ phone }}</a>{% endif %}
             {% if r.email %}<br><a href="mailto:{{ r.email }}">{{ r.email }}</a>{% endif %}
           </td>
           <td><span class="badge text-bg-primary">Day {{ r.day }}: {{ r.step_type }}</span></td>
@@ -111,7 +111,7 @@
         </div>
         <div class="text-nowrap">
           {% set phone = f.mobile_phone or f.work_phone %}
-          {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞</a>{% endif %}
+          {% if phone %}<a href="tel:{{ phone|tel }}" class="btn btn-sm btn-success">📞</a>{% endif %}
           {% for label, d in [('+1d', 1), ('+3d', 3), ('+1w', 7)] %}
           <form method="post" action="{{ url_for('set_followup', account_id=f.id) }}" class="d-inline">
             <input type="hidden" name="days" value="{{ d }}">

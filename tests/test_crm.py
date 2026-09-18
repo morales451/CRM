@@ -299,8 +299,8 @@ check("scripts: my info filled", "Alex with Silicone Roof Pros" in html
       and "(713) 555-0100" in html)
 check("scripts: mailto prefilled", "mailto:doug@sallyport.com?subject=" in html
       and "body=Hi%20Doug" in html)
-check("scripts: tel + sms links", "tel:(281) 423-9999" in html
-      and "sms:(832) 555-1111?body=" in html)
+check("scripts: tel + sms links use clean digits", "tel:2814239999" in html
+      and "sms:8325551111?body=" in html)
 check("scripts: log buttons present", 'value="Email 1"' in html
       and 'value="Breakup Email"' in html)
 
@@ -617,6 +617,17 @@ check("insights: pipeline bars", "Walked Roof" in html and "Closed Won" in html)
 check("insights: cadence reach bars", "Day 1: Email 1" in html and "Day 10: Breakup Email" in html)
 check("insights: activity mix", "Meeting" in html or "General Note" in html)
 check("insights: nav link", 'href="/insights"' in html)
+
+# ---- 20b. Edge-case hardening
+r = client.get("/queue?pos=abc")
+check("queue: junk pos handled", r.status_code == 200)
+r = client.post("/invoices/99999/status", data={"status": "Paid"}, follow_redirects=True)
+check("invoice status: missing invoice no crash", r.status_code == 200
+      and b"Invoice not found" in r.data)
+from app import clean_tel
+check("tel filter strips formatting", clean_tel("(281) 423-0260") == "2814230260"
+      and clean_tel("+1 832-303-3183") == "+18323033183" and clean_tel(None) == "")
+check("dashboard: tel links dialable", b'href="tel:(' not in client.get("/").data)
 
 # ---- 21. Projects & invoicing
 conn = db.get_db()
