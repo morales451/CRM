@@ -35,6 +35,30 @@ def format_datetime(iso_str):
         return iso_str or ""
 
 
+@app.template_filter("tel")
+def clean_tel(phone):
+    """Phone number as dialable digits for tel:/sms: links."""
+    return re.sub(r"[^\d+]", "", phone or "")
+
+
+_last_backup_date = None
+
+
+@app.before_request
+def _daily_backup():
+    """Keep daily backups flowing even when the app runs for weeks
+    without a restart (backup_db itself is a no-op after the first
+    call each day)."""
+    global _last_backup_date
+    t = today_iso()
+    if _last_backup_date != t:
+        _last_backup_date = t
+        try:
+            backup_db()
+        except OSError:
+            pass
+
+
 @app.template_filter("pref")
 def pref_badge(method):
     """Preferred contact method as a compact badge, empty for Unknown."""
@@ -258,7 +282,10 @@ def queue():
         total = len(tasks)
         if total == 0:
             return render_template("queue.html", task=None, total=0, pos=0)
-        pos = max(0, min(int(request.args.get("pos", 0) or 0), total - 1))
+        try:
+            pos = max(0, min(int(request.args.get("pos", 0)), total - 1))
+        except (TypeError, ValueError):
+            pos = 0
         task = tasks[pos]
         acct = conn.execute("SELECT * FROM accounts WHERE id=?",
                             (task["account_id"],)).fetchone()
@@ -644,6 +671,9 @@ def invoice_status(invoice_id):
     try:
         inv = conn.execute("SELECT * FROM invoices WHERE id=?",
                            (invoice_id,)).fetchone()
+        if inv is None:
+            flash("Invoice not found.", "danger")
+            return redirect(request.form.get("next") or url_for("projects"))
         if inv:
             sent = inv["sent_date"] or (today_iso() if new_status in ("Sent", "Paid") else "")
             due = inv["due_date"]
@@ -1138,9 +1168,9 @@ def _build_scripts(acct, settings, rows, step=""):
             action_url = (f"mailto:{acct['email']}?subject={quote(subject)}"
                           f"&body={quote(body)}")
         elif t["kind"] == "call" and (acct["work_phone"] or acct["mobile_phone"]):
-            action_url = f"tel:{acct['work_phone'] or acct['mobile_phone']}"
+            action_url = f"tel:{clean_tel(acct['work_phone'] or acct['mobile_phone'])}"
         elif t["kind"] == "text" and acct["mobile_phone"]:
-            action_url = f"sms:{acct['mobile_phone']}?body={quote(body)}"
+            action_url = f"sms:{clean_tel(acct['mobile_phone'])}?body={quote(body)}"
         scripts.append({
             "template": t, "subject": subject, "body": body,
             "missing": list(dict.fromkeys(missing_s + missing_b)),

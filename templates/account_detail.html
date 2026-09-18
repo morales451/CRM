@@ -13,8 +13,8 @@
   </div>
   <div class="text-nowrap">
     {% set phone = account.mobile_phone or account.work_phone %}
-    {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞 Call</a>
-    <a href="sms:{{ phone }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
+    {% if phone %}<a href="tel:{{ phone|tel }}" class="btn btn-sm btn-success">📞 Call</a>
+    <a href="sms:{{ phone|tel }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
     {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
     <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-warning" title="Personalized call & email scripts">📄 Scripts</a>
     <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ account.company_name)|urlencode }}"
@@ -197,8 +197,8 @@
               {% if account.title %}<div class="small text-muted">{{ account.title }}</div>{% endif %}
               <div class="small">
                 {% if account.email %}<a href="mailto:{{ account.email }}">{{ account.email }}</a><br>{% endif %}
-                {% if account.work_phone %}<a href="tel:{{ account.work_phone }}">{{ account.work_phone }}</a> (work) {% endif %}
-                {% if account.mobile_phone %}<a href="tel:{{ account.mobile_phone }}">{{ account.mobile_phone }}</a> (mobile){% endif %}
+                {% if account.work_phone %}<a href="tel:{{ account.work_phone|tel }}">{{ account.work_phone }}</a> (work) {% endif %}
+                {% if account.mobile_phone %}<a href="tel:{{ account.mobile_phone|tel }}">{{ account.mobile_phone }}</a> (mobile){% endif %}
               </div>
             </div>
           </div>
@@ -212,8 +212,8 @@
               {% if c.title %}<div class="small text-muted">{{ c.title }}</div>{% endif %}
               <div class="small">
                 {% if c.email %}<a href="mailto:{{ c.email }}">{{ c.email }}</a><br>{% endif %}
-                {% if c.work_phone %}<a href="tel:{{ c.work_phone }}">{{ c.work_phone }}</a> (work) {% endif %}
-                {% if c.mobile_phone %}<a href="tel:{{ c.mobile_phone }}">{{ c.mobile_phone }}</a> (mobile){% endif %}
+                {% if c.work_phone %}<a href="tel:{{ c.work_phone|tel }}">{{ c.work_phone }}</a> (work) {% endif %}
+                {% if c.mobile_phone %}<a href="tel:{{ c.mobile_phone|tel }}">{{ c.mobile_phone }}</a> (mobile){% endif %}
               </div>
             </div>
             <div class="text-nowrap">
