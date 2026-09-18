@@ -664,6 +664,39 @@ def invoice_status(invoice_id):
                     or url_for("project_detail", project_id=inv["project_id"]))
 
 
+def _address_from_notes(notes):
+    """Pull the 'Address: ...' line that imports write into account notes."""
+    for line in (notes or "").splitlines():
+        if line.strip().lower().startswith("address:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+@app.route("/invoices/<int:invoice_id>/print")
+def print_invoice(invoice_id):
+    """Branded, printable invoice (print or save as PDF from the browser)."""
+    conn = get_db()
+    try:
+        inv = conn.execute(
+            """SELECT i.*, p.name AS project_name, p.account_id
+               FROM invoices i JOIN projects p ON p.id = i.project_id
+               WHERE i.id = ?""", (invoice_id,)).fetchone()
+        if inv is None:
+            from flask import abort
+            abort(404)
+        acct = conn.execute("SELECT * FROM accounts WHERE id = ?",
+                            (inv["account_id"],)).fetchone()
+        settings = _get_settings(conn)
+    finally:
+        conn.close()
+    overdue = (inv["status"] == "Sent" and inv["due_date"]
+               and inv["due_date"] < today_iso())
+    return render_template("invoice_print.html", inv=inv, account=acct,
+                           settings=settings, overdue=overdue,
+                           bill_address=_address_from_notes(acct["notes"]),
+                           number=inv["invoice_number"] or f"INV-{inv['id']:04d}")
+
+
 @app.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
 def delete_invoice(invoice_id):
     conn = get_db()
@@ -1077,11 +1110,13 @@ def save_template(template_id):
 def save_settings():
     conn = get_db()
     try:
-        for key in ("my_name", "my_company", "my_phone"):
-            conn.execute(
-                "INSERT INTO settings (key, value) VALUES (?,?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, request.form.get(key, "").strip()))
+        for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
+                    "my_website", "my_address", "invoice_terms"):
+            if key in request.form:  # only touch submitted fields
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (key, request.form.get(key, "").strip()))
         conn.commit()
     finally:
         conn.close()

@@ -265,8 +265,8 @@ conn = db.get_db()
 n_templates = conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"]
 check("templates: 6 seeded", n_templates == 6, n_templates)
 settings = {r["key"]: r["value"] for r in conn.execute("SELECT * FROM settings")}
-check("templates: settings seeded", settings.get("my_name") == "Alex"
-      and settings.get("my_company") == "Silicone Roof Pros")
+check("templates: settings seeded", settings.get("my_name") == "Alexis Morales"
+      and settings.get("my_company") == "Silicone Roof Pros, Inc.")
 conn.close()
 # re-init must not duplicate seeds
 db.init_db()
@@ -705,6 +705,38 @@ check("account: project card links", "Open:".encode() in r.data)
 r = client.post(f"/projects/{proj['id']}/invoices/add", data={"amount": "abc"},
                 follow_redirects=True)
 check("invoice: bad amount rejected", b"Enter an invoice amount" in r.data)
+# ---- printable invoice
+conn = db.get_db()
+s_keys = {r2["key"] for r2 in conn.execute("SELECT key FROM settings")}
+check("invoice print: business settings seeded",
+      {"my_title", "my_email", "my_website", "my_address", "invoice_terms"} <= s_keys)
+conn.execute("UPDATE accounts SET notes='Address: 123 Main St, Houston, TX 77002\n"
+             "Website: x.com', first_name='Doug', last_name='Erwin', "
+             "email='doug@x.com' WHERE id=?", (won_id,))
+conn.commit()
+pr_inv = conn.execute("SELECT id FROM invoices WHERE project_id=? LIMIT 1",
+                      (proj["id"],)).fetchone()["id"]
+conn.close()
+r = client.get(f"/invoices/{pr_inv}/print")
+html = r.data.decode()
+check("invoice print: 200 + branding", r.status_code == 200
+      and "brand-logo.png" in html and "Silicone Roof Pros" in html
+      and "#0088df" in html)
+check("invoice print: bill-to from account + notes address",
+      "Doug Erwin" in html and "123 Main St, Houston, TX 77002" in html)
+check("invoice print: terms shown", "1.5% per month" in html)
+check("invoice print: number fallback or set", "INV-" in html)
+conn = db.get_db()
+conn.execute("UPDATE invoices SET status='Paid', paid_date=? WHERE id=?",
+             (date.today().isoformat(), pr_inv))
+conn.commit(); conn.close()
+r = client.get(f"/invoices/{pr_inv}/print")
+check("invoice print: PAID stamp", b"stamp paid" in r.data and b"PAID" in r.data)
+r = client.get("/invoices/99999/print")
+check("invoice print: missing 404", r.status_code == 404)
+r = client.get(f"/projects/{proj['id']}")
+check("project page: print button present", "🖨".encode() in r.data)
+
 # delete cascade
 r = client.post(f"/projects/{proj['id']}/delete", follow_redirects=True)
 conn = db.get_db()

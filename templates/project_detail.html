@@ -130,6 +130,8 @@
               </td>
               <td class="small {{ 'overdue' if overdue }}">{{ i.due_date|d if i.due_date else '—' }}</td>
               <td class="text-end text-nowrap">
+                <a href="{{ url_for('print_invoice', invoice_id=i.id) }}" target="_blank"
+                   class="btn btn-sm btn-outline-secondary" title="Printable invoice">🖨</a>
                 {% if i.status == 'Draft' %}
                 <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
                   <input type="hidden" name="status" value="Sent">

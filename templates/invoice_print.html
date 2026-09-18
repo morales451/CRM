@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Invoice {{ number }} — {{ settings.get('my_company', '') }}</title>
+  <style>
+    :root { --brand: #0088df; --brand-dark: #0070b8; --navy: #1a1a2e; --light: #e8f4fc; }
+    * { box-sizing: border-box; }
+    body { font-family: "Segoe UI", Arial, sans-serif; color: #1a1a2e; margin: 0;
+           background: #f0f2f5; }
+    .sheet { max-width: 800px; margin: 1.5rem auto; background: #fff; padding: 2.5rem 3rem;
+             box-shadow: 0 2px 12px rgba(0,0,0,.12); position: relative; }
+    .topbar { height: 8px; background: linear-gradient(90deg, var(--brand), var(--navy));
+              margin: -2.5rem -3rem 2rem; }
+    .head { display: flex; justify-content: space-between; align-items: flex-start;
+            gap: 1rem; flex-wrap: wrap; }
+    .head img { width: 150px; height: auto; }
+    .inv-title { text-align: right; }
+    .inv-title h1 { margin: 0; color: var(--brand); font-size: 2.2rem;
+                    letter-spacing: .12em; }
+    .inv-title .num { font-size: 1.05rem; color: #555; }
+    .meta { margin-top: .6rem; font-size: .9rem; color: #333; }
+    .meta strong { display: inline-block; min-width: 70px; }
+    .parties { display: flex; justify-content: space-between; gap: 2rem;
+               margin: 2rem 0 1.5rem; flex-wrap: wrap; }
+    .party h3 { margin: 0 0 .35rem; font-size: .78rem; text-transform: uppercase;
+                letter-spacing: .1em; color: var(--brand-dark); }
+    .party div { font-size: .95rem; line-height: 1.45; }
+    table.lines { width: 100%; border-collapse: collapse; margin: .5rem 0 0; }
+    table.lines th { background: var(--navy); color: #fff; text-align: left;
+                     padding: .6rem .8rem; font-size: .82rem; letter-spacing: .05em;
+                     text-transform: uppercase; }
+    table.lines th:last-child, table.lines td:last-child { text-align: right; }
+    table.lines td { padding: .8rem; border-bottom: 1px solid #e4e7ec; font-size: .95rem; }
+    .totalrow { display: flex; justify-content: flex-end; margin-top: .8rem; }
+    .totalbox { background: var(--light); border-left: 4px solid var(--brand);
+                padding: .7rem 1.2rem; font-size: 1.15rem; }
+    .totalbox strong { font-size: 1.35rem; color: var(--brand-dark); margin-left: 1.2rem; }
+    .stamp { position: absolute; top: 42%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg);
+             font-size: 4.2rem; font-weight: 800; letter-spacing: .2em; opacity: .13;
+             border: 6px solid; border-radius: 12px; padding: .2em .5em; pointer-events: none; }
+    .stamp.paid { color: #0a7a2f; }
+    .stamp.overdue { color: #c22; }
+    .terms { margin-top: 2.2rem; font-size: .78rem; color: #555; line-height: 1.5;
+             border-top: 1px solid #e4e7ec; padding-top: .9rem; }
+    .thanks { margin-top: 1.4rem; font-size: .95rem; }
+    .foot { margin-top: .8rem; font-size: .82rem; color: var(--brand-dark); }
+    .no-print { text-align: center; margin: 1rem 0 2rem; }
+    .no-print a, .no-print button { display: inline-block; background: var(--brand); color: #fff;
+      border: 0; border-radius: 6px; padding: .55rem 1.3rem; font-size: 1rem;
+      text-decoration: none; cursor: pointer; margin: 0 .3rem; }
+    .no-print a.gray { background: #6c757d; }
+    @media print {
+      body { background: #fff; }
+      .sheet { box-shadow: none; margin: 0; max-width: none; padding: 1.2rem 1.5rem; }
+      .topbar { margin: -1.2rem -1.5rem 1.5rem; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="sheet">
+  <div class="topbar"></div>
+  {% if inv.status == 'Paid' %}<div class="stamp paid">PAID</div>
+  {% elif overdue %}<div class="stamp overdue">OVERDUE</div>{% endif %}
+  <div class="head">
+    <div>
+      <img src="{{ url_for('static', filename='brand-logo.png') }}" alt="{{ settings.get('my_company', '') }}">
+    </div>
+    <div class="inv-title">
+      <h1>INVOICE</h1>
+      <div class="num">{{ number }}</div>
+      <div class="meta">
+        {% if inv.sent_date %}<div><strong>Date:</strong> {{ inv.sent_date|d }}</div>{% endif %}
+        {% if inv.due_date %}<div><strong>Due:</strong> {{ inv.due_date|d }}</div>{% endif %}
+        {% if inv.status == 'Paid' and inv.paid_date %}<div><strong>Paid:</strong> {{ inv.paid_date|d }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="parties">
+    <div class="party">
+      <h3>From</h3>
+      <div>
+        <strong>{{ settings.get('my_company', '') }}</strong><br>
+        {{ settings.get('my_name', '') }}{% if settings.get('my_title') %}, {{ settings.get('my_title') }}{% endif %}<br>
+        {% if settings.get('my_address') %}{{ settings.get('my_address') }}<br>{% endif %}
+        {% if settings.get('my_phone') %}{{ settings.get('my_phone') }}<br>{% endif %}
+        {% if settings.get('my_email') %}{{ settings.get('my_email') }}<br>{% endif %}
+        {% if settings.get('my_website') %}{{ settings.get('my_website') }}{% endif %}
+      </div>
+    </div>
+    <div class="party">
+      <h3>Bill To</h3>
+      <div>
+        <strong>{{ account.company_name }}</strong><br>
+        {% if account.first_name or account.last_name %}{{ account.first_name }} {{ account.last_name }}{% if account.title %}, {{ account.title }}{% endif %}<br>{% endif %}
+        {% if bill_address %}{{ bill_address }}<br>{% endif %}
+        {% if account.email %}{{ account.email }}<br>{% endif %}
+        {% if account.work_phone or account.mobile_phone %}{{ account.work_phone or account.mobile_phone }}{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <table class="lines">
+    <thead><tr><th>Description</th><th>Amount</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          {{ inv.notes or 'Roof restoration services' }}
+          <div style="color:#777; font-size:.85rem;">{{ inv.project_name }}</div>
+        </td>
+        <td>{{ inv.amount|money }}</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="totalrow">
+    <div class="totalbox">Total Due <strong>{{ inv.amount|money }}</strong></div>
+  </div>
+
+  <div class="thanks">Thank you for your business!</div>
+  <div class="foot">"Don't Replace, Restore — Half the Price, All the Performance!"</div>
+
+  {% if settings.get('invoice_terms') %}
+  <div class="terms"><strong>Payment Terms:</strong> {{ settings.get('invoice_terms') }}</div>
+  {% endif %}
+</div>
+<div class="no-print">
+  <button onclick="window.print()">🖨 Print / Save as PDF</button>
+  <a class="gray" href="{{ url_for('project_detail', project_id=inv.project_id) }}">← Back to Project</a>
+</div>
+</body>
+</html>
