@@ -71,6 +71,30 @@
   {% endif %}
 </div>
 
+{% if owed %}
+<div class="card mb-4">
+  <div class="card-header bg-white fw-bold">💰 Outstanding Invoices</div>
+  <ul class="list-group list-group-flush">
+    {% for i in owed %}
+    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span>
+        <a href="{{ url_for('project_detail', project_id=i.pid) }}" class="fw-semibold text-decoration-none">{{ i.company_name }}</a>
+        <span class="fw-semibold">{{ i.amount|money }}</span>
+        {% if i.invoice_number %}<span class="small text-muted">#{{ i.invoice_number }}</span>{% endif %}
+        {% if i.overdue %}<span class="badge text-bg-danger">Overdue — due {{ i.due_date|d }}</span>
+        {% elif i.due_date %}<span class="small text-muted">due {{ i.due_date|d }}</span>{% endif %}
+      </span>
+      <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
+        <input type="hidden" name="status" value="Paid">
+        <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
+        <button class="btn btn-sm btn-success">✓ Mark Paid</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <div class="card mb-4">
   <div class="card-header bg-white fw-bold">📅 Follow-Ups Due</div>
   {% if followups %}
