@@ -5,3 +5,6 @@ crm.db
 backups/
 .venv/
 venv/
+*.db-wal
+*.db-shm
+tests/test_backups/

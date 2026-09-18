@@ -45,6 +45,23 @@
 </div>
 
 <div class="card p-3 mb-3">
+  <h5>Re-Pace Cadence</h5>
+  <p class="small text-muted mb-2">Imported a big list without pacing and now face a wall of Day-1 tasks?
+    This re-staggers the cadence start dates of all <strong>untouched</strong> in-cadence accounts
+    (no interactions logged, no steps checked off) at N per business day starting tomorrow.
+    Accounts you've already contacted keep their dates.</p>
+  <form method="post" action="{{ url_for('repace') }}" class="d-flex gap-2 flex-wrap align-items-center"
+        onsubmit="return confirm('Re-stagger cadence start dates for all untouched in-cadence accounts?')">
+    <div class="input-group input-group-sm" style="max-width: 260px;">
+      <span class="input-group-text">Start</span>
+      <input type="number" name="per_day" min="1" class="form-control" placeholder="e.g. 25" required>
+      <span class="input-group-text">/business day</span>
+    </div>
+    <button class="btn btn-outline-primary btn-sm">Re-Pace</button>
+  </form>
+</div>
+
+<div class="card p-3 mb-3">
   <h5>Export & Backup</h5>
   <p class="small text-muted mb-2">Your entire CRM lives in the single file <code>crm.db</code>; a dated copy is
     saved automatically to the <code>backups/</code> folder each day the app starts (newest 14 kept).

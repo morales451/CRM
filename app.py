@@ -34,6 +34,14 @@ def format_datetime(iso_str):
         return iso_str or ""
 
 
+@app.template_filter("pref")
+def pref_badge(method):
+    """Preferred contact method as a compact badge, empty for Unknown."""
+    icons = {"Email": "✉️ prefers email", "Call": "📞 prefers call",
+             "Text": "💬 prefers text"}
+    return icons.get(method, "")
+
+
 @app.template_filter("d")
 def format_date(iso_str):
     try:
@@ -575,7 +583,8 @@ def log_interaction(account_id):
     finally:
         conn.close()
     flash(f"Logged “{itype}”.", "success")
-    return redirect(url_for("account_detail", account_id=account_id))
+    return redirect(request.form.get("next")
+                    or url_for("account_detail", account_id=account_id))
 
 
 # ----------------------------------------------------------------- Contacts
@@ -829,6 +838,47 @@ def import_page():
             finally:
                 conn.close()
     return render_template("import.html", result=result)
+
+
+@app.route("/repace", methods=["POST"])
+def repace():
+    """Re-stagger cadence starts for untouched in-cadence accounts.
+
+    Only accounts that are active in cadence AND have no logged interactions
+    or checked-off steps are re-paced — anything already being worked keeps
+    its dates.
+    """
+    per_day_raw = request.form.get("per_day", "").strip()
+    if not (per_day_raw.isdigit() and int(per_day_raw) > 0):
+        flash("Enter how many accounts should start per business day.", "danger")
+        return redirect(url_for("import_page"))
+    per_day = int(per_day_raw)
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """SELECT id FROM accounts a
+               WHERE prospecting_status = ? AND pipeline_milestone = ?
+                 AND NOT EXISTS (SELECT 1 FROM interactions i WHERE i.account_id = a.id)
+                 AND NOT EXISTS (SELECT 1 FROM cadence_dismissals d WHERE d.account_id = a.id)
+               ORDER BY id""",
+            (cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE)).fetchall()
+        start = importer._next_business_day(datetime.now().date())
+        ts = now_iso()
+        for i, row in enumerate(rows):
+            if i > 0 and i % per_day == 0:
+                start = importer._next_business_day(start + timedelta(days=1))
+            conn.execute("UPDATE accounts SET cadence_start=?, updated_at=? WHERE id=?",
+                         (start.isoformat(), ts, row["id"]))
+        conn.commit()
+    finally:
+        conn.close()
+    if rows:
+        flash(f"Re-paced {len(rows)} untouched account(s) at {per_day}/business day, "
+              f"{importer._next_business_day(datetime.now().date()).isoformat()} "
+              f"through {start.isoformat()}.", "success")
+    else:
+        flash("No untouched in-cadence accounts to re-pace.", "warning")
+    return redirect(url_for("import_page"))
 
 
 @app.route("/import/contacts", methods=["POST"])
