@@ -31,13 +31,14 @@ import openpyxl
 wb = openpyxl.Workbook()
 ws = wb.active
 ws.append(["Company Name", "First Name", "Last Name", "Job Title",
-           "# of Properties", "Email Address", "Office Phone", "Cell Phone", "Comments"])
-ws.append(["Acme Properties LLC", "Jane", "Doe", "Owner", 3,
+           "# of Properties", "# Properties (in search)", "Email Address",
+           "Office Phone", "Cell Phone", "Comments"])
+ws.append(["Acme Properties LLC", "Jane", "Doe", "Owner", 3, 2,
            "jane@acme.com", 7135551234, "713-555-9999", "Big flat roof"])
-ws.append(["Bayou Holdings", "Bob", "Smith", "Facilities Mgr", None,
+ws.append(["Bayou Holdings", "Bob", "Smith", "Facilities Mgr", None, None,
            "bob@bayou.com", None, None, None])
-ws.append(["", "No", "Company", "", None, "", "", "", ""])          # blank company → skipped
-ws.append(["Acme Properties LLC", "Dup", "Row", "", None, "", "", "", ""])  # dupe → skipped
+ws.append(["", "No", "Company", "", None, None, "", "", "", ""])          # blank company → skipped
+ws.append(["Acme Properties LLC", "Dup", "Row", "", None, None, "", "", "", ""])  # dupe → skipped
 buf = io.BytesIO(); wb.save(buf); buf.seek(0)
 
 class FakeUpload(io.BytesIO):
@@ -56,6 +57,7 @@ check("import: all key columns mapped",
 acme = conn.execute("SELECT * FROM accounts WHERE company_name='Acme Properties LLC'").fetchone()
 check("import: phone float cleaned", acme["work_phone"] == "7135551234", acme["work_phone"])
 check("import: num_properties int", acme["num_properties"] == 3)
+check("import: matching_properties (column I) captured", acme["matching_properties"] == 2)
 check("import: defaults", acme["prospecting_status"] == "Prospecting"
       and acme["pipeline_milestone"] == "None / In Cadence")
 check("import: ISO created_at", "T" in acme["created_at"] and len(acme["created_at"]) >= 19,
@@ -283,7 +285,8 @@ check("POST /settings saves", r.status_code == 200)
 # Sallyport (id from earlier ZI import) has Doug Erwin, title Founder, no num_properties set
 conn = db.get_db()
 sp = conn.execute("SELECT * FROM accounts WHERE company_name LIKE 'Sallyport%'").fetchone()
-conn.execute("UPDATE accounts SET num_properties=23, title='Founder' WHERE id=?", (sp["id"],))
+conn.execute("UPDATE accounts SET num_properties=40, matching_properties=23, "
+             "title='Founder' WHERE id=?", (sp["id"],))
 conn.commit(); conn.close()
 
 r = client.get(f"/accounts/{sp['id']}/scripts")
@@ -515,7 +518,83 @@ conn.close()
 r = client.post("/repace", data={"per_day": ""}, follow_redirects=True)
 check("repace: blank rejected", b"Enter how many" in r.data)
 
-# ---- 19. Insights
+# ---- 19. Column I backfill, heuristic headers, placeholder migration
+# Backfill: Bayou has NULL property counts; re-upload with values fills them in
+bf_csv = (b"Company Name,# Properties (in search),Properties Owned\r\n"
+          b"Bayou Holdings,5,12\r\n")
+r = client.post("/import", data={"file": (io.BytesIO(bf_csv), "backfill.csv")},
+                content_type="multipart/form-data")
+check("backfill: summary shown", b"backfilled with property counts" in r.data, r.data[:400])
+conn = db.get_db()
+b_row = conn.execute("SELECT * FROM accounts WHERE company_name='Bayou Holdings'").fetchone()
+check("backfill: counts filled on existing account",
+      b_row["matching_properties"] == 5 and b_row["num_properties"] == 12)
+first_before = b_row["first_name"]
+conn.close()
+# re-upload again → nothing more to backfill, other fields untouched
+r = client.post("/import", data={"file": (io.BytesIO(bf_csv), "backfill.csv")},
+                content_type="multipart/form-data")
+conn = db.get_db()
+b_row = conn.execute("SELECT * FROM accounts WHERE company_name='Bayou Holdings'").fetchone()
+check("backfill: idempotent, contact untouched",
+      b_row["matching_properties"] == 5 and b_row["first_name"] == first_before)
+conn.close()
+
+# Heuristic mapping: differently-worded CoStar-style headers still map
+variant = importer.map_columns([
+    "Company", "Owner First Name", "Owner Last Name", "Contact Title",
+    "Total Properties Owned", "Matching Properties Count",
+    "Office Phone Number", "Cell #", "E-Mail", "Internal Comments"])
+check("headers: variant names all deciphered",
+      variant.get("company_name") == "Company"
+      and variant.get("first_name") == "Owner First Name"
+      and variant.get("last_name") == "Owner Last Name"
+      and variant.get("num_properties") == "Total Properties Owned"
+      and variant.get("matching_properties") == "Matching Properties Count"
+      and variant.get("work_phone") == "Office Phone Number"
+      and variant.get("mobile_phone") == "Cell #"
+      and variant.get("email") == "E-Mail"
+      and variant.get("notes") == "Internal Comments", variant)
+check("headers: company rule skips address/phone columns",
+      "company_name" not in importer.map_columns(["Company Address", "Company Phone"]))
+
+# Placeholder migration: an old-schema db (no matching_properties) with the old
+# Email 1 text gets the placeholder swapped when init_db migrates it
+import sqlite3 as _sq
+old_path = db.DB_PATH.parent / "old_migrate.db"
+old_path.unlink(missing_ok=True)
+_c = _sq.connect(old_path)
+_c.executescript("""
+CREATE TABLE accounts (id INTEGER PRIMARY KEY, company_name TEXT NOT NULL,
+ first_name TEXT DEFAULT '', last_name TEXT DEFAULT '', title TEXT DEFAULT '',
+ num_properties INTEGER, email TEXT DEFAULT '', work_phone TEXT DEFAULT '',
+ mobile_phone TEXT DEFAULT '', preferred_contact TEXT NOT NULL DEFAULT 'Unknown',
+ notes TEXT DEFAULT '', prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
+ pipeline_milestone TEXT NOT NULL DEFAULT 'None / In Cadence',
+ cadence_start TEXT NOT NULL, next_follow_up TEXT DEFAULT '',
+ follow_up_note TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE templates (id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+ kind TEXT NOT NULL DEFAULT 'email', steps TEXT DEFAULT '', subject TEXT DEFAULT '',
+ body TEXT NOT NULL DEFAULT '', sort_order INTEGER DEFAULT 0, updated_at TEXT NOT NULL);
+INSERT INTO templates (name, kind, subject, body, updated_at) VALUES
+ ('Email 1', 'email', '{company}''s {num_properties} older properties',
+  'roughly {num_properties} properties built before the 1980s', '2026-01-01T00:00:00');
+""")
+_c.commit(); _c.close()
+_real_path = db.DB_PATH
+db.DB_PATH = old_path
+db.init_db()
+_c = db.get_db()
+mig = _c.execute("SELECT subject, body FROM templates WHERE name='Email 1'").fetchone()
+mig_cols = {r2[1] for r2 in _c.execute("PRAGMA table_info(accounts)")}
+_c.close()
+db.DB_PATH = _real_path
+check("migration: matching_properties column added", "matching_properties" in mig_cols)
+check("migration: old templates get new placeholder",
+      "{matching_properties}" in mig["subject"] and "{matching_properties}" in mig["body"]
+      and "{num_properties}" not in mig["body"], dict(mig))
+
+# ---- 20. Insights
 conn = db.get_db()
 conn.execute("UPDATE accounts SET pipeline_milestone='Closed Won' WHERE company_name='Stagger Co 1'")
 conn.execute("UPDATE accounts SET pipeline_milestone='Closed Lost' WHERE company_name IN "

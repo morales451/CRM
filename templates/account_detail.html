@@ -7,6 +7,8 @@
     <div class="text-muted small">
       Created {{ account.created_at|dt }}
       {% if in_cadence %}<span class="badge text-bg-primary ms-1">In Cadence</span>{% endif %}
+      {% if account.matching_properties %}<span class="badge text-bg-warning ms-1">🎯 {{ account.matching_properties }} matching propert{{ 'y' if account.matching_properties == 1 else 'ies' }}</span>{% endif %}
+      {% if account.num_properties %}<span class="badge text-bg-light border ms-1">{{ account.num_properties }} total</span>{% endif %}
     </div>
   </div>
   <div class="text-nowrap">
@@ -45,9 +47,13 @@
             <label class="form-label small mb-0">Title</label>
             <input name="title" class="form-control form-control-sm" value="{{ account.title }}">
           </div>
-          <div class="col-6">
-            <label class="form-label small mb-0"># Properties</label>
+          <div class="col-3">
+            <label class="form-label small mb-0">Total Props</label>
             <input name="num_properties" type="number" min="0" class="form-control form-control-sm" value="{{ account.num_properties if account.num_properties is not none }}">
+          </div>
+          <div class="col-3">
+            <label class="form-label small mb-0" title="Properties that fit your criteria (pre-1980s)">🎯 Matching</label>
+            <input name="matching_properties" type="number" min="0" class="form-control form-control-sm" value="{{ account.matching_properties if account.matching_properties is not none }}">
           </div>
           <div class="col-12">
             <label class="form-label small mb-0">Email</label>

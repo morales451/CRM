@@ -100,6 +100,7 @@
   <h5>Import Summary</h5>
   <ul class="mb-2">
     <li><strong>{{ result.imported }}</strong> account(s) imported</li>
+    {% if result.backfilled %}<li><strong>{{ result.backfilled }}</strong> existing account(s) backfilled with property counts</li>{% endif %}
     <li>{{ result.skipped_duplicates }} skipped (company already exists)</li>
     <li>{{ result.skipped_blank }} skipped (blank company name)</li>
     <li>{{ result.total_rows }} row(s) in file</li>

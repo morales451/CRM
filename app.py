@@ -70,13 +70,17 @@ def _account_or_404(conn, account_id):
 
 
 def _account_fields_from_form(form):
-    num_props = form.get("num_properties", "").strip()
+    def int_or_none(name):
+        raw = form.get(name, "").strip()
+        return int(raw) if raw.isdigit() else None
+
     return {
         "company_name": form.get("company_name", "").strip(),
         "first_name": form.get("first_name", "").strip(),
         "last_name": form.get("last_name", "").strip(),
         "title": form.get("title", "").strip(),
-        "num_properties": int(num_props) if num_props.isdigit() else None,
+        "num_properties": int_or_none("num_properties"),
+        "matching_properties": int_or_none("matching_properties"),
         "email": form.get("email", "").strip(),
         "work_phone": form.get("work_phone", "").strip(),
         "mobile_phone": form.get("mobile_phone", "").strip(),
@@ -470,10 +474,10 @@ def new_account():
             cur = conn.execute(
                 """INSERT INTO accounts
                    (company_name, first_name, last_name, title, num_properties,
-                    email, work_phone, mobile_phone, preferred_contact, notes,
-                    prospecting_status, pipeline_milestone, cadence_start,
-                    created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    matching_properties, email, work_phone, mobile_phone,
+                    preferred_contact, notes, prospecting_status,
+                    pipeline_milestone, cadence_start, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (*fields.values(), today_iso(), ts, ts))
             conn.commit()
             new_id = cur.lastrowid
@@ -517,9 +521,10 @@ def edit_account(account_id):
         _account_or_404(conn, account_id)
         conn.execute(
             """UPDATE accounts SET company_name=?, first_name=?, last_name=?,
-               title=?, num_properties=?, email=?, work_phone=?, mobile_phone=?,
-               preferred_contact=?, notes=?, prospecting_status=?,
-               pipeline_milestone=?, updated_at=? WHERE id=?""",
+               title=?, num_properties=?, matching_properties=?, email=?,
+               work_phone=?, mobile_phone=?, preferred_contact=?, notes=?,
+               prospecting_status=?, pipeline_milestone=?, updated_at=?
+               WHERE id=?""",
             (*fields.values(), now_iso(), account_id))
         conn.commit()
     finally:
@@ -678,7 +683,8 @@ def delete_contact(account_id, contact_id):
 
 PLACEHOLDER_LABELS = {
     "first_name": "first name", "last_name": "last name", "title": "title",
-    "company": "company", "num_properties": "number of properties",
+    "company": "company", "num_properties": "total properties",
+    "matching_properties": "matching properties",
     "email": "email", "my_name": "your name", "my_company": "your company",
     "my_phone": "your phone number",
 }
@@ -701,6 +707,8 @@ def render_script(text: str, acct, settings: dict):
         "title": acct["title"],
         "company": acct["company_name"],
         "num_properties": str(acct["num_properties"]) if acct["num_properties"] else "",
+        "matching_properties": (str(acct["matching_properties"])
+                                if acct["matching_properties"] else ""),
         "email": acct["email"],
         "my_name": settings.get("my_name", ""),
         "my_company": settings.get("my_company", ""),
