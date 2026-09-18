@@ -861,6 +861,13 @@ r = client.get("/import")
 check("import page: backup UI present", b"Off-Machine Backup Folder" in r.data
       and b"Download Full Backup" in r.data)
 
+# ---- 24. In-app guide
+r = client.get("/guide")
+check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data
+      and b"The daily routine" in r.data and b"Roof reports / bids" in r.data
+      and b"Data safety" in r.data)
+check("guide: nav link", b'href="/guide"' in client.get("/").data)
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

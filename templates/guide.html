@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Guide — Roof CRM{% endblock %}
+{% block content %}
+<style>
+  .guide h2 { color: #1d4e89; border-bottom: 3px solid #1d4e89; padding-bottom: .25rem;
+              margin-top: 2.2rem; font-size: 1.35rem; scroll-margin-top: 1rem; }
+  .guide h3 { font-size: 1.05rem; margin-top: 1.2rem; }
+  .guide .toc a { text-decoration: none; }
+  .guide kbd { background: #1d4e89; color: #fff; border-radius: 4px; padding: .1rem .45rem;
+               font-size: .82em; }
+  .guide table td, .guide table th { padding: .35rem .6rem; }
+  .guide .tip { background: #e8f4fc; border-left: 4px solid #0088df; padding: .6rem .9rem;
+                border-radius: 4px; margin: .8rem 0; }
+</style>
+
+<div class="guide" style="max-width: 900px;">
+<h1 class="mb-2">📖 Roof CRM Guide</h1>
+<p class="text-muted">Everything the CRM does, organized the way you'll use it.</p>
+
+<div class="card p-3 toc">
+  <strong>Contents</strong>
+  <div class="row small mt-1">
+    <div class="col-6 col-md-4">
+      <a href="#start">1. Getting started</a><br>
+      <a href="#daily">2. The daily routine</a><br>
+      <a href="#dashboard">3. Dashboard</a><br>
+      <a href="#queue">4. Work the Queue</a><br>
+      <a href="#import">5. Importing lists</a>
+    </div>
+    <div class="col-6 col-md-4">
+      <a href="#cadence">6. The cold cadence</a><br>
+      <a href="#contacts">7. Contacts &amp; ZoomInfo</a><br>
+      <a href="#scripts">8. Scripts &amp; templates</a><br>
+      <a href="#followups">9. Follow-ups &amp; stale deals</a><br>
+      <a href="#pipeline">10. Pipeline board</a>
+    </div>
+    <div class="col-6 col-md-4">
+      <a href="#bids">11. Roof reports / bids</a><br>
+      <a href="#projects">12. Projects &amp; invoicing</a><br>
+      <a href="#insights">13. Insights</a><br>
+      <a href="#backup">14. Data safety</a><br>
+      <a href="#trouble">15. Troubleshooting</a>
+    </div>
+  </div>
+</div>
+
+<h2 id="start">1. Getting started</h2>
+<ul>
+  <li><strong>Start the app:</strong> double-click <code>start.bat</code> (Windows) or run <code>./start.sh</code> (Mac/Linux). First run installs everything; after that it starts in seconds.</li>
+  <li><strong>On this computer:</strong> open <code>http://localhost:8000</code>.</li>
+  <li><strong>On your phone/tablet:</strong> the startup window prints an address like <code>http://192.168.1.23:8000</code> — type it into your phone's browser (must be on the same Wi-Fi). Then use <em>Add to Home Screen</em> so it opens like an app with its own icon.</li>
+  <li><strong>One-time setup:</strong> on the <a href="{{ url_for('templates_page') }}">Templates</a> page, check "Your Info" (name, title, company, phone, email, address) — it fills into every script and invoice. On the <a href="{{ url_for('import_page') }}">Import</a> page, set the off-machine backup folder.</li>
+  <li><strong>Keep the computer awake</strong> while you work from your phone — if it sleeps, the app is unreachable until it wakes.</li>
+</ul>
+
+<h2 id="daily">2. The daily routine</h2>
+<ol>
+  <li>Open the <a href="{{ url_for('dashboard') }}">Dashboard</a>. The top row tells you today's workload at a glance.</li>
+  <li>Hit <kbd>▶ Work the Queue</kbd> and go task by task: script on screen, call/email/text with one tap, log it, next.</li>
+  <li>Chase money: any invoice in the 💰 card is waiting on payment — overdue ones are red.</li>
+  <li>Glance at 🥶 Going Stale and give each one a follow-up date so it re-enters the flow.</li>
+</ol>
+<div class="tip">Everything in this CRM flows from one habit: <strong>log every touch</strong>. Logged interactions clear reminders, feed the timeline, drive Insights, and keep deals from going stale.</div>
+
+<h2 id="dashboard">3. Dashboard</h2>
+<ul>
+  <li><strong>📌 Due Reminders</strong> — cold-cadence steps due today (or overdue). Each row: 📄 Script opens the personalized script, ✓ Log records the step (clears the reminder), ✕ Skip clears without logging. A reminder stays pinned until you do one of those.</li>
+  <li><strong>💰 Outstanding Invoices</strong> — every sent, unpaid invoice; overdue first in red; ✓ Mark Paid on the spot.</li>
+  <li><strong>📅 Follow-Ups Due</strong> — accounts whose follow-up date has arrived, with the note you left yourself, snooze buttons (+1d/+3d/+1w) and ✓ Done.</li>
+  <li><strong>🥶 Going Stale</strong> — pipeline deals with no logged touch in 14+ days and no follow-up scheduled. One tap sets "follow up today."</li>
+  <li><strong>🕘 Recent Activity</strong> — your last 10 logged interactions.</li>
+</ul>
+
+<h2 id="queue">4. Work the Queue</h2>
+<p>One task at a time, sorted oldest-due first, combining cadence steps and follow-ups. For a cadence task you get the account's info, contact buttons, and every matching script (call script + voicemail + text together for call days) with Copy buttons and one-tap <em>Open in Email app / Dial / Open in Messages</em>. Then:</p>
+<ul>
+  <li><kbd>✓ Log … &amp; Next</kbd> — records the step and advances.</li>
+  <li><kbd>✕ Skip this step</kbd> — clears the step without logging it.</li>
+  <li><kbd>Skip for now →</kbd> — leaves the task in place and shows the next one.</li>
+</ul>
+<p>Follow-up tasks show your note, a quick log form, snooze buttons, and ✓ Done.</p>
+
+<h2 id="import">5. Importing lists (CoStar etc.)</h2>
+<ul>
+  <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
+  <li><strong>Pacing:</strong> set "Start N /business day" (e.g. 25) so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
+  <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, and missing property counts are backfilled onto existing accounts.</li>
+  <li>Imported accounts capture address/city/zip/website into Notes, the criteria-matching property count (🎯), and total properties owned. Defaults: Prospecting / None-In Cadence → straight into the cadence.</li>
+</ul>
+
+<h2 id="cadence">6. The cold cadence</h2>
+<table class="table table-sm w-auto">
+  <thead class="table-light"><tr><th>Day</th><th>Step</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Email 1</td></tr>
+    <tr><td>3</td><td>Call &amp; Text</td></tr>
+    <tr><td>6</td><td>Call 2</td></tr>
+    <tr><td>8</td><td>Email 2</td></tr>
+    <tr><td>10</td><td>Breakup Email</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li>Applies only while an account is <strong>Prospecting</strong> + <strong>None / In Cadence</strong>. Change either (interested, not interested, any milestone) and all its reminders vanish instantly; change back and they reappear — nothing is ever stored stale.</li>
+  <li>Each account page shows its cadence progress (✅ logged, ⏭️ skipped, 🔴 due, ⚪ upcoming).</li>
+  <li><strong>↻ Restart Cadence</strong> (account page) resets the 10-day clock to today for re-engaging a cold prospect — old cadence steps are kept in history as notes.</li>
+</ul>
+
+<h2 id="contacts">7. Contacts &amp; ZoomInfo</h2>
+<ul>
+  <li>Each account has a <strong>primary contact</strong> (fills scripts, emails, invoices) plus unlimited additional people.</li>
+  <li>On an account page: 🔎 ZoomInfo / in LinkedIn buttons jump to research for that company; the <em>+ Add Contact</em> form is right below. The first person you add becomes primary automatically; ★ promotes anyone else to primary (the old primary moves down, nothing is lost).</li>
+  <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name (LLC/Inc/punctuation ignored). First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped; unmatched companies reported.</li>
+</ul>
+
+<h2 id="scripts">8. Scripts &amp; templates</h2>
+<ul>
+  <li>Your cold call script, voicemail, text, Email 1, Email 2, and breakup email live on the <a href="{{ url_for('templates_page') }}">Templates</a> page — fully editable, with checkboxes controlling which cadence steps each appears for.</li>
+  <li>Placeholders fill from each account when a script opens: <code>{first_name}</code> <code>{last_name}</code> <code>{title}</code> <code>{company}</code> <code>{matching_properties}</code> (fit your pre-1980s criteria) <code>{num_properties}</code> (total) <code>{my_name}</code> <code>{my_company}</code> <code>{my_phone}</code>.</li>
+  <li>Missing info renders as a bracketed hint like <code>[first name]</code> with a warning — nothing half-personalized slips out unnoticed.</li>
+  <li><em>Open in Email app</em> pre-fills recipient, subject and body — you just press Send. Calls dial; texts open Messages pre-typed.</li>
+</ul>
+
+<h2 id="followups">9. Follow-ups &amp; stale deals</h2>
+<ul>
+  <li>Set a follow-up date + note on any account (quick buttons: Tomorrow / +3 days / +1 week). Due follow-ups pin to the Dashboard and Queue until done or snoozed — this is how warm prospects outside the cold cadence stay visible.</li>
+  <li>Pipeline deals with no touch in 14+ days and no follow-up set get flagged 🥶 on the Dashboard.</li>
+</ul>
+
+<h2 id="pipeline">10. Pipeline board</h2>
+<p>A column per milestone (Accepted Meeting → … → Closed Won/Lost), each deal as a card showing the contact, last touch, and any follow-up date. The dropdown on each card moves the deal to another milestone right from the board.</p>
+
+<h2 id="bids">11. Roof reports / bids</h2>
+<ul>
+  <li>On an account page, <strong>📑 Roof Reports / Bids → + New Report</strong> (the address auto-fills from the imported notes).</li>
+  <li>Fill in roof size, non-coated deductions, surface type, warranty years, price, assessment date, and observations (one per line — they become the report's bullet list).</li>
+  <li><strong>Photos:</strong> upload straight from your phone — auto-resized, auto-rotated, converted to compact JPEGs. Captions print beside each photo in the two-per-row survey grid.</li>
+  <li><strong>📑 Open Report</strong> generates the full branded proposal: cover, CEO letter personalized to the contact, process table, roof facts, site assessment + photo survey, the 10-year Henry system spec, a <strong>materials quote computed from the square footage</strong> (1.25 gal/sq basecoat, 2 gal/sq topcoat, +5% waste, rounded to 5-gal pails), the quotation in words and figures, warranties incl. Material Plus, next steps, and a signature page. Print / Save as PDF from the browser.</li>
+</ul>
+
+<h2 id="projects">12. Projects &amp; invoicing (after Closed Won)</h2>
+<ul>
+  <li>Move a deal to <strong>Closed Won</strong> and its account page offers <em>Create Project</em> (the <a href="{{ url_for('projects') }}">Projects</a> page also lists won deals missing one).</li>
+  <li>Every project starts with the standard job checklist — contract → deposit → materials → crew → job → walkthrough → final payment → warranty. Tap to check off (timestamped), add or remove steps, watch the progress bar.</li>
+  <li><strong>Invoices:</strong> add as Draft → <kbd>Mark Sent</kbd> (stamps the date; due date defaults to +30 days) → <kbd>✓ Paid</kbd>. Sent invoices pin to the Dashboard until paid; past-due ones show <span class="badge text-bg-danger">Overdue</span>.</li>
+  <li><strong>🖨 on any invoice row</strong> prints a branded invoice — logo, your info, bill-to with the customer's address, PAID/OVERDUE stamps, and your payment terms (late fee, card fee, lien waivers) in the footer. Print or save as PDF to email.</li>
+  <li>Money rolls up everywhere: per project, across the Projects page, and on Insights (contracted / invoiced / collected / outstanding).</li>
+</ul>
+
+<h2 id="insights">13. Insights</h2>
+<ul>
+  <li><strong>Tiles:</strong> tasks due, touches this week (with vs-last-week arrow — your effort meter), active prospects, in-cadence pool, closed won, win rate — plus a money row once projects exist.</li>
+  <li><strong>Weekly activity:</strong> interactions logged per week, last 8 weeks. The one chart to watch — activity is the number you control.</li>
+  <li><strong>Pipeline:</strong> where deals pile up. <strong>Cadence reach:</strong> how many accounts got each step — a steep drop from emails to calls means calls are being skipped. <strong>Status breakdown</strong> and <strong>activity mix</strong> round it out.</li>
+</ul>
+
+<h2 id="backup">14. Data safety</h2>
+<ul>
+  <li>Your whole CRM is one file, <code>crm.db</code>. Bid photos live in the <code>uploads/</code> folder next to it.</li>
+  <li>A dated backup is saved to <code>backups/</code> automatically once a day (even if the app runs for weeks), newest 14 kept.</li>
+  <li><strong>Off-machine:</strong> set the backup folder on the Import page to a synced folder (OneDrive/Google Drive/Dropbox) and every daily backup is mirrored there. <strong>Download Full Backup</strong> grabs a snapshot from any device.</li>
+  <li><strong>Restore:</strong> stop the app, copy a backup file over <code>crm.db</code>, start again.</li>
+  <li>CSV exports of accounts and interaction history are on the Import page.</li>
+</ul>
+
+<h2 id="trouble">15. Troubleshooting</h2>
+<ul>
+  <li><strong>Phone can't reach the app:</strong> same Wi-Fi network? Computer awake? Windows Firewall allowed on <em>private</em> networks? (Re-run the app and accept the firewall prompt, or allow inbound port 8000.)</li>
+  <li><strong>iPhone photos won't upload:</strong> they're likely HEIC. Settings → Camera → Formats → <em>Most Compatible</em>, or share as JPEG.</li>
+  <li><strong>Import mapped a column wrong:</strong> the import summary shows every mapping — rename the header in Excel to something plainer (e.g. "Company Name") and re-upload; duplicates are skipped so it's safe.</li>
+  <li><strong>Wrong "Your Info" on scripts/invoices:</strong> fix it once on the Templates page.</li>
+  <li><strong>Health check:</strong> <code>python3 tests/test_crm.py</code> runs the app's 178-check test suite against a throwaway database.</li>
+</ul>
+</div>
+{% endblock %}
