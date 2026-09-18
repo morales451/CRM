@@ -1596,6 +1596,13 @@ def import_template():
                      as_attachment=True, download_name="crm_import_template.csv")
 
 
+# -------------------------------------------------------------------- Guide
+
+@app.route("/guide")
+def guide():
+    return render_template("guide.html")
+
+
 # ------------------------------------------------------------------ Startup
 
 def _local_ip() -> str:
