@@ -252,6 +252,89 @@ def queue():
                            scripts=scripts, total=total, pos=pos)
 
 
+# ----------------------------------------------------------------- Insights
+
+def _bar_items(pairs, total=None):
+    """[(label, count)] -> render-ready bars with widths scaled to the max."""
+    peak = max((c for _, c in pairs), default=0) or 1
+    return [{"label": l, "count": c, "pct": round(100 * c / peak),
+             "share": (round(100 * c / total) if total else None)}
+            for l, c in pairs]
+
+
+@app.route("/insights")
+def insights():
+    """Critical numbers: activity trend, funnel, cadence completion, breakdowns."""
+    conn = get_db()
+    try:
+        today = datetime.now().date()
+
+        def count(sql, *params):
+            return conn.execute(sql, params).fetchone()[0]
+
+        total_accounts = count("SELECT COUNT(*) FROM accounts")
+        won = count("SELECT COUNT(*) FROM accounts WHERE pipeline_milestone='Closed Won'")
+        lost = count("SELECT COUNT(*) FROM accounts WHERE pipeline_milestone='Closed Lost'")
+        tiles = {
+            "tasks_due": len(cadence.get_due_reminders(conn)) + len(_due_followups(conn)),
+            "total_accounts": total_accounts,
+            "active_prospects": count(
+                "SELECT COUNT(*) FROM accounts WHERE prospecting_status != 'Not Interested' "
+                "AND pipeline_milestone NOT IN ('Closed Won','Closed Lost')"),
+            "in_cadence": count(
+                "SELECT COUNT(*) FROM accounts WHERE prospecting_status=? AND pipeline_milestone=?",
+                cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE),
+            "won": won,
+            "win_rate": round(100 * won / (won + lost)) if (won + lost) else None,
+        }
+
+        # Interactions per week, last 8 weeks (Mondays as bucket starts)
+        monday = today - timedelta(days=today.weekday())
+        week_starts = [monday - timedelta(weeks=i) for i in range(7, -1, -1)]
+        buckets = {w.isoformat(): 0 for w in week_starts}
+        since = week_starts[0].isoformat()
+        for (created,) in conn.execute(
+                "SELECT created_at FROM interactions WHERE created_at >= ?", (since,)):
+            d = datetime.fromisoformat(created).date()
+            key = (d - timedelta(days=d.weekday())).isoformat()
+            if key in buckets:
+                buckets[key] += 1
+        weekly_counts = [buckets[w.isoformat()] for w in week_starts]
+        peak = max(weekly_counts) or 1
+        weekly = [{"label": f"{w.strftime('%b')} {w.day}", "count": c,
+                   "pct": round(100 * c / peak)}
+                  for w, c in zip(week_starts, weekly_counts)]
+        tiles["this_week"] = weekly_counts[-1]
+        tiles["week_delta"] = weekly_counts[-1] - weekly_counts[-2]
+
+        # Pipeline funnel (the cadence pool would dwarf it, so it's a tile instead)
+        pipeline_bars = _bar_items([
+            (m, count("SELECT COUNT(*) FROM accounts WHERE pipeline_milestone=?", m))
+            for m in PIPELINE_MILESTONES if m != "None / In Cadence"])
+
+        # How far accounts get through the cadence (distinct accounts per step)
+        cadence_bars = _bar_items([
+            (f"Day {day}: {step}",
+             count("SELECT COUNT(DISTINCT account_id) FROM interactions "
+                   "WHERE interaction_type=?", step))
+            for day, step in cadence.CADENCE_STEPS], total=total_accounts)
+
+        status_bars = _bar_items([
+            (s, count("SELECT COUNT(*) FROM accounts WHERE prospecting_status=?", s))
+            for s in PROSPECTING_STATUSES], total=total_accounts)
+
+        month_ago = (today - timedelta(days=30)).isoformat()
+        type_bars = _bar_items(conn.execute(
+            "SELECT interaction_type, COUNT(*) FROM interactions "
+            "WHERE created_at >= ? GROUP BY interaction_type "
+            "ORDER BY COUNT(*) DESC", (month_ago,)).fetchall())
+    finally:
+        conn.close()
+    return render_template("insights.html", tiles=tiles, weekly=weekly,
+                           pipeline_bars=pipeline_bars, cadence_bars=cadence_bars,
+                           status_bars=status_bars, type_bars=type_bars)
+
+
 # ----------------------------------------------------------------- Pipeline
 
 @app.route("/pipeline")
