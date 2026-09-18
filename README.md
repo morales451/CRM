@@ -87,6 +87,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   the step when done. Missing info (no first name yet, etc.) is flagged in
   [brackets] so nothing goes out half-baked. Set your own name, company, and
   phone once on the Templates page and they fill into every script.
+- **Roof Reports / Bid Generator** — create a full branded restoration
+  proposal from any account page: cover, CEO letter (personalized to the
+  contact), process overview, roof facts, site assessment with an uploaded
+  photo survey (photos auto-resize and auto-rotate; captions print beside
+  them), the 10-year system spec, a materials quote computed from square
+  footage (1.25 gal/sq basecoat, 2 gal/sq topcoat, 5% waste, rounded to
+  5-gal pails), quotation in words and figures, warranties, and a signature
+  page. Print or save as PDF from the browser.
 - **Import** — upload `.xlsx` or `.csv` prospecting lists (e.g.
   `HTX_Office_5kto10k.xlsx`). Column headers are matched automatically and
   duplicates (same company name) are skipped, so re-uploads are safe.
@@ -126,9 +134,15 @@ Rules:
 ## Backup
 
 Your entire CRM is the single file `crm.db`. A dated copy lands in
-`backups/` automatically each day the app starts (newest 14 kept). To back up
-off-machine, copy `crm.db` anywhere (USB drive, cloud folder); restore by
-copying it back. CSV exports are on the Import page.
+`backups/` automatically each day (newest 14 kept). Set an **off-machine
+backup folder** on the Import page — point it at OneDrive/Google
+Drive/Dropbox and each daily backup is mirrored there, so a dead computer
+can't take your data with it. A **Download Full Backup** button (also on the
+Import page) grabs a consistent snapshot from any device. Restore by copying
+a backup file back to `crm.db`. CSV exports are on the Import page too.
+
+Note: bid photos live in `uploads/` next to the app — include that folder
+when copying the app to a new machine.
 
 ## Tests
 

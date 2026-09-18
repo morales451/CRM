@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Roof Report — {{ bid.company_name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="mb-0">Roof Report</h1>
+    <div class="text-muted small">for <a href="{{ url_for('account_detail', account_id=bid.account_id) }}">{{ bid.company_name }}</a></div>
+  </div>
+  <a href="{{ url_for('bid_report', bid_id=bid.id) }}" target="_blank" class="btn btn-warning">📑 Open Report / Proposal</a>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Roof & Bid Details</h5>
+      <form method="post" action="{{ url_for('save_bid', bid_id=bid.id) }}">
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label small mb-0">Roof Address</label>
+            <input name="roof_address" class="form-control form-control-sm" value="{{ bid.roof_address }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Roof Size (sq ft)</label>
+            <input name="roof_size_sqft" type="number" min="0" class="form-control form-control-sm" value="{{ bid.roof_size_sqft if bid.roof_size_sqft is not none }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0" title="Non-coated area, e.g. skylights">Minus (sq ft)</label>
+            <input name="deduction_sqft" type="number" min="0" class="form-control form-control-sm" value="{{ bid.deduction_sqft or '' }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Surface Type</label>
+            <input name="surface_type" class="form-control form-control-sm" list="surfaces" value="{{ bid.surface_type }}">
+            <datalist id="surfaces">
+              <option>Capsheet</option><option>Granulated Capsheet</option><option>TPO</option>
+              <option>Modified Bitumen</option><option>Metal</option><option>EPDM</option><option>BUR</option>
+            </datalist>
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Candidate?</label>
+            <select name="candidate" class="form-select form-select-sm">
+              <option {{ 'selected' if bid.candidate == 'Yes' }}>Yes</option>
+              <option {{ 'selected' if bid.candidate == 'No' }}>No</option>
+            </select>
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Warranty (years)</label>
+            <input name="warranty_years" type="number" min="1" class="form-control form-control-sm" value="{{ bid.warranty_years }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Assessment Date</label>
+            <input type="date" name="assessment_date" class="form-control form-control-sm" value="{{ bid.assessment_date }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Quotation Price ($)</label>
+            <input name="price" class="form-control form-control-sm" value="{{ (bid.price|int if bid.price == bid.price|int else bid.price) if bid.price is not none }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Assessment Observations</label>
+            <textarea name="assessment_notes" rows="4" class="form-control form-control-sm"
+              placeholder="Observations and items to address, one per line…">{{ bid.assessment_notes }}</textarea>
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button class="btn btn-sm btn-primary">Save</button>
+          </div>
+        </div>
+      </form>
+      <hr>
+      <form method="post" action="{{ url_for('delete_bid', bid_id=bid.id) }}"
+            onsubmit="return confirm('Delete this roof report and its photos?')">
+        <button class="btn btn-sm btn-outline-danger">🗑 Delete Report</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Assessment Photos <span class="text-muted fs-6">({{ photos|length }})</span></h5>
+      <form method="post" action="{{ url_for('add_bid_photos', bid_id=bid.id) }}" enctype="multipart/form-data"
+            class="d-flex gap-2 flex-wrap align-items-center mb-3">
+        <input type="file" name="photos" accept="image/*" multiple class="form-control form-control-sm" style="max-width: 340px;" required>
+        <button class="btn btn-sm btn-success">⬆ Upload</button>
+        <div class="form-text w-100">Take them straight from your phone — photos are automatically resized to fit the report. Add a caption under each (it prints beside the photo).</div>
+      </form>
+      <div class="row g-2">
+        {% for p in photos %}
+        <div class="col-6">
+          <div class="card p-2">
+            <img src="{{ url_for('bid_photo_file', filename=p.filename) }}" class="img-fluid rounded mb-1" alt="{{ p.caption }}" loading="lazy">
+            <form method="post" action="{{ url_for('caption_bid_photo', photo_id=p.id) }}" class="d-flex gap-1">
+              <input name="caption" class="form-control form-control-sm" placeholder="Caption…" value="{{ p.caption }}">
+              <button class="btn btn-sm btn-outline-primary" title="Save caption">💾</button>
+            </form>
+            <form method="post" action="{{ url_for('delete_bid_photo', photo_id=p.id) }}" class="mt-1"
+                  onsubmit="return confirm('Remove this photo?')">
+              <button class="btn btn-sm btn-outline-danger w-100">✕ Remove</button>
+            </form>
+          </div>
+        </div>
+        {% else %}
+        <div class="text-muted small">No photos yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
