@@ -21,9 +21,13 @@
       <label class="form-label">Title</label>
       <input name="title" class="form-control" value="{{ a.get('title', '') }}">
     </div>
-    <div class="col-12 col-md-6">
-      <label class="form-label">Number of Properties</label>
+    <div class="col-6 col-md-3">
+      <label class="form-label">Total Properties</label>
       <input name="num_properties" type="number" min="0" class="form-control" value="{{ a.get('num_properties', '') }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label">Matching Criteria <span class="text-muted small">(pre-1980s)</span></label>
+      <input name="matching_properties" type="number" min="0" class="form-control" value="{{ a.get('matching_properties', '') }}">
     </div>
     <div class="col-12 col-md-6">
       <label class="form-label">Email</label>

@@ -24,7 +24,8 @@
       <h4 class="mb-1"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h4>
       <div class="small text-muted">
         {{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}
-        {% if account.num_properties %} · {{ account.num_properties }} properties{% endif %}
+        {% if account.matching_properties %} · 🎯 {{ account.matching_properties }} matching{% endif %}
+        {% if account.num_properties %} · {{ account.num_properties }} total properties{% endif %}
         {% if account.preferred_contact|pref %}<span class="badge text-bg-light border">{{ account.preferred_contact|pref }}</span>{% endif %}
       </div>
       <div class="mt-1">

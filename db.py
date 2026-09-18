@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     first_name TEXT DEFAULT '',
     last_name TEXT DEFAULT '',
     title TEXT DEFAULT '',
-    num_properties INTEGER,
+    num_properties INTEGER,               -- total properties owned
+    matching_properties INTEGER,          -- how many fit the sales criteria (pre-1980s)
     email TEXT DEFAULT '',
     work_phone TEXT DEFAULT '',
     mobile_phone TEXT DEFAULT '',
@@ -141,7 +142,7 @@ def get_db() -> sqlite3.Connection:
 
 # Default settings and outreach templates, seeded on first run.
 # Placeholders: {first_name} {last_name} {title} {company} {num_properties}
-#               {my_name} {my_company} {my_phone}
+#               {matching_properties} {my_name} {my_company} {my_phone}
 DEFAULT_SETTINGS = {
     "my_name": "Alex",
     "my_company": "Silicone Roof Pros",
@@ -192,10 +193,10 @@ Again, {my_name} at {my_phone}. Thanks.""",
     {
         "name": "Email 1", "kind": "email",
         "steps": "Email 1", "sort_order": 4,
-        "subject": "{company}'s {num_properties} older properties",
+        "subject": "{company}'s {matching_properties} older properties",
         "body": """Hi {first_name},
 
-I noticed you're the {title} at {company}, and it looks like you manage roughly {num_properties} properties built before the 1980s.
+I noticed you're the {title} at {company}, and it looks like you manage roughly {matching_properties} properties built before the 1980s.
 
 When commercial buildings hit that age, owners are usually staring down a massive, highly disruptive full roof replacement.
 
@@ -254,6 +255,14 @@ def _migrate(conn) -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN next_follow_up TEXT DEFAULT ''")
     if "follow_up_note" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN follow_up_note TEXT DEFAULT ''")
+    if "matching_properties" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN matching_properties INTEGER")
+        # Templates seeded before this version used {num_properties} where the
+        # criteria-matching count was meant ("...properties built before the
+        # 1980s"); swap in the new placeholder.
+        conn.execute("UPDATE templates SET "
+                     "body = REPLACE(body, '{num_properties}', '{matching_properties}'), "
+                     "subject = REPLACE(subject, '{num_properties}', '{matching_properties}')")
 
 
 def backup_db(keep: int = 14):

@@ -26,6 +26,12 @@ COLUMN_SYNONYMS = {
         "numberofproperties", "numproperties", "properties", "propertycount",
         "ofproperties", "numberproperties", "totalproperties", "propertiesowned",
     ],
+    # How many of their properties fit the sales criteria (e.g. pre-1980s
+    # buildings in the searched size band) — CoStar's "# Properties (in search)"
+    "matching_properties": [
+        "propertiesinsearch", "matchingproperties", "propertiesmatching",
+        "propertiesmatchingcriteria", "qualifyingproperties", "matchingcount",
+    ],
     "email": ["email", "emailaddress", "workemail", "contactemail", "mail"],
     "work_phone": [
         "workphone", "phone", "phonenumber", "officephone", "businessphone",
@@ -55,8 +61,35 @@ def _normalize(header: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(header).lower())
 
 
+# Fallback keyword rules for headers that aren't an exact synonym — lets
+# differently-worded CoStar/ZoomInfo exports map without editing the file.
+# Ordered: more specific rules claim their column before broader ones.
+_KEYWORD_TESTS = [
+    ("matching_properties", lambda n: "propert" in n and any(
+        k in n for k in ("search", "matching", "criteria", "qualif"))),
+    ("num_properties", lambda n: "propert" in n and any(
+        k in n for k in ("owned", "total", "count", "number", "num"))),
+    ("mobile_phone", lambda n: "mobile" in n or "cell" in n),
+    ("work_phone", lambda n: "phone" in n and not any(
+        k in n for k in ("mobile", "cell", "fax"))),
+    ("email", lambda n: "email" in n),
+    ("first_name", lambda n: "first" in n and "name" in n),
+    ("last_name", lambda n: ("last" in n and "name" in n) or "surname" in n),
+    ("title", lambda n: "title" in n),
+    ("company_name", lambda n: ("company" in n or "account" in n) and not any(
+        k in n for k in ("address", "phone", "website", "type",
+                         "city", "state", "zip", "email"))),
+    ("notes", lambda n: "note" in n or "comment" in n),
+]
+
+
 def map_columns(columns, synonym_table=COLUMN_SYNONYMS) -> dict:
-    """Map dataframe columns to fields. Returns {field: original_column}."""
+    """Map dataframe columns to fields. Returns {field: original_column}.
+
+    Exact (normalized) synonym matches win; for account fields, a keyword
+    heuristic then fills anything still unmapped, so column names only need
+    to MEAN the same thing, not match the original file.
+    """
     mapping = {}
     normalized = {_normalize(c): c for c in columns}
     for field, synonyms in synonym_table.items():
@@ -64,6 +97,16 @@ def map_columns(columns, synonym_table=COLUMN_SYNONYMS) -> dict:
             if syn in normalized:
                 mapping[field] = normalized[syn]
                 break
+    if synonym_table is COLUMN_SYNONYMS:
+        used = set(mapping.values())
+        for field, test in _KEYWORD_TESTS:
+            if field in mapping:
+                continue
+            for norm, orig in normalized.items():
+                if orig not in used and test(norm):
+                    mapping[field] = orig
+                    used.add(orig)
+                    break
     return mapping
 
 
@@ -138,11 +181,11 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         )
 
     existing = {
-        row["company_name"].strip().lower()
-        for row in conn.execute("SELECT company_name FROM accounts")
+        row["company_name"].strip().lower(): row["id"]
+        for row in conn.execute("SELECT id, company_name FROM accounts")
     }
 
-    imported = skipped_dupe = skipped_blank = 0
+    imported = skipped_dupe = skipped_blank = backfilled = 0
     ts = now_iso()
     start_date = _next_business_day(date.today()) if per_day else date.today()
     start = start_date.isoformat()
@@ -152,7 +195,26 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         if not company:
             skipped_blank += 1
             continue
+        def row_int(name):
+            return _clean_int(row.get(mapping[name])) if name in mapping else None
+
         if company.lower() in existing:
+            # Duplicate: don't re-import, but fill in property counts the
+            # account doesn't have yet (lets a re-upload backfill new columns).
+            acct_id = existing[company.lower()]
+            updated = conn.execute(
+                """UPDATE accounts SET
+                     num_properties = COALESCE(num_properties, ?),
+                     matching_properties = COALESCE(matching_properties, ?),
+                     updated_at = ?
+                   WHERE id = ? AND (
+                     (num_properties IS NULL AND ? IS NOT NULL) OR
+                     (matching_properties IS NULL AND ? IS NOT NULL))""",
+                (row_int("num_properties"), row_int("matching_properties"), ts,
+                 acct_id, row_int("num_properties"),
+                 row_int("matching_properties"))).rowcount
+            if updated:
+                backfilled += 1
             skipped_dupe += 1
             continue
 
@@ -177,22 +239,22 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         if extras:
             notes = (notes + "\n" if notes else "") + "\n".join(extras)
 
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO accounts
                (company_name, first_name, last_name, title, num_properties,
-                email, work_phone, mobile_phone, preferred_contact, notes,
-                prospecting_status, pipeline_milestone, cadence_start,
-                created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                matching_properties, email, work_phone, mobile_phone,
+                preferred_contact, notes, prospecting_status,
+                pipeline_milestone, cadence_start, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (company, field("first_name"), field("last_name"), field("title"),
-             _clean_int(row.get(mapping["num_properties"])) if "num_properties" in mapping else None,
+             row_int("num_properties"), row_int("matching_properties"),
              field("email"),
              _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
              _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
              "Unknown", notes,
              "Prospecting", "None / In Cadence", start, ts, ts),
         )
-        existing.add(company.lower())
+        existing[company.lower()] = cur.lastrowid
         imported += 1
         if per_day and imported % per_day == 0:
             start_date = _next_business_day(start_date + timedelta(days=1))
@@ -201,6 +263,7 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
     conn.commit()
     return {
         "imported": imported,
+        "backfilled": backfilled,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "total_rows": len(df),
