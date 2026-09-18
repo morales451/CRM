@@ -43,6 +43,32 @@ INTERACTION_TYPES = [
     "Meeting",
 ]
 
+PROJECT_STATUSES = [
+    "Not Started",
+    "Scheduled",
+    "In Progress",
+    "Completed",
+    "Closed",
+]
+
+INVOICE_STATUSES = ["Draft", "Sent", "Paid"]
+
+# Checklist seeded onto every new project — the standard steps of a
+# roof-coating job from contract to warranty. Fully editable per project.
+DEFAULT_PROJECT_TASKS = [
+    "Contract signed",
+    "Deposit invoiced",
+    "Deposit received",
+    "Materials ordered",
+    "Crew scheduled",
+    "Job started",
+    "Job completed",
+    "Final walkthrough with owner",
+    "Final invoice sent",
+    "Final payment received",
+    "Warranty documents delivered",
+]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +131,48 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+
+-- Post-sale: one project per won deal, with a task checklist and invoices.
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'Not Started',
+    contract_amount REAL,
+    start_date TEXT DEFAULT '',           -- ISO date
+    completion_date TEXT DEFAULT '',      -- ISO date
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    done_at TEXT DEFAULT '',              -- ISO timestamp when checked
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    invoice_number TEXT DEFAULT '',
+    amount REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'Draft', -- Draft | Sent | Paid
+    sent_date TEXT DEFAULT '',            -- ISO date
+    due_date TEXT DEFAULT '',             -- ISO date; Sent + past due = overdue
+    paid_date TEXT DEFAULT '',            -- ISO date
+    notes TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_projects_account ON projects(account_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON project_tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_project ON invoices(project_id);
 
 -- A manually checked-off cadence step ("clear the task without logging it").
 CREATE TABLE IF NOT EXISTS cadence_dismissals (

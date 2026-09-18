@@ -46,6 +46,7 @@
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'dashboard' }}" href="{{ url_for('dashboard') }}">Dashboard</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'accounts' }}" href="{{ url_for('accounts') }}">Accounts</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'pipeline' }}" href="{{ url_for('pipeline') }}">Pipeline</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ('projects', 'project_detail') }}" href="{{ url_for('projects') }}">Projects</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'insights' }}" href="{{ url_for('insights') }}">Insights</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'new_account' }}" href="{{ url_for('new_account') }}">+ Add Account</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint == 'templates_page' }}" href="{{ url_for('templates_page') }}">Templates</a></li>

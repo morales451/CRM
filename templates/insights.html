@@ -53,6 +53,26 @@
     </div></div>
   </div>
 
+  {% if money %}
+  <div class="row g-2 mb-4">
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ money.active_projects }}</div><div class="text-muted small">Active projects</div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ money.contracted|money }}</div><div class="text-muted small">Contracted</div>
+    </div></div>
+    <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ money.invoiced|money }}</div><div class="text-muted small">Invoiced</div>
+    </div></div>
+    <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+      <div class="stat-value">{{ money.paid|money }}</div><div class="text-muted small">Collected</div>
+    </div></div>
+    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+      <div class="stat-value {{ 'overdue' if money.outstanding }}">{{ money.outstanding|money }}</div><div class="text-muted small">Outstanding</div>
+    </div></div>
+  </div>
+  {% endif %}
+
   <div class="row g-3">
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">

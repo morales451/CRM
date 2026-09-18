@@ -57,6 +57,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   follow-up set are flagged as **going stale**.
 - **Pipeline board** — a column per milestone with each deal as a card; move
   deals between milestones right from the board.
+- **Projects & Invoicing** — life after Closed Won. Each won deal gets a
+  project with a standard job checklist (contract → deposit → materials →
+  crew → completion → final payment → warranty; add your own steps),
+  contract amount, start/completion dates, and invoices tracked
+  Draft → Sent → Paid. "Mark Sent" stamps the date and defaults the due
+  date to 30 days out; sent invoices pin to the Dashboard until paid, with
+  overdue ones flagged red. The Projects page and Insights show the money
+  rollup: contracted, invoiced, collected, outstanding.
 - **Accounts** — searchable list with filters for Prospecting Status and
   Pipeline Milestone; tap-to-call / tap-to-text / tap-to-email links on mobile.
 - **Account Detail** — edit everything in place, log interactions, see a

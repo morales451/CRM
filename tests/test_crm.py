@@ -618,6 +618,103 @@ check("insights: cadence reach bars", "Day 1: Email 1" in html and "Day 10: Brea
 check("insights: activity mix", "Meeting" in html or "General Note" in html)
 check("insights: nav link", 'href="/insights"' in html)
 
+# ---- 21. Projects & invoicing
+conn = db.get_db()
+won_id = conn.execute(
+    "SELECT id FROM accounts WHERE pipeline_milestone='Closed Won' LIMIT 1").fetchone()["id"]
+conn.close()
+r = client.get("/projects")
+check("projects: eligible won deal listed", r.status_code == 200
+      and f'value="{won_id}"'.encode() in r.data)
+r = client.post("/projects/new", data={"account_id": won_id, "contract_amount": "$24,500"},
+                follow_redirects=True)
+check("projects: created with checklist", r.status_code == 200
+      and b"Job Checklist" in r.data and b"Warranty documents delivered" in r.data
+      and b"$24,500" in r.data)
+conn = db.get_db()
+proj = conn.execute("SELECT * FROM projects WHERE account_id=?", (won_id,)).fetchone()
+n_tasks = conn.execute("SELECT COUNT(*) c FROM project_tasks WHERE project_id=?",
+                       (proj["id"],)).fetchone()["c"]
+check("projects: 11 default tasks seeded", n_tasks == len(db.DEFAULT_PROJECT_TASKS))
+check("projects: contract parsed", proj["contract_amount"] == 24500)
+first_task = conn.execute("SELECT id FROM project_tasks WHERE project_id=? "
+                          "ORDER BY sort_order LIMIT 1", (proj["id"],)).fetchone()["id"]
+conn.close()
+# duplicate project blocked
+r = client.post("/projects/new", data={"account_id": won_id}, follow_redirects=True)
+check("projects: duplicate blocked", b"already has a project" in r.data)
+# checklist toggle
+r = client.post(f"/projects/{proj['id']}/tasks/{first_task}/toggle", follow_redirects=True)
+conn = db.get_db()
+t_row = conn.execute("SELECT * FROM project_tasks WHERE id=?", (first_task,)).fetchone()
+check("projects: task toggled done with timestamp", t_row["done"] == 1 and "T" in t_row["done_at"])
+conn.close()
+r = client.post(f"/projects/{proj['id']}/tasks/add", data={"title": "Order lift rental"},
+                follow_redirects=True)
+check("projects: custom task added", b"Order lift rental" in r.data)
+# invoices: draft -> sent -> paid
+r = client.post(f"/projects/{proj['id']}/invoices/add",
+                data={"invoice_number": "INV-001", "amount": "12,250",
+                      "notes": "50% deposit"}, follow_redirects=True)
+check("invoice: draft added", b"INV-001" in r.data and b"$12,250" in r.data)
+conn = db.get_db()
+inv = conn.execute("SELECT * FROM invoices WHERE invoice_number='INV-001'").fetchone()
+conn.close()
+r = client.post(f"/invoices/{inv['id']}/status", data={"status": "Sent"}, follow_redirects=True)
+conn = db.get_db()
+inv = conn.execute("SELECT * FROM invoices WHERE id=?", (inv["id"],)).fetchone()
+check("invoice: sent stamps dates", inv["status"] == "Sent"
+      and inv["sent_date"] == date.today().isoformat()
+      and inv["due_date"] == (date.today() + timedelta(days=30)).isoformat())
+conn.close()
+check("dashboard: outstanding invoice shown",
+      b"Outstanding Invoices" in client.get("/").data and b"$12,250" in client.get("/").data)
+# overdue rendering
+conn = db.get_db()
+conn.execute("UPDATE invoices SET due_date=? WHERE id=?",
+             ((date.today() - timedelta(days=5)).isoformat(), inv["id"]))
+conn.commit(); conn.close()
+check("dashboard: overdue flagged", b"Overdue" in client.get("/").data)
+r = client.post(f"/invoices/{inv['id']}/status", data={"status": "Paid", "next": "/"},
+                follow_redirects=True)
+conn = db.get_db()
+inv = conn.execute("SELECT * FROM invoices WHERE id=?", (inv["id"],)).fetchone()
+check("invoice: paid stamps date", inv["status"] == "Paid"
+      and inv["paid_date"] == date.today().isoformat())
+conn.close()
+check("dashboard: paid invoice cleared", b"Outstanding Invoices" not in client.get("/").data)
+# money rollups
+r = client.post(f"/projects/{proj['id']}/invoices/add", data={"amount": "12250"},
+                follow_redirects=True)
+conn = db.get_db()
+inv2 = conn.execute("SELECT id FROM invoices WHERE project_id=? AND status='Draft'",
+                    (proj["id"],)).fetchone()
+conn.close()
+client.post(f"/invoices/{inv2['id']}/status", data={"status": "Sent"})
+r = client.get(f"/projects/{proj['id']}")
+html = r.data.decode()
+check("project: money tiles roll up", html.count("$12,250") >= 2 and "$24,500" in html)
+r = client.get("/projects")
+check("projects list: totals row", b"Collected" in r.data and b"Outstanding" in r.data)
+r = client.get("/insights")
+check("insights: money tiles appear", b"Collected" in r.data and b"Contracted" in r.data)
+# account page shows project link
+r = client.get(f"/accounts/{won_id}")
+check("account: project card links", "Open:".encode() in r.data)
+# bad amount rejected
+r = client.post(f"/projects/{proj['id']}/invoices/add", data={"amount": "abc"},
+                follow_redirects=True)
+check("invoice: bad amount rejected", b"Enter an invoice amount" in r.data)
+# delete cascade
+r = client.post(f"/projects/{proj['id']}/delete", follow_redirects=True)
+conn = db.get_db()
+check("projects: delete cascades tasks + invoices",
+      conn.execute("SELECT COUNT(*) c FROM project_tasks WHERE project_id=?",
+                   (proj["id"],)).fetchone()["c"] == 0
+      and conn.execute("SELECT COUNT(*) c FROM invoices WHERE project_id=?",
+                       (proj["id"],)).fetchone()["c"] == 0)
+conn.close()
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

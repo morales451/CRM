@@ -16,8 +16,9 @@ from flask import (Flask, flash, redirect, render_template, request,
 
 import cadence
 import importer
-from db import (INTERACTION_TYPES, PIPELINE_MILESTONES,
-                PREFERRED_CONTACT_METHODS, PROSPECTING_STATUSES,
+from db import (DEFAULT_PROJECT_TASKS, INTERACTION_TYPES, INVOICE_STATUSES,
+                PIPELINE_MILESTONES, PREFERRED_CONTACT_METHODS,
+                PROJECT_STATUSES, PROSPECTING_STATUSES,
                 backup_db, get_db, init_db, now_iso, today_iso)
 
 app = Flask(__name__)
@@ -57,8 +58,17 @@ def inject_constants():
         "MILESTONES": PIPELINE_MILESTONES,
         "CONTACT_METHODS": PREFERRED_CONTACT_METHODS,
         "INTERACTION_TYPES": INTERACTION_TYPES,
+        "PROJECT_STATUSES": PROJECT_STATUSES,
+        "INVOICE_STATUSES": INVOICE_STATUSES,
         "today": today_iso(),
     }
+
+
+@app.template_filter("money")
+def format_money(value):
+    if value is None:
+        return "—"
+    return f"${value:,.0f}" if value == int(value) else f"${value:,.2f}"
 
 
 def _account_or_404(conn, account_id):
@@ -127,6 +137,7 @@ def dashboard():
         reminders = cadence.get_due_reminders(conn)
         followups = _due_followups(conn)
         stale = _stale_deals(conn)
+        owed = _outstanding_invoices(conn)
         stats = {
             "total_accounts": conn.execute(
                 "SELECT COUNT(*) c FROM accounts").fetchone()["c"],
@@ -147,7 +158,7 @@ def dashboard():
                JOIN accounts a ON a.id = i.account_id
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
         return render_template("dashboard.html", reminders=reminders,
-                               followups=followups, stale=stale,
+                               followups=followups, stale=stale, owed=owed,
                                stats=stats, recent=recent, today=today_iso())
     finally:
         conn.close()
@@ -340,11 +351,29 @@ def insights():
             "SELECT interaction_type, COUNT(*) FROM interactions "
             "WHERE created_at >= ? GROUP BY interaction_type "
             "ORDER BY COUNT(*) DESC", (month_ago,)).fetchall())
+
+        money = None
+        if count("SELECT COUNT(*) FROM projects"):
+            inv = conn.execute(
+                """SELECT COALESCE(SUM(CASE WHEN status != 'Draft' THEN amount END), 0) AS invoiced,
+                          COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount END), 0) AS paid,
+                          COALESCE(SUM(CASE WHEN status = 'Sent' THEN amount END), 0) AS outstanding
+                   FROM invoices""").fetchone()
+            money = {
+                "contracted": conn.execute(
+                    "SELECT COALESCE(SUM(contract_amount), 0) FROM projects").fetchone()[0],
+                "invoiced": inv["invoiced"], "paid": inv["paid"],
+                "outstanding": inv["outstanding"],
+                "projects": count("SELECT COUNT(*) FROM projects"),
+                "active_projects": count(
+                    "SELECT COUNT(*) FROM projects WHERE status NOT IN ('Closed')"),
+            }
     finally:
         conn.close()
     return render_template("insights.html", tiles=tiles, weekly=weekly,
                            pipeline_bars=pipeline_bars, cadence_bars=cadence_bars,
-                           status_bars=status_bars, type_bars=type_bars)
+                           status_bars=status_bars, type_bars=type_bars,
+                           money=money)
 
 
 # ----------------------------------------------------------------- Pipeline
@@ -381,6 +410,285 @@ def move_milestone(account_id):
             conn.close()
         flash(f"Moved to “{milestone}”.", "success")
     return redirect(request.form.get("next") or url_for("pipeline"))
+
+
+# ----------------------------------------------------- Projects & invoicing
+
+def _parse_amount(raw):
+    raw = (raw or "").replace("$", "").replace(",", "").strip()
+    try:
+        return round(float(raw), 2) if raw else None
+    except ValueError:
+        return None
+
+
+def _project_money(conn, project_id):
+    row = conn.execute(
+        """SELECT COALESCE(SUM(CASE WHEN status != 'Draft' THEN amount END), 0) AS invoiced,
+                  COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount END), 0) AS paid,
+                  COALESCE(SUM(CASE WHEN status = 'Sent' THEN amount END), 0) AS outstanding
+           FROM invoices WHERE project_id = ?""", (project_id,)).fetchone()
+    return dict(row)
+
+
+def _project_or_404(conn, project_id):
+    proj = conn.execute(
+        """SELECT p.*, a.company_name, a.first_name, a.last_name, a.email,
+                  a.work_phone, a.mobile_phone
+           FROM projects p JOIN accounts a ON a.id = p.account_id
+           WHERE p.id = ?""", (project_id,)).fetchone()
+    if proj is None:
+        from flask import abort
+        abort(404)
+    return proj
+
+
+@app.route("/projects")
+def projects():
+    status = request.args.get("status", "")
+    sql = """SELECT p.*, a.company_name,
+                    (SELECT COUNT(*) FROM project_tasks t
+                     WHERE t.project_id = p.id AND t.done = 1) AS tasks_done,
+                    (SELECT COUNT(*) FROM project_tasks t
+                     WHERE t.project_id = p.id) AS tasks_total
+             FROM projects p JOIN accounts a ON a.id = p.account_id"""
+    params = []
+    if status:
+        sql += " WHERE p.status = ?"
+        params.append(status)
+    sql += " ORDER BY p.updated_at DESC"
+    conn = get_db()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        items = [{"project": r, "money": _project_money(conn, r["id"])} for r in rows]
+        # accounts eligible for a new project: Closed Won without one
+        eligible = conn.execute(
+            """SELECT id, company_name FROM accounts
+               WHERE pipeline_milestone = 'Closed Won'
+                 AND id NOT IN (SELECT account_id FROM projects)
+               ORDER BY company_name COLLATE NOCASE""").fetchall()
+        totals = conn.execute(
+            """SELECT COALESCE(SUM(CASE WHEN status != 'Draft' THEN amount END), 0) AS invoiced,
+                      COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount END), 0) AS paid,
+                      COALESCE(SUM(CASE WHEN status = 'Sent' THEN amount END), 0) AS outstanding
+               FROM invoices""").fetchone()
+        contracted = conn.execute(
+            "SELECT COALESCE(SUM(contract_amount), 0) FROM projects").fetchone()[0]
+    finally:
+        conn.close()
+    return render_template("projects.html", items=items, status=status,
+                           eligible=eligible, totals=totals, contracted=contracted)
+
+
+@app.route("/projects/new", methods=["POST"])
+def new_project():
+    account_id = request.form.get("account_id", "")
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        existing = conn.execute("SELECT id FROM projects WHERE account_id = ?",
+                                (account_id,)).fetchone()
+        if existing:
+            flash("This account already has a project.", "warning")
+            return redirect(url_for("project_detail", project_id=existing["id"]))
+        ts = now_iso()
+        name = (request.form.get("name", "").strip()
+                or f"{acct['company_name']} — Roof Restoration")
+        cur = conn.execute(
+            "INSERT INTO projects (account_id, name, contract_amount, created_at, "
+            "updated_at) VALUES (?,?,?,?,?)",
+            (account_id, name, _parse_amount(request.form.get("contract_amount")),
+             ts, ts))
+        project_id = cur.lastrowid
+        for i, title in enumerate(DEFAULT_PROJECT_TASKS):
+            conn.execute(
+                "INSERT INTO project_tasks (project_id, title, sort_order, created_at) "
+                "VALUES (?,?,?,?)", (project_id, title, i, ts))
+        conn.commit()
+    finally:
+        conn.close()
+    flash(f"Project created for {acct['company_name']} with the standard job checklist.",
+          "success")
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>")
+def project_detail(project_id):
+    conn = get_db()
+    try:
+        proj = _project_or_404(conn, project_id)
+        tasks = conn.execute(
+            "SELECT * FROM project_tasks WHERE project_id = ? "
+            "ORDER BY sort_order, id", (project_id,)).fetchall()
+        invs = conn.execute(
+            "SELECT * FROM invoices WHERE project_id = ? ORDER BY created_at, id",
+            (project_id,)).fetchall()
+        money = _project_money(conn, project_id)
+    finally:
+        conn.close()
+    return render_template("project_detail.html", project=proj, tasks=tasks,
+                           invoices=invs, money=money)
+
+
+@app.route("/projects/<int:project_id>/edit", methods=["POST"])
+def edit_project(project_id):
+    conn = get_db()
+    try:
+        _project_or_404(conn, project_id)
+        conn.execute(
+            """UPDATE projects SET name=?, status=?, contract_amount=?,
+               start_date=?, completion_date=?, notes=?, updated_at=? WHERE id=?""",
+            (request.form.get("name", "").strip() or "Untitled Project",
+             request.form.get("status", "Not Started"),
+             _parse_amount(request.form.get("contract_amount")),
+             request.form.get("start_date", "").strip(),
+             request.form.get("completion_date", "").strip(),
+             request.form.get("notes", "").strip(), now_iso(), project_id))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Project updated.", "success")
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/delete", methods=["POST"])
+def delete_project(project_id):
+    conn = get_db()
+    try:
+        proj = _project_or_404(conn, project_id)
+        conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    flash(f"Project “{proj['name']}” deleted.", "warning")
+    return redirect(url_for("projects"))
+
+
+@app.route("/projects/<int:project_id>/tasks/add", methods=["POST"])
+def add_project_task(project_id):
+    title = request.form.get("title", "").strip()
+    if title:
+        conn = get_db()
+        try:
+            _project_or_404(conn, project_id)
+            last = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) FROM project_tasks "
+                "WHERE project_id=?", (project_id,)).fetchone()[0]
+            conn.execute(
+                "INSERT INTO project_tasks (project_id, title, sort_order, created_at) "
+                "VALUES (?,?,?,?)", (project_id, title, last + 1, now_iso()))
+            conn.commit()
+        finally:
+            conn.close()
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/tasks/<int:task_id>/toggle", methods=["POST"])
+def toggle_project_task(project_id, task_id):
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE project_tasks SET done = 1 - done, "
+            "done_at = CASE WHEN done = 0 THEN ? ELSE '' END "
+            "WHERE id = ? AND project_id = ?", (now_iso(), task_id, project_id))
+        conn.execute("UPDATE projects SET updated_at=? WHERE id=?",
+                     (now_iso(), project_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/tasks/<int:task_id>/delete", methods=["POST"])
+def delete_project_task(project_id, task_id):
+    conn = get_db()
+    try:
+        conn.execute("DELETE FROM project_tasks WHERE id=? AND project_id=?",
+                     (task_id, project_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/projects/<int:project_id>/invoices/add", methods=["POST"])
+def add_invoice(project_id):
+    amount = _parse_amount(request.form.get("amount"))
+    if amount is None or amount <= 0:
+        flash("Enter an invoice amount.", "danger")
+        return redirect(url_for("project_detail", project_id=project_id))
+    conn = get_db()
+    try:
+        _project_or_404(conn, project_id)
+        ts = now_iso()
+        conn.execute(
+            """INSERT INTO invoices (project_id, invoice_number, amount, status,
+               due_date, notes, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)""",
+            (project_id, request.form.get("invoice_number", "").strip(), amount,
+             "Draft", request.form.get("due_date", "").strip(),
+             request.form.get("notes", "").strip(), ts, ts))
+        conn.commit()
+    finally:
+        conn.close()
+    flash(f"Invoice for {format_money(amount)} added as Draft.", "success")
+    return redirect(url_for("project_detail", project_id=project_id))
+
+
+@app.route("/invoices/<int:invoice_id>/status", methods=["POST"])
+def invoice_status(invoice_id):
+    """Advance an invoice: mark Sent (stamps sent/due dates) or Paid."""
+    new_status = request.form.get("status", "")
+    if new_status not in INVOICE_STATUSES:
+        return redirect(request.form.get("next") or url_for("projects"))
+    conn = get_db()
+    try:
+        inv = conn.execute("SELECT * FROM invoices WHERE id=?",
+                           (invoice_id,)).fetchone()
+        if inv:
+            sent = inv["sent_date"] or (today_iso() if new_status in ("Sent", "Paid") else "")
+            due = inv["due_date"]
+            if new_status == "Sent" and not due:
+                due = (datetime.now() + timedelta(days=30)).date().isoformat()
+            paid = today_iso() if new_status == "Paid" else ""
+            conn.execute(
+                "UPDATE invoices SET status=?, sent_date=?, due_date=?, paid_date=?, "
+                "updated_at=? WHERE id=?",
+                (new_status, sent, due, paid, now_iso(), invoice_id))
+            conn.execute("UPDATE projects SET updated_at=? WHERE id=?",
+                         (now_iso(), inv["project_id"]))
+            conn.commit()
+            flash(f"Invoice marked {new_status}.", "success")
+    finally:
+        conn.close()
+    return redirect(request.form.get("next")
+                    or url_for("project_detail", project_id=inv["project_id"]))
+
+
+@app.route("/invoices/<int:invoice_id>/delete", methods=["POST"])
+def delete_invoice(invoice_id):
+    conn = get_db()
+    try:
+        inv = conn.execute("SELECT project_id FROM invoices WHERE id=?",
+                           (invoice_id,)).fetchone()
+        conn.execute("DELETE FROM invoices WHERE id=?", (invoice_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Invoice deleted.", "warning")
+    return redirect(url_for("project_detail", project_id=inv["project_id"])
+                    if inv else url_for("projects"))
+
+
+def _outstanding_invoices(conn):
+    """Sent, unpaid invoices for the dashboard — overdue first."""
+    rows = conn.execute(
+        """SELECT i.*, p.name AS project_name, p.id AS pid, a.company_name
+           FROM invoices i JOIN projects p ON p.id = i.project_id
+           JOIN accounts a ON a.id = p.account_id
+           WHERE i.status = 'Sent'
+           ORDER BY CASE WHEN i.due_date = '' THEN 1 ELSE 0 END, i.due_date""").fetchall()
+    t = today_iso()
+    return [dict(r, overdue=bool(r["due_date"] and r["due_date"] < t)) for r in rows]
 
 
 # ------------------------------------------------------------------- Export
@@ -503,11 +811,13 @@ def account_detail(account_id):
         steps = cadence.get_cadence_progress(conn, account_id)
         in_cadence = (acct["prospecting_status"] == cadence.ACTIVE_STATUS
                       and acct["pipeline_milestone"] == cadence.ACTIVE_MILESTONE)
+        project = conn.execute("SELECT * FROM projects WHERE account_id = ?",
+                               (account_id,)).fetchone()
     finally:
         conn.close()
     return render_template("account_detail.html", account=acct,
                            contacts=contacts, interactions=interactions,
-                           steps=steps, in_cadence=in_cadence)
+                           steps=steps, in_cadence=in_cadence, project=project)
 
 
 @app.route("/accounts/<int:account_id>/edit", methods=["POST"])

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} — Roof CRM{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="mb-1">{{ project.name }}</h1>
+    <div class="text-muted small">
+      <a href="{{ url_for('account_detail', account_id=project.account_id) }}">{{ project.company_name }}</a>
+      {% if project.first_name or project.last_name %} — {{ project.first_name }} {{ project.last_name }}{% endif %}
+    </div>
+  </div>
+  <div class="text-nowrap">
+    {% set phone = project.mobile_phone or project.work_phone %}
+    {% if phone %}<a href="tel:{{ phone }}" class="btn btn-sm btn-success">📞 Call</a>{% endif %}
+    {% if project.email %}<a href="mailto:{{ project.email }}" class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
+  </div>
+</div>
+
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+    <div class="stat-value">{{ project.contract_amount|money }}</div><div class="text-muted small">Contract</div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+    <div class="stat-value">{{ money.invoiced|money }}</div><div class="text-muted small">Invoiced</div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+    <div class="stat-value">{{ money.paid|money }}</div><div class="text-muted small">Paid</div>
+  </div></div>
+  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+    <div class="stat-value {{ 'overdue' if money.outstanding }}">{{ money.outstanding|money }}</div><div class="text-muted small">Outstanding</div>
+  </div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Project Info</h5>
+      <form method="post" action="{{ url_for('edit_project', project_id=project.id) }}">
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label small mb-0">Project Name</label>
+            <input name="name" class="form-control form-control-sm" value="{{ project.name }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0 fw-bold">Status</label>
+            <select name="status" class="form-select form-select-sm">
+              {% for s in PROJECT_STATUSES %}<option {{ 'selected' if project.status == s }}>{{ s }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Contract Amount ($)</label>
+            <input name="contract_amount" class="form-control form-control-sm"
+                   value="{{ (project.contract_amount|int if project.contract_amount == project.contract_amount|int else project.contract_amount) if project.contract_amount is not none }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Start Date</label>
+            <input type="date" name="start_date" class="form-control form-control-sm" value="{{ project.start_date }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label small mb-0">Completion Date</label>
+            <input type="date" name="completion_date" class="form-control form-control-sm" value="{{ project.completion_date }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Notes</label>
+            <textarea name="notes" rows="3" class="form-control form-control-sm">{{ project.notes }}</textarea>
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button class="btn btn-sm btn-primary">Save</button>
+          </div>
+        </div>
+      </form>
+      <hr>
+      <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}"
+            onsubmit="return confirm('Delete this project, its checklist, and its invoices? This cannot be undone.')">
+        <button class="btn btn-sm btn-outline-danger">🗑 Delete Project</button>
+      </form>
+    </div>
+
+    <div class="card p-3 mb-3">
+      {% set done = tasks|selectattr('done')|list|length %}
+      <h5>Job Checklist <span class="text-muted fs-6">({{ done }}/{{ tasks|length }})</span></h5>
+      <div class="progress mb-2" style="height: 8px;">
+        <div class="progress-bar bg-success" style="width: {{ (100 * done / tasks|length)|round if tasks else 0 }}%"></div>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in tasks %}
+        <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
+          <form method="post" action="{{ url_for('toggle_project_task', project_id=project.id, task_id=t.id) }}" class="d-inline flex-grow-1">
+            <button class="btn btn-sm p-0 border-0 text-start w-100 {{ 'text-decoration-line-through text-muted' if t.done }}">
+              {{ '✅' if t.done else '⬜' }} {{ t.title }}
+              {% if t.done and t.done_at %}<span class="small text-muted">— {{ t.done_at|dt }}</span>{% endif %}
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('delete_project_task', project_id=project.id, task_id=t.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-outline-danger border-0" title="Remove task">✕</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      <form method="post" action="{{ url_for('add_project_task', project_id=project.id) }}" class="d-flex gap-2 mt-2">
+        <input name="title" class="form-control form-control-sm" placeholder="Add a task…" required>
+        <button class="btn btn-sm btn-success">+ Add</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>Invoices</h5>
+      {% if invoices %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-2">
+          <thead class="table-light"><tr>
+            <th>#</th><th>Amount</th><th>Status</th><th>Due</th><th class="text-end">Actions</th>
+          </tr></thead>
+          <tbody>
+          {% for i in invoices %}
+            {% set overdue = i.status == 'Sent' and i.due_date and i.due_date < today %}
+            <tr>
+              <td class="small">{{ i.invoice_number or '—' }}
+                {% if i.notes %}<div class="text-muted small">{{ i.notes }}</div>{% endif %}</td>
+              <td class="fw-semibold">{{ i.amount|money }}</td>
+              <td>
+                <span class="badge text-bg-{{ 'secondary' if i.status == 'Draft' else 'danger' if overdue else 'warning' if i.status == 'Sent' else 'success' }}">
+                  {{ 'Overdue' if overdue else i.status }}</span>
+                <div class="small text-muted">
+                  {% if i.status == 'Paid' and i.paid_date %}paid {{ i.paid_date|d }}
+                  {% elif i.sent_date %}sent {{ i.sent_date|d }}{% endif %}
+                </div>
+              </td>
+              <td class="small {{ 'overdue' if overdue }}">{{ i.due_date|d if i.due_date else '—' }}</td>
+              <td class="text-end text-nowrap">
+                {% if i.status == 'Draft' %}
+                <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
+                  <input type="hidden" name="status" value="Sent">
+                  <button class="btn btn-sm btn-outline-primary">Mark Sent</button>
+                </form>
+                {% endif %}
+                {% if i.status != 'Paid' %}
+                <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
+                  <input type="hidden" name="status" value="Paid">
+                  <button class="btn btn-sm btn-success">✓ Paid</button>
+                </form>
+                {% endif %}
+                <form method="post" action="{{ url_for('delete_invoice', invoice_id=i.id) }}" class="d-inline"
+                      onsubmit="return confirm('Delete this invoice?')">
+                  <button class="btn btn-sm btn-outline-danger">✕</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted small">No invoices yet. Typical flow: a deposit invoice up front, a final invoice at completion.</p>
+      {% endif %}
+      <h6 class="mt-2">Add Invoice</h6>
+      <form method="post" action="{{ url_for('add_invoice', project_id=project.id) }}">
+        <div class="row g-2">
+          <div class="col-6 col-md-3"><input name="invoice_number" class="form-control form-control-sm" placeholder="Inv # (optional)"></div>
+          <div class="col-6 col-md-3">
+            <div class="input-group input-group-sm"><span class="input-group-text">$</span>
+              <input name="amount" class="form-control" placeholder="Amount" required></div>
+          </div>
+          <div class="col-6 col-md-3"><input type="date" name="due_date" class="form-control form-control-sm" title="Due date (optional — defaults to 30 days after sending)"></div>
+          <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">+ Add Draft</button></div>
+          <div class="col-12"><input name="notes" class="form-control form-control-sm" placeholder="Note, e.g. 50% deposit (optional)"></div>
+        </div>
+      </form>
+      <div class="form-text">“Mark Sent” stamps today's date and defaults the due date to 30 days out if you didn't set one. Sent invoices appear on the Dashboard until paid.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
