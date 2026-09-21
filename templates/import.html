@@ -113,6 +113,14 @@
     <li><strong>{{ result.imported }}</strong> account(s) imported</li>
     {% if result.backfilled %}<li><strong>{{ result.backfilled }}</strong> existing account(s) backfilled with property counts</li>{% endif %}
     <li>{{ result.skipped_duplicates }} skipped (company already exists)</li>
+    {% if result.skipped_archived %}
+    <li><strong>{{ result.skipped_archived }}</strong> skipped because you archived them
+      <span class="text-muted">(they stay off your list)</span>
+      {% if result.archived_names %}
+      <details class="small"><summary>show</summary>{{ result.archived_names|join(', ') }}{% if result.skipped_archived > result.archived_names|length %}, …{% endif %}</details>
+      {% endif %}
+    </li>
+    {% endif %}
     <li>{{ result.skipped_blank }} skipped (blank company name)</li>
     <li>{{ result.total_rows }} row(s) in file</li>
   </ul>

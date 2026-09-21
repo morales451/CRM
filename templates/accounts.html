@@ -5,11 +5,18 @@
   <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ accounts|length }})</span>
     {% if total_matching %}<span class="badge text-bg-warning fs-6" title="Total buildings matching your criteria in this view">🎯 {{ total_matching }} buildings</span>{% endif %}
   </h1>
-  <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <div class="btn-group btn-group-sm" role="group">
+      <a href="{{ url_for('accounts') }}" class="btn {{ 'btn-primary' if view != 'archived' else 'btn-outline-secondary' }}">Active</a>
+      <a href="{{ url_for('accounts', view='archived') }}" class="btn {{ 'btn-warning' if view == 'archived' else 'btn-outline-secondary' }}">🗄 Archived{% if archived_count %} ({{ archived_count }}){% endif %}</a>
+    </div>
+    <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
+  </div>
 </div>
 
 <form method="get" class="card p-2 mb-3">
   <div class="row g-2">
+    {% if view == 'archived' %}<input type="hidden" name="view" value="archived">{% endif %}
     <div class="col-12 col-md-4">
       <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Search company, name, email…">
     </div>
@@ -51,7 +58,8 @@
       <thead class="table-light"><tr>
         <th>Company</th><th title="Buildings matching your criteria">🎯</th><th>Contact</th><th class="d-none d-md-table-cell">Phone</th>
         <th>Status</th><th class="d-none d-sm-table-cell">Milestone</th>
-        <th class="d-none d-lg-table-cell">Last Activity</th>
+        {% if view == 'archived' %}<th>Archived</th><th></th>
+        {% else %}<th class="d-none d-lg-table-cell">Last Activity</th>{% endif %}
       </tr></thead>
       <tbody>
       {% for a in accounts %}
@@ -65,10 +73,20 @@
           </td>
           <td><span class="badge text-bg-{{ 'success' if a.prospecting_status.startswith('Interested') else 'danger' if a.prospecting_status == 'Not Interested' else 'warning' if a.prospecting_status == 'Might be Interested' else 'primary' }}">{{ a.prospecting_status }}</span></td>
           <td class="small d-none d-sm-table-cell">{{ a.pipeline_milestone }}</td>
+          {% if view == 'archived' %}
+          <td class="small text-muted">{{ a.archived_at|d }}{% if a.archive_reason %}<div>{{ a.archive_reason }}</div>{% endif %}</td>
+          <td class="text-end">
+            <form method="post" action="{{ url_for('restore_account', account_id=a.id) }}">
+              <input type="hidden" name="next" value="{{ url_for('accounts', view='archived') }}">
+              <button class="btn btn-sm btn-outline-success">↩ Restore</button>
+            </form>
+          </td>
+          {% else %}
           <td class="small text-muted d-none d-lg-table-cell">{{ a.last_activity|dt if a.last_activity else '—' }}</td>
+          {% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="7" class="text-muted text-center py-4">No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.</td></tr>
+        <tr><td colspan="8" class="text-muted text-center py-4">{% if view == 'archived' %}Nothing archived yet. Archiving an account hides it from your lists and stops future imports from adding it back.{% else %}No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table>

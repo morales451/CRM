@@ -1196,6 +1196,93 @@ conn.close()
 check("hardening: non-numeric price rejected and reported",
       pv != "abc" and b"left unchanged" in r.data, pv)
 
+# ---- 23d. Archive: remove from the list without losing the record
+conn = db.get_db()
+ts3 = db.now_iso()
+conn.execute("""INSERT INTO accounts (company_name, matching_properties, prospecting_status,
+    pipeline_milestone, cadence_start, next_follow_up, follow_up_note, created_at, updated_at)
+    VALUES ('Junk Data Co', 12, 'Prospecting', 'None / In Cadence', ?, ?, 'call back', ?, ?)""",
+    (date.today().isoformat(), date.today().isoformat(), ts3, ts3))
+conn.commit()
+arch_id = conn.execute("SELECT id FROM accounts WHERE company_name='Junk Data Co'").fetchone()["id"]
+conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+             "VALUES (?,?,?,?)", (arch_id, "Call 2", "spoke briefly", ts3))
+conn.commit(); conn.close()
+
+check("archive: account starts visible",
+      b"Junk Data Co" in client.get("/accounts").data
+      and b"Junk Data Co" in client.get("/").data)
+r = client.post(f"/accounts/{arch_id}/archive", data={"archive_reason": "Bad data / wrong company"},
+                follow_redirects=True)
+check("archive: confirmation explains the effect",
+      b"won" in r.data and b"future" in r.data.lower(), r.data[:300])
+check("archive: gone from accounts list and dashboard",
+      b"Junk Data Co" not in client.get("/accounts").data
+      and b"Junk Data Co" not in client.get("/").data)
+check("archive: gone from queue, pipeline and insights",
+      b"Junk Data Co" not in client.get("/queue").data
+      and b"Junk Data Co" not in client.get("/pipeline").data
+      and b"Junk Data Co" not in client.get("/insights").data)
+conn = db.get_db()
+arow = conn.execute("SELECT * FROM accounts WHERE id=?", (arch_id,)).fetchone()
+hist = conn.execute("SELECT COUNT(*) c FROM interactions WHERE account_id=?",
+                    (arch_id,)).fetchone()["c"]
+conn.close()
+check("archive: record and history kept, follow-up cleared",
+      arow["archived_at"] and arow["archive_reason"] == "Bad data / wrong company"
+      and hist == 1 and arow["next_follow_up"] == "", dict(arow))
+check("archive: cadence engine ignores archived accounts",
+      all(r2["account_id"] != arch_id for r2 in cadence.get_due_reminders(db.get_db())))
+r = client.get("/accounts?view=archived")
+check("archive: visible in the Archived view with its reason",
+      b"Junk Data Co" in r.data and b"Bad data" in r.data and b"Restore" in r.data)
+r = client.get(f"/accounts/{arch_id}")
+check("archive: detail page shows the banner", b"Archived" in r.data and b"Restore" in r.data)
+
+# the point of it all: a re-import must not bring it back
+again = (b"Company Name,# Properties (in search)\r\n"
+         b"Junk Data Co,12\r\nBrand New Co,7\r\n")
+r = client.post("/import", data={"file": (io.BytesIO(again), "list.csv")},
+                content_type="multipart/form-data")
+check("archive: re-import skips archived company and says so",
+      b"1</strong> account(s) imported" in r.data
+      and b"skipped because you archived them" in r.data
+      and b"Junk Data Co" in r.data, r.data[:1200])
+conn = db.get_db()
+dupes = conn.execute("SELECT COUNT(*) c FROM accounts WHERE company_name='Junk Data Co'").fetchone()["c"]
+still_archived = conn.execute("SELECT archived_at FROM accounts WHERE id=?",
+                              (arch_id,)).fetchone()["archived_at"]
+conn.close()
+check("archive: no duplicate created, still archived", dupes == 1 and still_archived != "")
+
+# restore puts it back
+r = client.post(f"/accounts/{arch_id}/restore", follow_redirects=True)
+check("archive: restore returns it to the working list",
+      b"Junk Data Co" in client.get("/accounts").data)
+conn = db.get_db()
+check("archive: restore clears the flags", conn.execute(
+    "SELECT archived_at, archive_reason FROM accounts WHERE id=?",
+    (arch_id,)).fetchone()["archived_at"] == "")
+conn.close()
+
+# permanent delete really forgets it (and a later import may re-add it)
+r = client.post(f"/accounts/{arch_id}/delete", follow_redirects=True)
+check("delete: permanent removal explains re-import behaviour",
+      b"Permanently deleted" in r.data and b"can add this company again" in r.data)
+conn = db.get_db()
+check("delete: row and history gone",
+      conn.execute("SELECT COUNT(*) c FROM accounts WHERE id=?", (arch_id,)).fetchone()["c"] == 0
+      and conn.execute("SELECT COUNT(*) c FROM interactions WHERE account_id=?",
+                       (arch_id,)).fetchone()["c"] == 0)
+conn.close()
+r = client.post("/import", data={"file": (io.BytesIO(again), "list.csv")},
+                content_type="multipart/form-data")
+check("delete: a deleted company can be imported again",
+      b"1</strong> account(s) imported" in r.data)
+conn = db.get_db()
+conn.execute("DELETE FROM accounts WHERE company_name IN ('Junk Data Co','Brand New Co')")
+conn.commit(); conn.close()
+
 # ---- 24. In-app guide
 r = client.get("/guide")
 check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data

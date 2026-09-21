@@ -119,6 +119,12 @@ computer's firewall (Windows will usually prompt you the first time — choose
   routine instead of hundreds of Day-1 tasks at once. Forgot to pace? The
   **Re-Pace Cadence** tool on the Import page re-staggers all untouched
   in-cadence accounts after the fact.
+- **Archive** — remove a company from your working list without losing it:
+  archived accounts keep all their history, disappear from every view, and
+  are **skipped by future imports**, so re-uploading the same CoStar list
+  can't resurrect them. Restore any time from Accounts → Archived.
+  (Permanent delete also exists, but it forgets the company entirely, so a
+  later import can add it back.)
 - **Export** — download accounts and interaction history as CSV from the
   Import page any time.
 
