@@ -164,28 +164,45 @@
 
     <h3>Your Project At A Glance</h3>
     <div class="glance">
-      <div><span class="gk">What we're doing:</span> Cleaning your roof and applying a three-layer silicone coating system that seals leaks and reflects the sun's heat.</div>
+      <div><span class="gk">What we're doing:</span> Cleaning your roof and applying a{% if plan %} {{ plan.coats|length }}-layer {{ plan.coating_system|lower }}{% else %} three-layer silicone{% endif %} coating system that seals leaks and reflects the sun's heat.</div>
       <div><span class="gk">Why it helps:</span> It adds a new, seamless waterproof layer over your existing roof, without the cost and disruption of a full tear-off.</div>
       <div><span class="gk">What's protected:</span> A {{ bid.warranty_years }}-year manufacturer warranty from Henry covering materials and labor, plus our own 2-year workmanship warranty.</div>
       <div><span class="gk">Proposal good for:</span> 14 days</div>
     </div>
 
-    <h3>Coating</h3>
+    <h3>Coating — {{ bid.warranty_years }} Year {{ plan.coating_system if plan else 'Silicone' }} System{% if plan and plan.coating_system == 'Acrylic' %} ({{ plan.acrylic_system_type }}){% endif %}</h3>
+    {% set base_coat = (plan.coats | selectattr('key', 'equalto', 'base') | list | first) if plan else none %}
+    {% set top_coats = (plan.coats | rejectattr('key', 'equalto', 'base') | list) if plan else [] %}
     <ol class="steps">
       <li><strong>Clean the roof.</strong> We power wash the entire surface to remove dirt and debris. Coatings only bond to a clean surface, so this step matters more than it looks.</li>
-      <li><strong>Seal the weak spots.</strong> We apply Henry #923 Butter Grade, a thick, paste-like sealant, to the places roofs leak most often:
+      <li><strong>Seal the weak spots.</strong> We apply {{ plan.mastic_product if plan else 'Henry #923 Butter Grade' }}, a thick, paste-like sealant, to the places roofs leak most often:
         <ul>
           <li><strong>Seams</strong> (where two sections of roofing overlap): 2 inches on each side</li>
           <li><strong>Penetrations</strong> (anything that comes up through the roof, like pipes and vents): 4 inches up and around</li>
           <li><strong>Exposed fasteners</strong> (screws and nails): fully covered and sealed</li>
         </ul>
       </li>
-      <li><strong>Apply the base coat.</strong> Henry #294 Basecoat at 1.25 gallons per roofing square (1 square = 100 sq ft).
+      {% if plan and plan.adhesion_primer_gal %}
+      <li><strong>Prime for adhesion.</strong> Because the adhesion test showed the coating needs help bonding, we apply a primer at 0.2 gallons per square before the coating goes on.</li>
+      {% endif %}
+      {% if plan and plan.rust_primer_gal %}
+      <li><strong>Prime the rust.</strong> Rusted metal gets a full field prime at 0.5 gallons per square so the coating bonds to sound material.</li>
+      {% endif %}
+      {% if base_coat %}
+      <li><strong>Apply the base coat.</strong> {{ base_coat.product }} at {{ base_coat.rate }} gallons per roofing square (1 square = 100 sq ft).
         <div class="why">Why it matters: it helps the top coat grip the roof and stops old stains from bleeding through.</div>
       </li>
-      <li><strong>Apply the top coat.</strong> Henry #988 Silicone Coating over the entire roof at 2 gallons per square, the amount the manufacturer requires for the {{ bid.warranty_years }}-year warranty.
-        <div class="why">Why it matters: this is the waterproof layer you'll see. Its bright white surface reflects sunlight, which helps keep the building cooler.</div>
+      {% endif %}
+      {% for c in top_coats %}
+      <li><strong>Apply the {{ 'top coat' if loop.first else 'next coat' }}.</strong> {{ c.product }} over the entire roof at {{ c.rate }} gallons per square{% if loop.last %}, the amount the manufacturer requires for the {{ bid.warranty_years }}-year warranty{% endif %}.
+        {% if loop.first %}<div class="why">Why it matters: this is the waterproof layer you'll see. Its bright white surface reflects sunlight, which helps keep the building cooler.</div>
+        {% else %}<div class="why">Why it matters: the extra coat builds the thickness your {{ bid.warranty_years }}-year warranty requires.</div>{% endif %}
       </li>
+      {% endfor %}
+      {% if not plan %}
+      <li><strong>Apply the base coat.</strong> Henry #294 Basecoat at 1.25 gallons per roofing square (1 square = 100 sq ft).</li>
+      <li><strong>Apply the top coat.</strong> Henry #988 Silicone Coating over the entire roof at 2 gallons per square.</li>
+      {% endif %}
     </ol>
 
     <h3>Manufacturer's Warranty ({{ bid.warranty_years }} years)</h3>
@@ -195,21 +212,42 @@
     <h3>If You Want to Change Something</h3>
     <p>If you choose different materials or add services not listed here, their cost is added to the total price. If an option requires a Preventative Maintenance Agreement (scheduled check-ups with us), that cost is added too.</p>
 
-    {% if quote %}
+    {% if plan %}
     <h3>What We'll Use On Your Roof{% if bid.surface_type %} — {{ bid.surface_type }}{% endif %}</h3>
     <p class="muted">
       Roof area: {{ '{:,}'.format(bid.roof_size_sqft) }} sq ft{% if bid.deduction_sqft %} −
-      {{ '{:,}'.format(bid.deduction_sqft) }} sq ft we're not coating → {{ '{:,}'.format(net_sqft) }} sq ft{% endif %} ·
-      1 square = 100 sq ft · plus 5% extra for waste = {{ quote.squares }} squares · rounded up to full 5-gallon pails.
+      {{ '{:,}'.format(bid.deduction_sqft) }} sq ft we're not coating → {{ '{:,}'.format(plan.net_sqft) }} sq ft{% endif %} ·
+      1 square = 100 sq ft = {{ plan.squares }} squares{% if plan.waste_pct %} · plus {{ plan.waste_pct|int if plan.waste_pct == plan.waste_pct|int else plan.waste_pct }}% extra for waste{% endif %}{% if plan.stretch_pct %} and {{ plan.stretch_pct|int if plan.stretch_pct == plan.stretch_pct|int else plan.stretch_pct }}% stretch{% endif %}{% if plan.factor != 1 %} = {{ plan.adjusted_squares }} squares{% endif %} ·
+      rounded up to full 5-gallon pails. Application rates follow the {{ plan.coating_system }}{% if plan.coating_system == 'Acrylic' %} ({{ plan.acrylic_system_type }}){% endif %} system on {{ plan.roof_type }} for a {{ plan.warranty_years }}-year warranty.
     </p>
     <table class="q">
       <thead><tr><th>Product</th><th>How much per square</th><th>Gallons needed</th><th>What we order</th></tr></thead>
       <tbody>
-        {% for l in quote.lines %}
-        <tr><td>{{ l.product }}</td><td>{{ l.spec }}</td><td>{{ l.calc }}</td><td>{{ l.gallons }} gal → {{ l.pails }} pails</td></tr>
+        {% for c in plan.coats %}
+        <tr><td>{{ c.product }}</td><td>{{ c.rate }} gal / square</td>
+            <td>{{ c.rate }} × {{ plan.adjusted_squares }} = {{ c.raw_gallons }} gal</td>
+            <td>{{ c.gallons }} gal → {{ c.pails }} pails</td></tr>
         {% endfor %}
+        {% if plan.adhesion_primer_gal %}
+        <tr><td>Adhesion Primer</td><td>0.2 gal / square</td><td>—</td><td>{{ plan.adhesion_primer_gal }} gal</td></tr>
+        {% endif %}
+        {% if plan.rust_primer_gal %}
+        <tr><td>Rust Primer</td><td>0.5 gal / square</td><td>—</td><td>{{ plan.rust_primer_gal }} gal</td></tr>
+        {% endif %}
+        {% if plan.mastic_buckets %}
+        <tr><td>{{ plan.mastic_product }}</td><td>Seams &amp; penetrations</td>
+            <td>{{ '{:,}'.format(bid.linear_feet) }} linear ft</td>
+            <td>{{ plan.mastic_buckets }} × {{ plan.mastic_container }} containers</td></tr>
+        {% endif %}
+        {% if plan.membrane_rolls %}
+        <tr><td>Reinforcing Fabric</td><td>Full embedment</td><td>—</td><td>{{ plan.membrane_rolls }} rolls</td></tr>
+        {% endif %}
+        {% if plan.fastener_caulk_tubes %}
+        <tr><td>Fastener Caulk</td><td>~{{ '{:,}'.format(plan.estimated_screws) }} fasteners</td><td>—</td><td>{{ plan.fastener_caulk_tubes }} tubes</td></tr>
+        {% endif %}
       </tbody>
     </table>
+    <p class="muted">Total coating material: {{ plan.total_gallons }} gallons ({{ plan.total_pails }} pails).</p>
     {% endif %}
 
     {% if bid.price %}

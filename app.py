@@ -19,6 +19,7 @@ from flask import (Flask, flash, redirect, render_template, request,
 
 import cadence
 import importer
+import warranty_calc
 from db import (DEFAULT_PROJECT_TASKS, INTERACTION_TYPES, INVOICE_STATUSES,
                 PIPELINE_MILESTONES, PREFERRED_CONTACT_METHODS,
                 PROJECT_STATUSES, PROSPECTING_STATUSES,
@@ -508,11 +509,6 @@ def move_milestone(account_id):
 
 # ------------------------------------------------------- Bids & roof reports
 
-# System spec rates from the SRP proposal template (per square = 100 sq ft)
-SPEC_BASECOAT_RATE = 1.25   # Henry #294 Basecoat, gal/square
-SPEC_TOPCOAT_RATE = 2.0     # Henry #988 Silicone Coating, gal/square
-SPEC_WASTE_FACTOR = 1.05
-PAIL_GALLONS = 5
 
 _ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT",
          "NINE", "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN",
@@ -542,28 +538,32 @@ def dollars_in_words(amount) -> str:
     return words(n) + " DOLLARS"
 
 
-def materials_quote(net_sqft):
-    """Materials list per the SRP 10-year system spec, rounded to 5-gal pails."""
-    squares = net_sqft / 100 * SPEC_WASTE_FACTOR
-    def line(product, spec, rate):
-        gal = rate * squares
-        rounded = math.ceil(gal / PAIL_GALLONS) * PAIL_GALLONS
-        return {"product": product, "spec": spec,
-                "calc": f"{rate:g} × {squares:.1f} = {gal:.1f} gal",
-                "gallons": rounded, "pails": rounded // PAIL_GALLONS}
-    mastic_pails = max(2, math.ceil(squares / 8))
-    return {
-        "squares": round(squares, 1),
-        "lines": [
-            line("Henry #294 (Basecoat)", f"{SPEC_BASECOAT_RATE:g} gal / square",
-                 SPEC_BASECOAT_RATE),
-            line("Henry #988 (Silicone Topcoat)", f"{SPEC_TOPCOAT_RATE:g} gal / square",
-                 SPEC_TOPCOAT_RATE),
-            {"product": "Henry #923 (Butter Grade Mastic)",
-             "spec": "Seams & penetrations", "calc": "—",
-             "gallons": mastic_pails * PAIL_GALLONS, "pails": mastic_pails},
-        ],
-    }
+
+def _bid_plan(bid, warranty_years=None):
+    """Materials plan for a bid, using the warranty calculator's rates."""
+    return warranty_calc.calculate(
+        bid["roof_size_sqft"] or 0,
+        coating_system=bid["coating_system"] or "Silicone",
+        roof_type=bid["roof_type"] or "Capsheet",
+        warranty_years=warranty_years or bid["warranty_years"] or 10,
+        acrylic_system_type=bid["acrylic_system_type"] or "Standard",
+        deduction_sqft=bid["deduction_sqft"] or 0,
+        linear_feet=bid["linear_feet"] or 0,
+        waste_pct=bid["waste_pct"] or 0,
+        stretch_pct=bid["stretch_pct"] or 0,
+        passed_adhesion=bool(bid["passed_adhesion"]),
+        has_rust=bool(bid["has_rust"]),
+        rust_prime_method=bid["rust_prime_method"] or "field")
+
+
+def _bid_warranty_options(bid):
+    """The same roof at 10/15/20 years, for the comparison table."""
+    out = []
+    for years in warranty_calc.WARRANTY_YEARS:
+        plan = _bid_plan(bid, warranty_years=years)
+        if plan:
+            out.append(plan)
+    return out
 
 
 def _bid_or_404(conn, bid_id):
@@ -587,12 +587,13 @@ def new_bid(account_id):
         address = (request.form.get("roof_address", "").strip()
                    or _address_from_notes(acct["notes"]))
         sqft_raw = request.form.get("roof_size_sqft", "").strip()
+        surface = request.form.get("surface_type", "").strip()
         cur = conn.execute(
             """INSERT INTO bids (account_id, roof_address, roof_size_sqft,
-               surface_type, assessment_date, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?)""",
+               surface_type, roof_type, assessment_date, created_at, updated_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (account_id, address, int(sqft_raw) if sqft_raw.isdigit() else None,
-             request.form.get("surface_type", "").strip(), today_iso(), ts, ts))
+             surface, warranty_calc.guess_roof_type(surface), today_iso(), ts, ts))
         conn.commit()
         bid_id = cur.lastrowid
     finally:
@@ -612,7 +613,12 @@ def bid_edit(bid_id):
             (bid_id,)).fetchall()
     finally:
         conn.close()
-    return render_template("bid_edit.html", bid=bid, photos=photos)
+    return render_template("bid_edit.html", bid=bid, photos=photos,
+                           plan=_bid_plan(bid), options=_bid_warranty_options(bid),
+                           COATING_SYSTEMS=warranty_calc.COATING_SYSTEMS,
+                           ACRYLIC_TYPES=warranty_calc.ACRYLIC_TYPES,
+                           ROOF_TYPES=warranty_calc.ROOF_TYPES,
+                           WARRANTY_YEARS=warranty_calc.WARRANTY_YEARS)
 
 
 @app.route("/bids/<int:bid_id>/edit", methods=["POST"])
@@ -623,10 +629,29 @@ def save_bid(bid_id):
     conn = get_db()
     try:
         _bid_or_404(conn, bid_id)
+        def pct(name):
+            raw = request.form.get(name, "").strip()
+            try:
+                return max(0.0, float(raw)) if raw else 0.0
+            except ValueError:
+                return 0.0
+
+        system = request.form.get("coating_system", "Silicone")
+        if system not in warranty_calc.COATING_SYSTEMS:
+            system = "Silicone"
+        roof_type = request.form.get("roof_type", "Capsheet")
+        if roof_type not in warranty_calc.ROOF_TYPES:
+            roof_type = "Capsheet"
+        acrylic_type = request.form.get("acrylic_system_type", "Standard")
+        if acrylic_type not in warranty_calc.ACRYLIC_TYPES:
+            acrylic_type = "Standard"
         conn.execute(
             """UPDATE bids SET roof_address=?, roof_size_sqft=?, deduction_sqft=?,
                surface_type=?, candidate=?, warranty_years=?, price=?,
-               assessment_date=?, assessment_notes=?, updated_at=? WHERE id=?""",
+               assessment_date=?, assessment_notes=?, coating_system=?,
+               acrylic_system_type=?, roof_type=?, linear_feet=?, waste_pct=?,
+               stretch_pct=?, passed_adhesion=?, has_rust=?, rust_prime_method=?,
+               updated_at=? WHERE id=?""",
             (request.form.get("roof_address", "").strip(), num("roof_size_sqft"),
              num("deduction_sqft") or 0,
              request.form.get("surface_type", "").strip(),
@@ -635,6 +660,11 @@ def save_bid(bid_id):
              _parse_amount(request.form.get("price")),
              request.form.get("assessment_date", "").strip(),
              request.form.get("assessment_notes", "").strip(),
+             system, acrylic_type, roof_type, num("linear_feet") or 0,
+             pct("waste_pct"), pct("stretch_pct"),
+             1 if request.form.get("passed_adhesion") else 0,
+             1 if request.form.get("has_rust") else 0,
+             request.form.get("rust_prime_method", "field"),
              now_iso(), bid_id))
         conn.commit()
     finally:
@@ -754,10 +784,9 @@ def bid_report(bid_id):
     finally:
         conn.close()
     net_sqft = (bid["roof_size_sqft"] or 0) - (bid["deduction_sqft"] or 0)
-    quote_data = materials_quote(net_sqft) if net_sqft > 0 else None
+    plan = _bid_plan(bid) if net_sqft > 0 else None
     return render_template("bid_report.html", bid=bid, photos=photos,
-                           settings=settings, quote=quote_data,
-                           net_sqft=net_sqft,
+                           settings=settings, plan=plan, net_sqft=net_sqft,
                            price_words=dollars_in_words(bid["price"]))
 
 

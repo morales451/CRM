@@ -44,11 +44,52 @@
           </div>
           <div class="col-4">
             <label class="form-label small mb-0">Warranty (years)</label>
-            <input name="warranty_years" type="number" min="1" class="form-control form-control-sm" value="{{ bid.warranty_years }}">
+            <select name="warranty_years" class="form-select form-select-sm">
+              {% for y in WARRANTY_YEARS %}<option value="{{ y }}" {{ 'selected' if bid.warranty_years == y }}>{{ y }} year</option>{% endfor %}
+            </select>
           </div>
           <div class="col-4">
             <label class="form-label small mb-0">Assessment Date</label>
             <input type="date" name="assessment_date" class="form-control form-control-sm" value="{{ bid.assessment_date }}">
+          </div>
+          <div class="col-12"><hr class="my-1"><div class="small fw-bold text-primary">Warranty Calculator — drives the application rates in the report</div></div>
+          <div class="col-6 col-md-4">
+            <label class="form-label small mb-0">Coating System</label>
+            <select name="coating_system" class="form-select form-select-sm">
+              {% for s in COATING_SYSTEMS %}<option {{ 'selected' if bid.coating_system == s }}>{{ s }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label small mb-0">Acrylic Type <span class="text-muted">(acrylic only)</span></label>
+            <select name="acrylic_system_type" class="form-select form-select-sm">
+              {% for a in ACRYLIC_TYPES %}<option {{ 'selected' if bid.acrylic_system_type == a }}>{{ a }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label small mb-0">Roof Category</label>
+            <select name="roof_type" class="form-select form-select-sm">
+              {% for rt in ROOF_TYPES %}<option {{ 'selected' if bid.roof_type == rt }}>{{ rt }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0" title="Seams and penetrations, for butter-grade mastic">Linear Feet</label>
+            <input name="linear_feet" type="number" min="0" class="form-control form-control-sm" value="{{ bid.linear_feet or '' }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Waste %</label>
+            <input name="waste_pct" type="number" min="0" step="0.5" class="form-control form-control-sm" value="{{ bid.waste_pct or 0 }}">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0" title="Extra coverage allowance">Stretch %</label>
+            <input name="stretch_pct" type="number" min="0" step="0.5" class="form-control form-control-sm" value="{{ bid.stretch_pct or 0 }}">
+          </div>
+          <div class="col-12 d-flex gap-3 flex-wrap small">
+            <label><input type="checkbox" name="passed_adhesion" value="1" {{ 'checked' if bid.passed_adhesion }}> Adhesion test passed <span class="text-muted">(unchecked adds primer)</span></label>
+            <label><input type="checkbox" name="has_rust" value="1" {{ 'checked' if bid.has_rust }}> Rust present <span class="text-muted">(metal roofs)</span></label>
+            <select name="rust_prime_method" class="form-select form-select-sm" style="max-width:160px">
+              <option value="field" {{ 'selected' if bid.rust_prime_method != 'spot' }}>Full field prime</option>
+              <option value="spot" {{ 'selected' if bid.rust_prime_method == 'spot' }}>Spot prime only</option>
+            </select>
           </div>
           <div class="col-12">
             <label class="form-label small mb-0">Quotation Price ($)</label>
@@ -73,6 +114,52 @@
   </div>
 
   <div class="col-12 col-lg-6">
+    <div class="card p-3 mb-3">
+      <h5>🧮 Materials Plan <span class="text-muted fs-6">({{ bid.warranty_years }}-year {{ bid.coating_system }})</span></h5>
+      {% if plan %}
+      <p class="small text-muted mb-2">
+        {{ '{:,}'.format(plan.net_sqft) }} sq ft = {{ plan.squares }} squares{% if plan.factor != 1 %} · +{{ plan.waste_pct|int if plan.waste_pct == plan.waste_pct|int else plan.waste_pct }}% waste{% if plan.stretch_pct %} +{{ plan.stretch_pct|int if plan.stretch_pct == plan.stretch_pct|int else plan.stretch_pct }}% stretch{% endif %} → {{ plan.adjusted_squares }} squares{% endif %} · rounded up to 5-gal pails.
+      </p>
+      <div class="table-responsive">
+        <table class="table table-sm mb-2">
+          <thead class="table-light"><tr><th>Coat</th><th>Rate</th><th>Gallons</th><th>Pails</th></tr></thead>
+          <tbody>
+            {% for c in plan.coats %}
+            <tr><td class="small">{{ c.label }}<div class="text-muted">{{ c.product }}</div></td>
+                <td class="small">{{ c.rate }} gal/sq</td>
+                <td class="small">{{ c.gallons }}</td>
+                <td class="small">{{ c.pails }}</td></tr>
+            {% endfor %}
+            {% if plan.adhesion_primer_gal %}<tr><td class="small">Adhesion Primer</td><td class="small">0.2 gal/sq</td><td class="small">{{ plan.adhesion_primer_gal }}</td><td class="small">—</td></tr>{% endif %}
+            {% if plan.rust_primer_gal %}<tr><td class="small">Rust Primer</td><td class="small">0.5 gal/sq</td><td class="small">{{ plan.rust_primer_gal }}</td><td class="small">{{ (plan.rust_primer_gal / 5)|round(0, 'ceil')|int }}</td></tr>{% endif %}
+            {% if plan.mastic_buckets %}<tr><td class="small">{{ plan.mastic_product }}<div class="text-muted">{{ plan.mastic_container }} · ~{{ plan.lf_per_container }} LF each</div></td><td class="small">{{ bid.linear_feet }} LF</td><td class="small">—</td><td class="small">{{ plan.mastic_buckets }}</td></tr>{% endif %}
+            {% if plan.membrane_rolls %}<tr><td class="small">Reinforcing Fabric</td><td class="small">—</td><td class="small">—</td><td class="small">{{ plan.membrane_rolls }} rolls</td></tr>{% endif %}
+          </tbody>
+          <tfoot><tr class="fw-bold"><td class="small">Total coating</td><td></td><td class="small">{{ plan.total_gallons }} gal</td><td class="small">{{ plan.total_pails }}</td></tr></tfoot>
+        </table>
+      </div>
+      {% if options|length > 1 %}
+      <h6 class="small fw-bold mt-1">Warranty options for this roof</h6>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Warranty</th><th>Rates (gal/sq)</th><th>Total gallons</th></tr></thead>
+          <tbody>
+            {% for o in options %}
+            <tr class="{{ 'table-warning' if o.warranty_years == bid.warranty_years }}">
+              <td class="small fw-semibold">{{ o.warranty_years }} year</td>
+              <td class="small">{% for c in o.coats %}{{ c.short }} {{ c.rate }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+              <td class="small">{{ o.total_gallons }} gal</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+      {% else %}
+      <p class="text-muted small mb-0">Enter a roof size — and note that {{ bid.coating_system }} on {{ bid.roof_type }} has no published rate for a {{ bid.warranty_years }}-year warranty. Pick another system, roof category, or warranty length.</p>
+      {% endif %}
+    </div>
+
     <div class="card p-3 mb-3">
       <h5>Assessment Photos <span class="text-muted fs-6">({{ photos|length }})</span></h5>
       <form method="post" action="{{ url_for('add_bid_photos', bid_id=bid.id) }}" enctype="multipart/form-data"

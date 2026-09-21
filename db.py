@@ -142,6 +142,15 @@ CREATE TABLE IF NOT EXISTS bids (
     surface_type TEXT DEFAULT '',
     candidate TEXT DEFAULT 'Yes',
     warranty_years INTEGER DEFAULT 10,
+    coating_system TEXT DEFAULT 'Silicone',      -- Silicone | Acrylic | Aluminum
+    acrylic_system_type TEXT DEFAULT 'Standard', -- Standard | Reinforced
+    roof_type TEXT DEFAULT 'Capsheet',           -- calculator roof category
+    linear_feet INTEGER DEFAULT 0,               -- seams/penetrations for mastic
+    waste_pct REAL DEFAULT 5,
+    stretch_pct REAL DEFAULT 0,
+    passed_adhesion INTEGER DEFAULT 1,
+    has_rust INTEGER DEFAULT 0,
+    rust_prime_method TEXT DEFAULT 'field',
     price REAL,
     assessment_date TEXT DEFAULT '',      -- ISO date
     assessment_notes TEXT DEFAULT '',
@@ -365,6 +374,21 @@ def _migrate(conn) -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN next_follow_up TEXT DEFAULT ''")
     if "follow_up_note" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN follow_up_note TEXT DEFAULT ''")
+    bid_cols = {row[1] for row in conn.execute("PRAGMA table_info(bids)")}
+    if bid_cols:  # table exists
+        for name, ddl in (
+                ("coating_system", "TEXT DEFAULT 'Silicone'"),
+                ("acrylic_system_type", "TEXT DEFAULT 'Standard'"),
+                ("roof_type", "TEXT DEFAULT 'Capsheet'"),
+                ("linear_feet", "INTEGER DEFAULT 0"),
+                ("waste_pct", "REAL DEFAULT 5"),
+                ("stretch_pct", "REAL DEFAULT 0"),
+                ("passed_adhesion", "INTEGER DEFAULT 1"),
+                ("has_rust", "INTEGER DEFAULT 0"),
+                ("rust_prime_method", "TEXT DEFAULT 'field'")):
+            if name not in bid_cols:
+                conn.execute(f"ALTER TABLE bids ADD COLUMN {name} {ddl}")
+
     if "matching_properties" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN matching_properties INTEGER")
         # Templates seeded before this version used {num_properties} where the
