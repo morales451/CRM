@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from db import now_iso, today_iso
+from db import now_iso
 
 # field -> normalized header synonyms
 COLUMN_SYNONYMS = {

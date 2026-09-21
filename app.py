@@ -6,7 +6,6 @@ Then open http://<your-local-ip>:8000 from any device on your Wi-Fi.
 
 import csv
 import io
-import math
 import re
 import socket
 import uuid
@@ -109,10 +108,13 @@ def _account_or_404(conn, account_id):
     return acct
 
 
-def _account_fields_from_form(form):
+def _account_fields_from_form(form, previous=None):
     def int_or_none(name):
-        raw = form.get(name, "").strip()
-        return int(raw) if raw.isdigit() else None
+        prior = previous[name] if previous is not None else None
+        if name not in form:
+            return prior
+        value = _parse_int(form.get(name), on_error=_MISSING)
+        return prior if value is _MISSING else value
 
     return {
         "company_name": form.get("company_name", "").strip(),
@@ -246,12 +248,20 @@ def dashboard():
         conn.close()
 
 
+def _account_exists(conn, account_id) -> bool:
+    return conn.execute("SELECT 1 FROM accounts WHERE id = ?",
+                        (account_id,)).fetchone() is not None
+
+
 @app.route("/reminders/dismiss", methods=["POST"])
 def dismiss_reminder():
     account_id = request.form["account_id"]
     step_type = request.form["step_type"]
     conn = get_db()
     try:
+        if not _account_exists(conn, account_id):
+            flash("That account no longer exists.", "danger")
+            return redirect(request.form.get("next") or url_for("dashboard"))
         conn.execute(
             "INSERT OR IGNORE INTO cadence_dismissals "
             "(account_id, step_type, dismissed_at) VALUES (?,?,?)",
@@ -271,6 +281,9 @@ def quick_log():
     notes = request.form.get("notes", "").strip()
     conn = get_db()
     try:
+        if not _account_exists(conn, account_id):
+            flash("That account no longer exists.", "danger")
+            return redirect(request.form.get("next") or url_for("dashboard"))
         conn.execute(
             "INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
             "VALUES (?,?,?,?)", (account_id, step_type, notes, now_iso()))
@@ -672,18 +685,31 @@ def bid_edit(bid_id):
 
 @app.route("/bids/<int:bid_id>/edit", methods=["POST"])
 def save_bid(bid_id):
-    def num(name):
-        raw = request.form.get(name, "").strip()
-        return int(raw) if raw.isdigit() else None
     conn = get_db()
     try:
-        _bid_or_404(conn, bid_id)
-        def pct(name):
-            raw = request.form.get(name, "").strip()
-            try:
-                return max(0.0, float(raw)) if raw else 0.0
-            except ValueError:
+        bid = _bid_or_404(conn, bid_id)
+        rejected = []
+
+        def num(name, previous=None):
+            """Parse a number, keeping the stored value if it's unreadable."""
+            if name not in request.form:
+                return previous
+            value = _parse_int(request.form.get(name), on_error=_MISSING)
+            if value is _MISSING:
+                rejected.append(name.replace("_", " "))
+                return previous
+            return value
+        def pct(name, previous=0.0):
+            if name not in request.form:
+                return previous
+            raw = (request.form.get(name) or "").strip()
+            if not raw:
                 return 0.0
+            try:
+                return max(0.0, float(raw))
+            except ValueError:
+                rejected.append(name.replace("_pct", " %").replace("_", " "))
+                return previous
 
         system = request.form.get("coating_system", "Silicone")
         if system not in warranty_calc.COATING_SYSTEMS:
@@ -703,7 +729,7 @@ def save_bid(bid_id):
                            + (f" ({acrylic_type})" if system == "Acrylic" else "")
                            + f" isn't offered over {roof_type}")
             roof_type = roofs[0] if roofs else "Capsheet"
-        years = num("warranty_years") or 10
+        years = num("warranty_years", bid["warranty_years"]) or 10
         supported_years = warranty_calc.supported_warranties(system, roof_type, acrylic_type)
         if supported_years and years not in supported_years:
             snapped.append(f"{system} on {roof_type} only comes in "
@@ -721,16 +747,18 @@ def save_bid(bid_id):
                stretch_pct=?, passed_adhesion=?, has_rust=?, rust_prime_method=?,
                selected_topcoat=?, selected_basecoat=?, selected_butter_grade=?,
                updated_at=? WHERE id=?""",
-            (request.form.get("roof_address", "").strip(), num("roof_size_sqft"),
-             num("deduction_sqft") or 0,
+            (request.form.get("roof_address", "").strip(),
+             num("roof_size_sqft", bid["roof_size_sqft"]),
+             num("deduction_sqft", bid["deduction_sqft"]) or 0,
              request.form.get("surface_type", "").strip(),
              request.form.get("candidate", "Yes"),
              years,
-             _parse_amount(request.form.get("price")),
+             _parse_amount(request.form.get("price"), on_error=bid["price"]),
              request.form.get("assessment_date", "").strip(),
              request.form.get("assessment_notes", "").strip(),
-             system, acrylic_type, roof_type, num("linear_feet") or 0,
-             pct("waste_pct"), pct("stretch_pct"),
+             system, acrylic_type, roof_type,
+             num("linear_feet", bid["linear_feet"]) or 0,
+             pct("waste_pct", bid["waste_pct"]), pct("stretch_pct", bid["stretch_pct"]),
              1 if request.form.get("passed_adhesion") else 0,
              1 if request.form.get("has_rust") else 0,
              request.form.get("rust_prime_method", "field"),
@@ -739,8 +767,12 @@ def save_bid(bid_id):
         conn.commit()
     finally:
         conn.close()
-    if snapped:
-        flash("Saved, with adjustments: " + "; ".join(snapped) + ".", "warning")
+    notes = list(snapped)
+    if rejected:
+        notes.append("couldn't read " + ", ".join(sorted(set(rejected)))
+                     + " so the previous value was kept")
+    if notes:
+        flash("Saved, with adjustments: " + "; ".join(notes) + ".", "warning")
     else:
         flash("Roof report saved.", "success")
     return redirect(url_for("bid_edit", bid_id=bid_id))
@@ -885,12 +917,32 @@ def bid_report(bid_id):
 
 # ----------------------------------------------------- Projects & invoicing
 
-def _parse_amount(raw):
-    raw = (raw or "").replace("$", "").replace(",", "").strip()
-    try:
-        return round(float(raw), 2) if raw else None
-    except ValueError:
+_MISSING = object()
+
+
+def _parse_amount(raw, on_error=None):
+    """Money from a form field. Accepts $, commas and spaces. An empty field
+    clears the value; unparseable text returns `on_error` so a typo like
+    "15,00O" can keep the previous number instead of wiping it."""
+    cleaned = (raw or "").replace("$", "").replace(",", "").replace(" ", "").strip()
+    if not cleaned:
         return None
+    try:
+        return round(float(cleaned), 2)
+    except ValueError:
+        return on_error
+
+
+def _parse_int(raw, on_error=None):
+    """Whole number from a form field, tolerant of commas and spaces."""
+    cleaned = (raw or "").replace(",", "").replace(" ", "").strip()
+    if not cleaned:
+        return None
+    try:
+        value = int(float(cleaned))
+    except ValueError:
+        return on_error
+    return value if value >= 0 else on_error
 
 
 def _project_money(conn, project_id):
@@ -1377,13 +1429,13 @@ def account_detail(account_id):
 
 @app.route("/accounts/<int:account_id>/edit", methods=["POST"])
 def edit_account(account_id):
-    fields = _account_fields_from_form(request.form)
-    if not fields["company_name"]:
-        flash("Company name is required.", "danger")
-        return redirect(url_for("account_detail", account_id=account_id))
     conn = get_db()
     try:
-        _account_or_404(conn, account_id)
+        existing = _account_or_404(conn, account_id)
+        fields = _account_fields_from_form(request.form, existing)
+        if not fields["company_name"]:
+            flash("Company name is required.", "danger")
+            return redirect(url_for("account_detail", account_id=account_id))
         conn.execute(
             """UPDATE accounts SET company_name=?, first_name=?, last_name=?,
                title=?, num_properties=?, matching_properties=?, email=?,
@@ -1636,19 +1688,32 @@ def save_template(template_id):
 def save_settings():
     conn = get_db()
     try:
+        bad_prices = []
         for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
                     "my_website", "my_address", "invoice_terms", "backup_dir",
                     "price_capsheet_base", "price_other_base", "price_add_15",
                     "price_add_20"):
-            if key in request.form:  # only touch submitted fields
-                conn.execute(
-                    "INSERT INTO settings (key, value) VALUES (?,?) "
-                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                    (key, request.form.get(key, "").strip()))
+            if key not in request.form:  # only touch submitted fields
+                continue
+            value = request.form.get(key, "").strip()
+            if key.startswith("price_"):
+                amount = _parse_amount(value, on_error=_MISSING)
+                if amount is _MISSING or amount is None:
+                    bad_prices.append(key.replace("price_", "").replace("_", " "))
+                    continue
+                value = f"{amount:.2f}"
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value))
         conn.commit()
     finally:
         conn.close()
-    flash("Settings saved.", "success")
+    if bad_prices:
+        flash("Saved, but these prices weren't numbers and were left unchanged: "
+              + ", ".join(bad_prices) + ".", "warning")
+    else:
+        flash("Settings saved.", "success")
     return redirect(request.form.get("next") or url_for("templates_page"))
 
 
