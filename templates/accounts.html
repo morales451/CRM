@@ -2,7 +2,9 @@
 {% block title %}Accounts — Roof CRM{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ accounts|length }})</span></h1>
+  <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ accounts|length }})</span>
+    {% if total_matching %}<span class="badge text-bg-warning fs-6" title="Total buildings matching your criteria in this view">🎯 {{ total_matching }} buildings</span>{% endif %}
+  </h1>
   <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
 </div>
 
@@ -23,6 +25,19 @@
         {% for m in MILESTONES %}<option value="{{ m }}" {{ 'selected' if m == milestone }}>{{ m }}</option>{% endfor %}
       </select>
     </div>
+    <div class="col-6 col-md-2">
+      <div class="input-group input-group-sm" title="Only show accounts with at least this many matching buildings">
+        <span class="input-group-text">🎯 ≥</span>
+        <input type="number" min="0" name="min_matching" value="{{ min_matching }}" class="form-control" placeholder="any">
+      </div>
+    </div>
+    <div class="col-6 col-md-2">
+      <select name="sort" class="form-select form-select-sm" title="Sort order">
+        <option value="priority" {{ 'selected' if sort == 'priority' }}>🎯 Most buildings</option>
+        <option value="name" {{ 'selected' if sort == 'name' }}>A–Z</option>
+        <option value="recent" {{ 'selected' if sort == 'recent' }}>Recent activity</option>
+      </select>
+    </div>
     <div class="col-12 col-md-2 d-flex gap-1">
       <button class="btn btn-sm btn-primary flex-fill">Filter</button>
       <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
@@ -34,7 +49,7 @@
   <div class="table-responsive">
     <table class="table table-hover mb-0">
       <thead class="table-light"><tr>
-        <th>Company</th><th>Contact</th><th class="d-none d-md-table-cell">Phone</th>
+        <th>Company</th><th title="Buildings matching your criteria">🎯</th><th>Contact</th><th class="d-none d-md-table-cell">Phone</th>
         <th>Status</th><th class="d-none d-sm-table-cell">Milestone</th>
         <th class="d-none d-lg-table-cell">Last Activity</th>
       </tr></thead>
@@ -42,6 +57,7 @@
       {% for a in accounts %}
         <tr>
           <td><a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a></td>
+          <td>{% if a.matching_properties %}<span class="badge text-bg-warning" title="{{ a.matching_properties }} matching{% if a.num_properties %} of {{ a.num_properties }} owned{% endif %}">{{ a.matching_properties }}</span>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
           <td class="small">{{ a.first_name }} {{ a.last_name }}</td>
           <td class="small d-none d-md-table-cell">
             {% set phone = a.mobile_phone or a.work_phone %}
@@ -52,7 +68,7 @@
           <td class="small text-muted d-none d-lg-table-cell">{{ a.last_activity|dt if a.last_activity else '—' }}</td>
         </tr>
       {% else %}
-        <tr><td colspan="6" class="text-muted text-center py-4">No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.</td></tr>
+        <tr><td colspan="7" class="text-muted text-center py-4">No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.</td></tr>
       {% endfor %}
       </tbody>
     </table>
