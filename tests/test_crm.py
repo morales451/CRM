@@ -762,13 +762,49 @@ conn.close()
 import app as app_mod
 app_mod.PHOTO_DIR = db.DB_PATH.parent / "bid_photos"
 
-# quote math must reproduce the template's own example: 3,900 - 300 = 3,600 sqft
-q = app_mod.materials_quote(3600)
-check("bid quote: squares match template example", q["squares"] == 37.8, q)
-base, top, mastic = q["lines"]
-check("bid quote: basecoat 50 gal -> 10 pails", base["gallons"] == 50 and base["pails"] == 10)
-check("bid quote: topcoat 80 gal -> 16 pails", top["gallons"] == 80 and top["pails"] == 16)
-check("bid quote: mastic 5 pails", mastic["pails"] == 5, mastic)
+# warranty calculator must reproduce the template example: 3,900 - 300 sq ft,
+# Silicone on Capsheet, 10-year, +5% waste
+import warranty_calc as wc
+q = wc.calculate(3900, deduction_sqft=300, warranty_years=10, waste_pct=5, linear_feet=400)
+check("calc: adjusted squares match template example", q["adjusted_squares"] == 37.8, q)
+base, top = q["coats"]
+check("calc: basecoat 1.25 gal/sq -> 50 gal / 10 pails",
+      base["rate"] == 1.25 and base["gallons"] == 50 and base["pails"] == 10, base)
+check("calc: topcoat 2 gal/sq -> 80 gal / 16 pails",
+      top["rate"] == 2 and top["gallons"] == 80 and top["pails"] == 16, top)
+check("calc: mastic buckets from linear feet", q["mastic_buckets"] == 5, q["mastic_buckets"])
+check("calc: total gallons", q["total_gallons"] == 130, q["total_gallons"])
+
+# rates change with warranty length (the whole point of the calculator)
+r10 = wc.get_rates("Silicone", "Capsheet", 10)
+r15 = wc.get_rates("Silicone", "Capsheet", 15)
+r20 = wc.get_rates("Silicone", "Capsheet", 20)
+check("calc: silicone capsheet topcoat 2 / 2.5 / 3 by warranty",
+      (r10["top1"], r15["top1"], r20["top1"]) == (2, 2.5, 3))
+check("calc: silicone single-ply has no basecoat",
+      wc.get_rates("Silicone", "Single-Ply", 10)["base"] == 0)
+check("calc: acrylic reinforced capsheet 20yr has four coats",
+      len(wc.calculate(10000, coating_system="Acrylic", acrylic_system_type="Reinforced",
+                       roof_type="Capsheet", warranty_years=20)["coats"]) == 4)
+check("calc: acrylic reinforced adds fabric rolls",
+      wc.calculate(10000, coating_system="Acrylic", acrylic_system_type="Reinforced",
+                   roof_type="Capsheet", warranty_years=20)["membrane_rolls"] == 10)
+check("calc: aluminum has no 15/20-year option",
+      wc.calculate(5000, coating_system="Aluminum", roof_type="Metal", warranty_years=15) is None
+      and wc.calculate(5000, coating_system="Aluminum", roof_type="Metal",
+                       warranty_years=10)["coats"][0]["rate"] == 2)
+check("calc: failed adhesion adds primer",
+      wc.calculate(10000, passed_adhesion=False)["adhesion_primer_gal"] == 20)
+check("calc: rust field prime on metal",
+      wc.calculate(10000, roof_type="Metal", has_rust=True)["rust_primer_gal"] == 50
+      and wc.calculate(10000, roof_type="Metal", has_rust=True,
+                       rust_prime_method="spot")["rust_primer_gal"] == 0)
+check("calc: roof type guessed from surface text",
+      (wc.guess_roof_type("Granulated Capsheet"), wc.guess_roof_type("TPO"),
+       wc.guess_roof_type("Standing seam metal"), wc.guess_roof_type("SPF foam"))
+      == ("Capsheet", "Single-Ply", "Metal", "Sprayfoam"))
+check("calc: pails round up in fives", wc.round_to_pails(47.25) == 50
+      and wc.round_to_pails(0) == 0 and wc.round_to_pails(75.6) == 80)
 check("bid words: 15000", app_mod.dollars_in_words(15000) == "FIFTEEN THOUSAND DOLLARS")
 check("bid words: 24750", app_mod.dollars_in_words(24750)
       == "TWENTY-FOUR THOUSAND SEVEN HUNDRED FIFTY DOLLARS")
@@ -791,9 +827,22 @@ r = client.post(f"/bids/{bid['id']}/edit", data={
     "roof_size_sqft": "3900", "deduction_sqft": "300", "surface_type": "Capsheet",
     "candidate": "Yes", "warranty_years": "10", "price": "$15,000",
     "assessment_date": "2026-09-05",
+    "coating_system": "Silicone", "acrylic_system_type": "Standard",
+    "roof_type": "Capsheet", "linear_feet": "400", "waste_pct": "5",
+    "stretch_pct": "0", "passed_adhesion": "1",
     "assessment_notes": "Ponding at NW corner\n- Cracked seams along HVAC curb"},
     follow_redirects=True)
 check("bid: saved", r.status_code == 200)
+conn = db.get_db()
+bsaved = conn.execute("SELECT * FROM bids WHERE id=?", (bid["id"],)).fetchone()
+conn.close()
+check("bid: calculator inputs persisted",
+      bsaved["coating_system"] == "Silicone" and bsaved["roof_type"] == "Capsheet"
+      and bsaved["linear_feet"] == 400 and bsaved["waste_pct"] == 5
+      and bsaved["passed_adhesion"] == 1)
+check("bid editor: materials plan + warranty options shown",
+      b"Materials Plan" in r.data and b"Warranty options for this roof" in r.data
+      and b"1.25 gal/sq" in r.data)
 # photo upload with auto-resize
 from PIL import Image as _Img
 big = io.BytesIO()
@@ -823,8 +872,13 @@ check("bid report: 200 + sections", r.status_code == 200
       and "Site Assessment" in html and "Material Plus" in html)
 check("bid report: personalized", "Dear Doug," in html
       and "5231 Braesvalley Drive" in html and "3,900" in html)
-check("bid report: quote computed", "37.8 squares" in html and "10 pails" in html
-      and "16 pails" in html)
+check("bid report: calculator-driven quote", "37.8 squares" in html
+      and "10 pails" in html and "16 pails" in html
+      and "1.25 gal / square" in html and "2 gal / square" in html)
+check("bid report: rates cite system, roof and warranty",
+      "Silicone" in html and "Capsheet" in html
+      and "10-year warranty" in html)
+check("bid report: mastic from linear feet", "400 linear ft" in html)
 check("bid report: price in words", "FOR THE SUM OF FIFTEEN THOUSAND DOLLARS" in html
       and "$15,000" in html)
 check("bid report: photo + caption in survey", ph["filename"] in html
