@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
+# Data now lives outside the app folder (Documents/RoofCRM);
+# these entries cover databases left by older versions.
 crm.db
 *.db-journal
 backups/

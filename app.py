@@ -17,6 +17,8 @@ from flask import (Flask, flash, redirect, render_template, request,
                    send_file, url_for)
 
 import cadence
+import db as db_module
+import excel_export
 import importer
 import warranty_calc
 from db import (ARCHIVE_REASONS, DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
@@ -28,7 +30,7 @@ from db import (ARCHIVE_REASONS, DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
 app = Flask(__name__)
 app.secret_key = "local-crm-flash-messages"  # local single-user app; used only for flash()
 PORT = 8000
-PHOTO_DIR = Path(__file__).parent / "uploads" / "bid_photos"
+PHOTO_DIR = db_module.UPLOAD_DIR
 PHOTO_MAX_DIM = 1600  # uploaded photos are resized to fit the report/PDF
 
 
@@ -1301,6 +1303,21 @@ def download_backup():
                      download_name=f"crm-backup-{today_iso()}.db")
 
 
+@app.route("/export/workbook.xlsx")
+def export_workbook():
+    """Everything in one Excel file: summary, accounts, contacts, history,
+    roof reports, projects, invoices and today's tasks."""
+    conn = get_db()
+    try:
+        buf = excel_export.build_workbook(conn)
+    finally:
+        conn.close()
+    return send_file(
+        buf,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True, download_name=f"roof-crm-{today_iso()}.xlsx")
+
+
 @app.route("/export/accounts.csv")
 def export_accounts():
     conn = get_db()
@@ -1982,7 +1999,14 @@ def print_network_instructions():
 
 
 if __name__ == "__main__":
+    moved = db_module.migrate_legacy_data()
     init_db()
+    print(f"\n  Your data:  {db_module.DATA_DIR}")
+    print("  (kept outside this folder, so updating the app never touches it)")
+    if moved:
+        print("  Moved from the old location:")
+        for line in moved:
+            print(f"    • {line}")
     backup = backup_db()
     if backup:
         print(f"  Daily backup saved: {backup}")

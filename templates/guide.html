@@ -41,6 +41,7 @@
       <a href="#projects">13. Projects &amp; invoicing</a><br>
       <a href="#insights">14. Insights</a><br>
       <a href="#backup">15. Data safety</a><br>
+      <a href="#updating">15b. Updating safely</a><br>
       <a href="#trouble">16. Troubleshooting</a>
     </div>
   </div>
@@ -200,8 +201,32 @@ future import <em>can</em> add that company again.</div>
   <li>A dated backup is saved to <code>backups/</code> automatically once a day (even if the app runs for weeks), newest 14 kept.</li>
   <li><strong>Off-machine:</strong> set the backup folder on the Import page to a synced folder (OneDrive/Google Drive/Dropbox) and every daily backup is mirrored there. <strong>Download Full Backup</strong> grabs a snapshot from any device.</li>
   <li><strong>Restore:</strong> stop the app, copy a backup file over <code>crm.db</code>, start again.</li>
+  <li><strong>📊 Export Everything (Excel)</strong> on the Import or Insights page builds one
+    workbook with a summary tab plus accounts, contacts, full interaction history, roof reports
+    (including computed rates and suggested prices), projects, invoices and today's tasks — every
+    sheet frozen and filterable. The birds-eye view of the whole business.</li>
   <li>CSV exports of accounts and interaction history are on the Import page.</li>
 </ul>
+
+<h2 id="updating">15b. Updating the app without losing data</h2>
+<p><strong>Your data no longer lives in the app folder.</strong> It sits in
+<code>Documents\RoofCRM</code> (the startup window prints the exact path), which means you can
+replace, delete or re-download the app folder as often as you like and your accounts, photos and
+backups stay put. The first time you run this version, anything left in the old location is moved
+there automatically and the startup window lists what moved.</p>
+<h3>Two ways to update</h3>
+<ul>
+  <li><strong>Download the zip (what you're doing):</strong> unzip the new version, replace your app
+    folder, start it. That's now safe — nothing of yours is inside that folder.</li>
+  <li><strong>Or use git (cleaner):</strong> in the app folder run <code>git pull</code>. It updates
+    only the files that changed and never touches your data.</li>
+</ul>
+<div class="tip"><strong>Belt and braces:</strong> before any update, hit
+<kbd>⬇ Download Full Backup</kbd> on the <a href="{{ url_for('import_page') }}">Import</a> page, or
+just confirm your off-machine backup folder is set. Takes five seconds and makes an update
+completely reversible.</div>
+<p class="muted">Want your data somewhere else (a synced drive, say)? Set an environment variable
+<code>ROOF_CRM_DATA</code> to that folder and the app will use it.</p>
 
 <h2 id="trouble">16. Troubleshooting</h2>
 <ul>

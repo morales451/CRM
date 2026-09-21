@@ -65,8 +65,11 @@
   <h5>Export & Backup</h5>
   <p class="small text-muted mb-2">Your entire CRM lives in the single file <code>crm.db</code>; a dated copy is
     saved automatically to the <code>backups/</code> folder each day the app starts (newest 14 kept).
-    Download your data as spreadsheets any time:</p>
+    Download your data as spreadsheets any time. <strong>Export Everything</strong> builds one Excel
+    workbook with a summary tab plus accounts, contacts, full interaction history, roof reports,
+    projects, invoices and today's tasks — a birds-eye view of the whole business.</p>
   <div class="d-flex gap-2 flex-wrap mb-3">
+    <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-success">📊 Export Everything (Excel)</a>
     <a href="{{ url_for('download_backup') }}" class="btn btn-sm btn-primary">⬇ Download Full Backup (.db)</a>
     <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">⬇ Export Accounts (CSV)</a>
     <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">⬇ Export Interaction History (CSV)</a>
