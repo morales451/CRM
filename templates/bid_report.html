@@ -43,6 +43,12 @@
     .photo img { width: 100%; height: auto; border-radius: 6px; border: 1px solid #dde; }
     .photo .cap { font-size: .85rem; color: #444; margin-top: .3rem; }
     .muted { color: #666; font-size: .9rem; }
+    .glance { background: var(--light); border-left: 4px solid var(--brand); border-radius: 4px;
+              padding: .8rem 1.1rem; margin: .6rem 0 1.2rem; }
+    .glance div { margin: .25rem 0; }
+    .glance .gk { font-weight: 700; color: var(--brand-dark); }
+    ol.steps > li { margin-bottom: .6rem; }
+    .why { color: #555; font-size: .9rem; font-style: italic; margin-top: .15rem; }
     .accept { border: 1px solid #ccd; border-radius: 8px; padding: 1rem 1.4rem; margin-top: 1.2rem; }
     .sigline { display: inline-block; border-bottom: 1px solid #555; min-width: 260px; margin: 1.6rem 1rem 0 0; }
     .siglabel { font-size: .8rem; color: #666; }
@@ -78,14 +84,14 @@
   <div class="section">
     <h2>Letter From The CEO</h2>
     <p>Dear {{ bid.first_name or 'Building Owner' }},</p>
-    <p>Thank you sincerely for considering Silicone Roof Pros for your upcoming roof restoration project. I understand that choosing the right partner is one of the most critical decisions you will make, and I wanted to personally reach out to express my gratitude for the opportunity to earn your trust.</p>
-    <p>In our industry, a proposal is more than just a price; it's a promise. It's a promise of quality, of performance, and of peace of mind. As you review the attached quote, I wanted to share a brief story about why my team and I are so committed to upholding that promise.</p>
-    <p>My journey in this field began not on the roof, but alongside the people who create the very products we use. For years, I had the privilege of representing two of the most highly regarded names in the business: Sherwin-Williams and Henry (a Carlisle Company).</p>
-    <p>While I'll leave the deep material science to their brilliant chemists, I was immersed in something equally important: the process. I learned the absolute best practices directly from the manufacturers' technical teams. Even more valuably, I was fortunate to learn from the best contractors in the country—the ones who were chosen to install these elite systems. I saw what separated a good job from a flawless, long-lasting one.</p>
-    <p>My role evolved to certifying other contractors on these precise application standards. This unique perspective—from both the manufacturer and the installer's side—is the foundation of our company today. It means we bring you the combined rewards of both worlds: the exacting standards of the manufacturer and the practical, proven techniques of the best field crews.</p>
-    <p>This is the fundamental difference we bring to your project. We don't see the manufacturer's specification as a suggestion; we see it as the proven recipe for success, honed by the best in the industry.</p>
-    <p>Our goal isn't just to win your project; it's to become your long-term partner in protecting your asset. I am personally available to answer any questions you may have, at any time.</p>
-    <p>Thank you again for your time and consideration. We are excited about the possibility of working with you.</p>
+    <p>Thank you for inviting Silicone Roof Pros to look at your roof. Choosing a contractor is a big decision, and you shouldn't need to be a roofing expert to make it with confidence. We wrote this proposal so you can see exactly what we'll do, what it costs, and what's protected afterward.</p>
+    <p>Here's the most important thing to know: a roof coating is only as good as its installation. The product matters, but the cleaning, the prep, and the thickness of each coat are what decide whether a roof lasts ten years or starts leaking in three.</p>
+    <p>I know this because I spent years on the manufacturer's side of the business, first at Sherwin-Williams and then at Henry (a Carlisle Company), the maker of the coatings in this proposal. Part of my job was training and certifying contractors on how to install these systems correctly.</p>
+    <p>That gave me a front-row seat to the best crews in the country, and to the shortcuts that make roofs fail early: skipped cleaning, coats sprayed too thin, seams left untreated. That's why we follow the manufacturer's written instructions step by step. To us, they aren't suggestions. They're the recipe that makes your roof last and keeps your warranty valid.</p>
+    <p>Take your time with this proposal. We've explained every technical term in plain English, and the Proposal section opens with a one-glance summary of your project.</p>
+    <p>If anything is unclear, that's on us, not you. Call or text me directly and I'll walk you through it.</p>
+    <p>Our goal isn't just to finish your roof. It's to be the team you trust with it for as long as you own the building.</p>
+    <p>Thank you for your time and your trust.</p>
     <p class="sig">Respectfully,<br><strong>{{ settings.get('my_name','') }}</strong><br>
       {{ settings.get('my_title','') }}<br>{{ settings.get('my_company','') }}</p>
   </div>
@@ -97,17 +103,28 @@
       <div class="fact"><div class="k">Roof Examined</div><div class="v" style="font-size:.95rem">{{ bid.roof_address or '—' }}</div></div>
       <div class="fact"><div class="k">Roof Size</div><div class="v">{{ '{:,}'.format(bid.roof_size_sqft) if bid.roof_size_sqft else '—' }} sq ft</div></div>
       <div class="fact"><div class="k">Surface Type</div><div class="v">{{ bid.surface_type or '—' }}</div></div>
-      <div class="fact"><div class="k">Restoration Candidate</div><div class="v">{{ bid.candidate }}</div></div>
+      <div class="fact"><div class="k">Good candidate for coating?</div><div class="v">{{ bid.candidate }}</div></div>
     </div>
-    <h3>Our Process</h3>
-    <p>Once you begin a project with Silicone Roof Pros, the work will continue along a path to complete satisfaction. First your roof is assessed, and a plan is developed to determine the necessary course of action, then the best products and practices are recommended, and a timeline is established.</p>
+
+    <h2 style="margin-top:1.6rem">Our Process</h2>
+    <p>Here's what happens from your first call to your final walk-through. At every step, you'll know where your project stands and what, if anything, we need from you.</p>
     <table class="q">
-      <thead><tr><th>Phase</th><th>What Happens</th></tr></thead>
+      <thead><tr><th>Step</th><th>What Happens</th></tr></thead>
       <tbody>
-        <tr><td><strong>1 — Agreement</strong></td><td>Proposal request → roof assessment → proposal prepared &amp; presented → contract signed</td></tr>
-        <tr><td><strong>2 — Preparation</strong></td><td>Invoice sent (deposit) · pre-construction meeting · start-up package: certificate of insurance &amp; schedule</td></tr>
-        <tr><td><strong>3 — Installation</strong></td><td>Material &amp; equipment delivery · commence work · photo documentation · daily progress inspections</td></tr>
-        <tr><td><strong>4 — Closeout</strong></td><td>Final walkthrough · closeout package: manufacturer warranty &amp; workmanship warranty · maintenance options presented</td></tr>
+        <tr><td><strong>1 — Agreement</strong></td><td>You request a proposal, we assess the roof, we prepare and present this proposal, and you sign the contract.</td></tr>
+        <tr><td><strong>2 — Getting Ready</strong></td><td>We send your first invoice, hold a pre-construction meeting, and send your start-up package: certificate of insurance and the schedule.</td></tr>
+        <tr><td><strong>3 — The Work</strong></td><td>Materials and equipment arrive, the crew starts, and we document everything with photos and daily progress inspections.</td></tr>
+        <tr><td><strong>4 — Wrapping Up</strong></td><td>Final walk-through with you, then your closeout package: the manufacturer warranty, our workmanship warranty, and maintenance options.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How we do the work on your roof{% if bid.surface_type %} — {{ bid.surface_type }}{% endif %}</h3>
+    <table class="q">
+      <thead><tr><th>Phase</th><th>What We Do</th></tr></thead>
+      <tbody>
+        <tr><td><strong>1 — Check the Roof</strong></td><td>Walk and inspect the roof to confirm it's a good fit for a coating system. Run a moisture survey to find any wet areas that need to be cut out and replaced first.</td></tr>
+        <tr><td><strong>2 — Prepare the Surface</strong></td><td>Set up safety barriers and a staging area for our crew. Clean and pressure wash the roof. Remove old, failing patches and caulk. Test that the coating will stick (an adhesion test), then seal existing trouble spots and leaks.</td></tr>
+        <tr><td><strong>3 — Apply the Coating System</strong></td><td>Apply the fluid-applied roof system, a liquid coating that cures into one seamless waterproof layer. Spray or roll each coat to the thickness the manufacturer requires for your warranty. Apply each new coat only after the one before it is dry to the touch.</td></tr>
       </tbody>
     </table>
   </div>
@@ -118,7 +135,7 @@
     <h2>Site Assessment</h2>
     <h3>Observations and Items to Address{% if bid.roof_address %} — {{ bid.roof_address }}{% endif %}</h3>
     {% if bid.assessment_date %}
-    <p>A site assessment of the roof was performed on {{ bid.assessment_date|d }}, and the following observations were noted. A complete photo survey from the assessment is included in this proposal.</p>
+    <p>We inspected the roof on {{ bid.assessment_date|d }}. Here's what we found and what needs attention. Photos from the full inspection are included in this proposal.</p>
     {% endif %}
     {% if bid.assessment_notes %}
     <ul>
@@ -143,30 +160,50 @@
   <!-- Proposal -->
   <div class="section">
     <h2>Proposal</h2>
-    <p>We are pleased to submit the following proposal for your consideration on the above referenced premises as follows. We agree to provide all labor, material, tools, equipment and proper insurance.</p>
-    <h3>Coating — {{ bid.warranty_years }} Year System Spec</h3>
-    <ul>
-      <li>Power wash existing roof system to remove dirt and debris in preparation for the coating application.</li>
-      <li>Apply Henry #923 Butter Grade to seams, penetrations and exposed fasteners
+    <p>Below is exactly what we'll do to your roof, why each step matters, and what it costs. We provide all labor, materials, tools, equipment, and insurance.</p>
+
+    <h3>Your Project At A Glance</h3>
+    <div class="glance">
+      <div><span class="gk">What we're doing:</span> Cleaning your roof and applying a three-layer silicone coating system that seals leaks and reflects the sun's heat.</div>
+      <div><span class="gk">Why it helps:</span> It adds a new, seamless waterproof layer over your existing roof, without the cost and disruption of a full tear-off.</div>
+      <div><span class="gk">What's protected:</span> A {{ bid.warranty_years }}-year manufacturer warranty from Henry covering materials and labor, plus our own 2-year workmanship warranty.</div>
+      <div><span class="gk">Proposal good for:</span> 14 days</div>
+    </div>
+
+    <h3>Coating</h3>
+    <ol class="steps">
+      <li><strong>Clean the roof.</strong> We power wash the entire surface to remove dirt and debris. Coatings only bond to a clean surface, so this step matters more than it looks.</li>
+      <li><strong>Seal the weak spots.</strong> We apply Henry #923 Butter Grade, a thick, paste-like sealant, to the places roofs leak most often:
         <ul>
-          <li>Seam: 2 inches to the left and right of seam</li>
-          <li>Penetrations: 4 inches above and around seam</li>
-          <li>Exposed fasteners: encapsulate properly</li>
+          <li><strong>Seams</strong> (where two sections of roofing overlap): 2 inches on each side</li>
+          <li><strong>Penetrations</strong> (anything that comes up through the roof, like pipes and vents): 4 inches up and around</li>
+          <li><strong>Exposed fasteners</strong> (screws and nails): fully covered and sealed</li>
         </ul>
       </li>
-      <li>Apply Henry #294 Basecoat at a rate of 1.25 gal per square — for proper adhesion &amp; bleed-blocking properties</li>
-      <li>Apply Henry #988 Silicone Coating to the entire roof at a rate of 2 gal per square total application as required by the manufacturer — final coat and UV reflectivity</li>
-    </ul>
+      <li><strong>Apply the base coat.</strong> Henry #294 Basecoat at 1.25 gallons per roofing square (1 square = 100 sq ft).
+        <div class="why">Why it matters: it helps the top coat grip the roof and stops old stains from bleeding through.</div>
+      </li>
+      <li><strong>Apply the top coat.</strong> Henry #988 Silicone Coating over the entire roof at 2 gallons per square, the amount the manufacturer requires for the {{ bid.warranty_years }}-year warranty.
+        <div class="why">Why it matters: this is the waterproof layer you'll see. Its bright white surface reflects sunlight, which helps keep the building cooler.</div>
+      </li>
+    </ol>
+
+    <h3>Manufacturer's Warranty ({{ bid.warranty_years }} years)</h3>
+    <p>Henry Company (a Carlisle Company) warrants the materials against manufacturing defects for {{ bid.warranty_years }} years. If a material turns out to be defective, this warranty also pays for the labor to fix it. Henry issues the warranty directly to you, and you'll receive the full written terms when the project is finished.</p>
+    <h3>Our Workmanship Warranty (2 years)</h3>
+    <p>We guarantee our installation for 2 years from the day we finish. If a problem comes from how we applied the system, we fix it. This warranty doesn't cover severe weather, foot traffic on the roof, damage from other trades, or hidden problems in the roof underneath that couldn't be seen before coating.</p>
+    <h3>If You Want to Change Something</h3>
+    <p>If you choose different materials or add services not listed here, their cost is added to the total price. If an option requires a Preventative Maintenance Agreement (scheduled check-ups with us), that cost is added too.</p>
 
     {% if quote %}
-    <h3>Materials Quote{% if bid.surface_type %} — {{ bid.surface_type }}{% endif %} ({{ bid.warranty_years }}-Year System)</h3>
+    <h3>What We'll Use On Your Roof{% if bid.surface_type %} — {{ bid.surface_type }}{% endif %}</h3>
     <p class="muted">
-      Roof gross area: {{ '{:,}'.format(bid.roof_size_sqft) }} sq ft{% if bid.deduction_sqft %} −
-      {{ '{:,}'.format(bid.deduction_sqft) }} sq ft non-coated → net {{ '{:,}'.format(net_sqft) }} sq ft{% endif %} ·
-      1 square = 100 sq ft · plus 5% waste factor = {{ quote.squares }} squares · rounded up to 5-gallon pails.
+      Roof area: {{ '{:,}'.format(bid.roof_size_sqft) }} sq ft{% if bid.deduction_sqft %} −
+      {{ '{:,}'.format(bid.deduction_sqft) }} sq ft we're not coating → {{ '{:,}'.format(net_sqft) }} sq ft{% endif %} ·
+      1 square = 100 sq ft · plus 5% extra for waste = {{ quote.squares }} squares · rounded up to full 5-gallon pails.
     </p>
     <table class="q">
-      <thead><tr><th>Product</th><th>Spec / Rate</th><th>Gallons (calc)</th><th>Qty (5-gal pails)</th></tr></thead>
+      <thead><tr><th>Product</th><th>How much per square</th><th>Gallons needed</th><th>What we order</th></tr></thead>
       <tbody>
         {% for l in quote.lines %}
         <tr><td>{{ l.product }}</td><td>{{ l.spec }}</td><td>{{ l.calc }}</td><td>{{ l.gallons }} gal → {{ l.pails }} pails</td></tr>
@@ -176,7 +213,7 @@
     {% endif %}
 
     {% if bid.price %}
-    <h3>Quotation</h3>
+    <h3>Your Investment</h3>
     <div class="quote-box">
       <span class="words">FOR THE SUM OF {{ price_words }}</span>
       <span class="amt">{{ bid.price|money }}</span>
@@ -188,28 +225,32 @@
   <div class="section">
     <h2>Warranty</h2>
     <div class="facts">
-      <div class="fact"><div class="k">Warranty Length</div><div class="v">{{ bid.warranty_years }} year</div></div>
-      <div class="fact"><div class="k">Warranty Holder</div><div class="v" style="font-size:.95rem">Henry, a Carlisle company</div></div>
+      <div class="fact"><div class="k">Warranty length</div><div class="v">{{ bid.warranty_years }} years</div></div>
+      <div class="fact"><div class="k">Warranty issued by</div><div class="v" style="font-size:.95rem">Henry, a Carlisle company</div></div>
     </div>
-    <h3>Manufacturer's Warranty</h3>
-    <p>The roofing materials supplied for this project include a {{ bid.warranty_years }} year warranty from Henry Company (a Carlisle Company) against manufacturer defects. This warranty also covers labor costs associated with repairing any such defective materials. This warranty is provided directly by the manufacturer, and specific terms and conditions will be outlined in the warranty documentation provided upon project completion.</p>
-    <h3>Contractor's Workmanship Warranty</h3>
-    <p>Silicone Roof Pros, Inc. warrants its workmanship for a period of two (2) years from the date of project completion. This warranty covers issues resulting from improper installation of the roof coating system. This warranty does not cover damage caused by severe weather, foot traffic, other trades, or failures of the underlying roof structure that were not apparent before coating application.</p>
-    <h3>The Silicone Roof Pros "Material Plus" Warranty: Complete Protection, Zero Hidden Costs</h3>
-    <p>Many roof coatings come with a manufacturer's "materials-only" warranty. There's a critical flaw with this: if the product fails, the warranty may only cover the cost of a replacement bucket of coating. You, the property owner, would still be responsible for the enormous labor cost of removing the failed system and reinstalling the new one—a bill that can often exceed the cost of the materials themselves.</p>
-    <p><strong>We don't believe in half-measures.</strong></p>
-    <p>Our standard offering includes a "Material Plus" Warranty. This means for the entire warranty period, we guarantee that both the materials we use and the labor required to install them will perform as promised. If a material we supply is found to be defective, we cover it all: the replacement materials, all associated labor costs, and the entire process of restoring your roof to a watertight condition.</p>
-    <p>Your out-of-pocket cost for a material defect is zero. This warranty is provided through the manufacturer on systems applied precisely to their specifications, ensuring you get the full protection you pay for.</p>
-    <p class="muted">Please note: This "Material Plus" warranty specifically covers issues with the product itself. Your project is also protected by our separate 2-Year Workmanship Warranty, which covers the quality of our installation.</p>
+    <h3>Your "Material Plus" Warranty: Materials and Labor Covered</h3>
+    <p>Many roof coatings come with a "materials-only" warranty. That sounds fine until something fails. The manufacturer sends a new bucket of coating, and you pay for the labor to remove the failed system and install a new one. That labor bill is often bigger than the cost of the materials.</p>
+    <p><strong>Your warranty works differently.</strong></p>
+    <p>This project includes a "Material Plus" Warranty. For the full {{ bid.warranty_years }} years, it covers both the materials and the labor needed to install them.</p>
+    <p>If a material is found to be defective, the warranty covers:</p>
+    <ul>
+      <li>The replacement materials</li>
+      <li>All associated labor costs</li>
+      <li>The entire process of restoring your roof to a watertight condition</li>
+    </ul>
+    <p>Your out-of-pocket cost for a material defect: zero. Henry provides this coverage because we install their system exactly to their specifications, so you get the full protection you're paying for.</p>
+    <p class="muted">Please note: The "Material Plus" warranty covers problems with the product itself. Problems with our installation are covered separately by our 2-Year Workmanship Warranty.</p>
   </div>
 
   <!-- Next steps + acceptance -->
   <div class="section">
     <h2>Next Steps</h2>
-    <ul>
-      <li>Review this proposal and identify any clarifying questions you might have about our systems, our processes, or your roof.</li>
-      <li>Reach out to us if you or your team have questions. We're happy to provide whatever insights or information you need to make an informed decision.</li>
-    </ul>
+    <h3>Here's how to move forward:</h3>
+    <ol class="steps">
+      <li>Read through this proposal and write down any questions about the system, the process, or your roof. No question is too small.</li>
+      <li>Call or text us about anything that's unclear. When you're ready, sign the Acceptance page, and we'll send your first invoice and add your project to our schedule.</li>
+    </ol>
+    <p class="muted">This proposal is good for 14 days. Our job is to help you make the right decision for your building, even if that takes a conversation or two.</p>
     <p>
       <strong>{{ settings.get('my_name','') }}</strong> · {{ settings.get('my_company','') }}<br>
       {% if settings.get('my_phone') %}{{ settings.get('my_phone') }} · {% endif %}
@@ -219,18 +260,20 @@
 
     <div class="accept">
       <h3 style="margin-top:0">Acceptance of Proposal</h3>
-      <p class="muted">The undersigned as (check one) [ ] Owner &nbsp; [ ] Authorized agent of Owner hereby accepts and agrees to the prices, specifications and conditions indicated. This proposal is valid for 14 days from the date issued. Full contract terms &amp; conditions are provided with the contract.</p>
+      <p>[ ] I have read and agree to the Terms &amp; Conditions (attached).</p>
+      <p>I am signing as (check one): [ ] the Owner &nbsp; [ ] an authorized agent of the Owner, and I accept the prices, work, and terms in this contract.</p>
       <div>
         <span class="sigline"></span><span class="sigline"></span>
       </div>
       <div>
-        <span class="siglabel" style="display:inline-block;min-width:270px">Authorized Signature</span>
+        <span class="siglabel" style="display:inline-block;min-width:270px">Signature</span>
         <span class="siglabel">Date</span>
       </div>
       <div>
         <span class="sigline"></span>
       </div>
       <div><span class="siglabel">Printed Name</span></div>
+      <p class="muted" style="margin-top:.8rem">*Terms &amp; Conditions on last page(s) apply.</p>
     </div>
   </div>
 </div>
