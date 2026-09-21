@@ -539,6 +539,33 @@ def dollars_in_words(amount) -> str:
 
 
 
+def _pricing_settings(conn):
+    """Per-sq-ft pricing rules, editable on the Templates page."""
+    rows = {r["key"]: r["value"] for r in conn.execute(
+        "SELECT key, value FROM settings WHERE key LIKE 'price_%'")}
+    pricing = dict(warranty_calc.DEFAULT_PRICING)
+    for field, key in (("capsheet_base", "price_capsheet_base"),
+                       ("other_base", "price_other_base"),
+                       ("add_15", "price_add_15"), ("add_20", "price_add_20")):
+        try:
+            if rows.get(key, "").strip():
+                pricing[field] = float(rows[key])
+        except ValueError:
+            pass
+    return pricing
+
+
+def _bid_suggested_price(conn, bid, plan):
+    """Suggested sell price for a bid, based on its coated area."""
+    net = plan["net_sqft"] if plan else max(
+        0, (bid["roof_size_sqft"] or 0) - (bid["deduction_sqft"] or 0))
+    if not net:
+        return None
+    return warranty_calc.suggested_price(
+        net, bid["roof_type"] or "Capsheet", bid["warranty_years"] or 10,
+        _pricing_settings(conn))
+
+
 def _bid_plan(bid, warranty_years=None):
     """Materials plan for a bid, using the warranty calculator's rates."""
     return warranty_calc.calculate(
@@ -611,10 +638,14 @@ def bid_edit(bid_id):
         photos = conn.execute(
             "SELECT * FROM bid_photos WHERE bid_id = ? ORDER BY sort_order, id",
             (bid_id,)).fetchall()
+        plan = _bid_plan(bid)
+        suggested = _bid_suggested_price(conn, bid, plan)
+        pricing = _pricing_settings(conn)
     finally:
         conn.close()
     return render_template("bid_edit.html", bid=bid, photos=photos,
-                           plan=_bid_plan(bid), options=_bid_warranty_options(bid),
+                           plan=plan, suggested=suggested, pricing=pricing,
+                           options=_bid_warranty_options(bid),
                            COATING_SYSTEMS=warranty_calc.COATING_SYSTEMS,
                            ACRYLIC_TYPES=warranty_calc.ACRYLIC_TYPES,
                            ROOF_TYPES=warranty_calc.ROOF_TYPES,
@@ -670,6 +701,26 @@ def save_bid(bid_id):
     finally:
         conn.close()
     flash("Roof report saved.", "success")
+    return redirect(url_for("bid_edit", bid_id=bid_id))
+
+
+@app.route("/bids/<int:bid_id>/use-suggested-price", methods=["POST"])
+def use_suggested_price(bid_id):
+    conn = get_db()
+    try:
+        bid = _bid_or_404(conn, bid_id)
+        suggested = _bid_suggested_price(conn, bid, _bid_plan(bid))
+        if not suggested:
+            flash("Enter a roof size first.", "danger")
+        else:
+            conn.execute("UPDATE bids SET price=?, updated_at=? WHERE id=?",
+                         (suggested["total"], now_iso(), bid_id))
+            conn.commit()
+            flash(f"Price set to {format_money(suggested['total'])} "
+                  f"({suggested['rate']:.2f}/sq ft × "
+                  f"{suggested['sqft']:,} sq ft).", "success")
+    finally:
+        conn.close()
     return redirect(url_for("bid_edit", bid_id=bid_id))
 
 
@@ -1509,10 +1560,14 @@ def templates_page():
         templates = conn.execute(
             "SELECT * FROM templates ORDER BY sort_order, id").fetchall()
         settings = _get_settings(conn)
+        pricing = _pricing_settings(conn)
     finally:
         conn.close()
     return render_template("templates.html", templates=templates,
-                           settings=settings,
+                           settings=settings, pricing=pricing,
+                           ROOF_TYPES=warranty_calc.ROOF_TYPES,
+                           WARRANTY_YEARS=warranty_calc.WARRANTY_YEARS,
+                           price_per_sqft=warranty_calc.price_per_sqft,
                            cadence_steps=[s for _, s in cadence.CADENCE_STEPS])
 
 
@@ -1540,7 +1595,9 @@ def save_settings():
     conn = get_db()
     try:
         for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
-                    "my_website", "my_address", "invoice_terms", "backup_dir"):
+                    "my_website", "my_address", "invoice_terms", "backup_dir",
+                    "price_capsheet_base", "price_other_base", "price_add_15",
+                    "price_add_20"):
             if key in request.form:  # only touch submitted fields
                 conn.execute(
                     "INSERT INTO settings (key, value) VALUES (?,?) "

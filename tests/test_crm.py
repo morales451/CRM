@@ -805,6 +805,18 @@ check("calc: roof type guessed from surface text",
       == ("Capsheet", "Single-Ply", "Metal", "Sprayfoam"))
 check("calc: pails round up in fives", wc.round_to_pails(47.25) == 50
       and wc.round_to_pails(0) == 0 and wc.round_to_pails(75.6) == 80)
+
+# pricing: $/sq ft by surface and warranty length (adders apply to all surfaces)
+check("price: capsheet 4.50 / 4.65 / 4.75",
+      [wc.price_per_sqft("Capsheet", y) for y in (10, 15, 20)] == [4.50, 4.65, 4.75])
+check("price: other surfaces 4.00 / 4.15 / 4.25",
+      all([wc.price_per_sqft(rt, y) for y in (10, 15, 20)] == [4.00, 4.15, 4.25]
+          for rt in ("Single-Ply", "Sprayfoam", "Metal")))
+sp = wc.suggested_price(3600, "Capsheet", 15)
+check("price: total = rate x coated sqft",
+      sp["rate"] == 4.65 and sp["total"] == 16740.0, sp)
+check("price: custom rules honored",
+      wc.price_per_sqft("Capsheet", 20, {"capsheet_base": 5, "add_15": .2, "add_20": .3}) == 5.5)
 check("bid words: 15000", app_mod.dollars_in_words(15000) == "FIFTEEN THOUSAND DOLLARS")
 check("bid words: 24750", app_mod.dollars_in_words(24750)
       == "TWENTY-FOUR THOUSAND SEVEN HUNDRED FIFTY DOLLARS")
@@ -840,6 +852,33 @@ check("bid: calculator inputs persisted",
       bsaved["coating_system"] == "Silicone" and bsaved["roof_type"] == "Capsheet"
       and bsaved["linear_feet"] == 400 and bsaved["waste_pct"] == 5
       and bsaved["passed_adhesion"] == 1)
+r2 = client.get(f"/bids/{bid['id']}")
+check("bid editor: suggested price shown",
+      b"Suggested price" in r2.data and b"$16,200" in r2.data, r2.data[-3000:])
+r2 = client.post(f"/bids/{bid['id']}/use-suggested-price", follow_redirects=True)
+conn = db.get_db()
+bp = conn.execute("SELECT price FROM bids WHERE id=?", (bid["id"],)).fetchone()["price"]
+conn.close()
+check("bid: use suggested price applies it", bp == 16200.0, bp)
+r2 = client.post("/settings", data={"price_capsheet_base": "5.00", "price_other_base": "4.25",
+                                    "price_add_15": "0.20", "price_add_20": "0.15",
+                                    "next": "/templates"}, follow_redirects=True)
+check("pricing settings: saved + matrix rendered",
+      b"$5.00" in r2.data and b"$5.35" in r2.data, r2.status_code)
+r2 = client.get(f"/bids/{bid['id']}")
+check("bid editor: suggestion follows edited settings", b"$18,000" in r2.data)
+client.post("/settings", data={"price_capsheet_base": "4.50", "price_other_base": "4.00",
+                               "price_add_15": "0.15", "price_add_20": "0.10"})
+# restore the quoted price for later assertions
+client.post(f"/bids/{bid['id']}/edit", data={
+    "roof_address": "5231 Braesvalley Drive, Houston, TX 77096",
+    "roof_size_sqft": "3900", "deduction_sqft": "300", "surface_type": "Capsheet",
+    "candidate": "Yes", "warranty_years": "10", "price": "$15,000",
+    "assessment_date": "2026-09-05", "coating_system": "Silicone",
+    "acrylic_system_type": "Standard", "roof_type": "Capsheet", "linear_feet": "400",
+    "waste_pct": "5", "stretch_pct": "0", "passed_adhesion": "1",
+    "assessment_notes": "Ponding at NW corner\n- Cracked seams along HVAC curb"})
+
 check("bid editor: materials plan + warranty options shown",
       b"Materials Plan" in r.data and b"Warranty options for this roof" in r.data
       and b"1.25 gal/sq" in r.data)

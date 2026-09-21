@@ -77,11 +77,11 @@
           </div>
           <div class="col-4">
             <label class="form-label small mb-0">Waste %</label>
-            <input name="waste_pct" type="number" min="0" step="0.5" class="form-control form-control-sm" value="{{ bid.waste_pct or 0 }}">
+            <input name="waste_pct" type="number" min="0" step="0.5" class="form-control form-control-sm" value="{{ bid.waste_pct|int if bid.waste_pct == bid.waste_pct|int else bid.waste_pct }}">
           </div>
           <div class="col-4">
             <label class="form-label small mb-0" title="Extra coverage allowance">Stretch %</label>
-            <input name="stretch_pct" type="number" min="0" step="0.5" class="form-control form-control-sm" value="{{ bid.stretch_pct or 0 }}">
+            <input name="stretch_pct" type="number" min="0" step="0.5" class="form-control form-control-sm" value="{{ bid.stretch_pct|int if bid.stretch_pct == bid.stretch_pct|int else bid.stretch_pct }}">
           </div>
           <div class="col-12 d-flex gap-3 flex-wrap small">
             <label><input type="checkbox" name="passed_adhesion" value="1" {{ 'checked' if bid.passed_adhesion }}> Adhesion test passed <span class="text-muted">(unchecked adds primer)</span></label>
@@ -92,7 +92,9 @@
             </select>
           </div>
           <div class="col-12">
-            <label class="form-label small mb-0">Quotation Price ($)</label>
+            <label class="form-label small mb-0">Quotation Price ($)
+              {% if suggested %}<span class="text-muted">— suggested {{ suggested.total|money }}</span>{% endif %}
+            </label>
             <input name="price" class="form-control form-control-sm" value="{{ (bid.price|int if bid.price == bid.price|int else bid.price) if bid.price is not none }}">
           </div>
           <div class="col-12">
@@ -153,6 +155,26 @@
             {% endfor %}
           </tbody>
         </table>
+      </div>
+      {% endif %}
+      {% if suggested %}
+      <div class="alert alert-success py-2 px-3 mt-2 mb-0">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <div>
+            <strong>Suggested price: {{ suggested.total|money }}</strong>
+            <div class="small">
+              {{ '${:,.2f}'.format(suggested.rate) }}/sq ft × {{ '{:,}'.format(suggested.sqft) }} sq ft coated
+              <span class="text-muted">({{ suggested.roof_type }}, {{ suggested.warranty_years }}-year)</span>
+            </div>
+            {% if bid.price and bid.price != suggested.total %}
+            <div class="small text-muted">Current quote {{ bid.price|money }}
+              ({{ '{:+.1f}'.format((bid.price - suggested.total) / suggested.total * 100) }}% vs suggested)</div>
+            {% endif %}
+          </div>
+          <form method="post" action="{{ url_for('use_suggested_price', bid_id=bid.id) }}">
+            <button class="btn btn-sm btn-success">Use this price</button>
+          </form>
+        </div>
       </div>
       {% endif %}
       {% else %}

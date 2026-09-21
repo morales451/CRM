@@ -22,6 +22,44 @@
   </form>
 </div>
 
+<div class="card p-3 mb-3">
+  <h5>💵 Pricing</h5>
+  <p class="small text-muted mb-2">Sell price per square foot of coated roof. The CRM suggests a price on every roof report
+    from these numbers; you can always override the quote.</p>
+  <form method="post" action="{{ url_for('save_settings') }}" class="row g-2 align-items-end">
+    <input type="hidden" name="next" value="{{ url_for('templates_page') }}">
+    <div class="col-6 col-md-3">
+      <label class="form-label small mb-0">Capsheet base ($/sq ft)</label>
+      <input name="price_capsheet_base" class="form-control form-control-sm" value="{{ '%.2f'|format(pricing.capsheet_base) }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label small mb-0">All other surfaces ($/sq ft)</label>
+      <input name="price_other_base" class="form-control form-control-sm" value="{{ '%.2f'|format(pricing.other_base) }}">
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="form-label small mb-0">+ 15-year</label>
+      <input name="price_add_15" class="form-control form-control-sm" value="{{ '%.2f'|format(pricing.add_15) }}">
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="form-label small mb-0">+ 20-year <span class="text-muted">(on top)</span></label>
+      <input name="price_add_20" class="form-control form-control-sm" value="{{ '%.2f'|format(pricing.add_20) }}">
+    </div>
+    <div class="col-12 col-md-2"><button class="btn btn-sm btn-primary w-100">Save</button></div>
+  </form>
+  <div class="table-responsive mt-2">
+    <table class="table table-sm w-auto mb-0">
+      <thead class="table-light"><tr><th>Surface</th>{% for y in WARRANTY_YEARS %}<th>{{ y }}-year</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for rt in ROOF_TYPES %}
+        <tr><td class="small">{{ rt }}</td>
+          {% for y in WARRANTY_YEARS %}<td class="small">{{ '${:,.2f}'.format(price_per_sqft(rt, y, pricing)) }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="alert alert-light small border">
   <strong>Placeholders you can use:</strong>
   <code>{first_name}</code> <code>{last_name}</code> <code>{title}</code>
