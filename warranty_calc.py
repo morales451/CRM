@@ -70,14 +70,101 @@ RUST_PRIMER_RATE = 0.5       # gal/square for a full rust prime on metal
 FASTENER_CAULK_PER_TUBE = 125
 PAIL_GALLONS = 5
 
-# Default product names per system, matching the SRP proposal spec.
-PRODUCTS = {
-    "Silicone": {"base": "Henry #294 Basecoat", "top": "Henry #988 Silicone Coating",
-                 "mastic": "Henry #923 Butter Grade"},
-    "Acrylic":  {"base": "Acrylic Basecoat", "top": "Acrylic Topcoat",
-                 "mastic": "Acrylic Butter Grade"},
-    "Aluminum": {"base": "", "top": "Aluminum Coating", "mastic": "Butter Grade"},
+# Product catalog, ported from the calculator. Henry Prograde names are the
+# defaults (listed first); Enduraroof equivalents are the alternates.
+PRODUCT_CATALOG = {
+    "Silicone": {
+        "topcoats": ["Prograde 988 Silicone", "Enduraroof Premium Silicone"],
+        "basecoats": ["Prograde 294 BaseCoat", "Enduraroof BaseCoat & Sealer"],
+        "butter_grades": ["Prograde 923 Butter Grade", "EnduraRoof Butter Grade"],
+        "fabrics": ["Prograde 195 (SOFT)", "Prograde 196 (FIRM)",
+                    "Enduraroof Polyester Fabric"],
+    },
+    "Acrylic": {
+        "topcoats": ["Acryshield 400", "Acryshield 510", "Acryshield 550HT",
+                     "Acryshield 610", "Enduraroof Elastomeric",
+                     "Enduraroof Premium Acrylic"],
+        "basecoats": ["Acryshield Basecoat", "Acryshield 400", "Acryshield 505",
+                      "Enduraroof Basecoat", "Enduraroof Elastomeric",
+                      "Enduraroof Premium Acrylic"],
+        "butter_grades": ["Prograde 289 White Roofing Sealant",
+                          "Prograde 295 Metal Seam Sealer",
+                          "Enduraroof Acrylic Roof Patch"],
+        "fabrics": ["Prograde 195 (SOFT)", "Prograde 196 (FIRM)",
+                    "Enduraroof Polyester Fabric"],
+    },
+    "Aluminum": {
+        "topcoats": ["Pro-Grade 586", "Enduraroof Fibered Aluminum"],
+        "basecoats": [],
+        "butter_grades": ["Prograde 289 White Roofing Sealant",
+                          "Enduraroof Acrylic Roof Patch"],
+        "fabrics": ["Prograde 195 (SOFT)", "Prograde 196 (FIRM)",
+                    "Enduraroof Polyester Fabric"],
+    },
 }
+
+# Primer names and the warranty holder follow the brand of the chosen coating.
+PRIMERS = {
+    "Prograde": {"adhesion": "Prograde 941 Adhesion Promoting Primer",
+                 "rust": "PrimeTek Rust Inhibiting Primer"},
+    "Enduraroof": {"adhesion": "Enduraroof Silicone Roof Primer",
+                   "rust": "Enduraroof Metal Roofing Primer"},
+}
+
+MANUFACTURERS = {
+    "Prograde": "Henry Company (a Carlisle Company)",
+    "Enduraroof": "Enduraroof",
+}
+
+# Short form for running prose ("a 10-year warranty from Henry")
+MANUFACTURERS_SHORT = {"Prograde": "Henry", "Enduraroof": "Enduraroof"}
+
+
+def brand_of(product: str) -> str:
+    """Which product line a name belongs to (the calculator's own rule)."""
+    return "Enduraroof" if product and "Endura" in product else "Prograde"
+
+
+def default_products(coating_system: str) -> dict:
+    cat = PRODUCT_CATALOG.get(coating_system, PRODUCT_CATALOG["Silicone"])
+    return {
+        "top": cat["topcoats"][0] if cat["topcoats"] else "",
+        "base": cat["basecoats"][0] if cat["basecoats"] else "",
+        "mastic": cat["butter_grades"][0] if cat["butter_grades"] else "",
+    }
+
+
+def resolve_products(coating_system: str, topcoat="", basecoat="", butter_grade=""):
+    """Chosen products, falling back to the system's defaults. Anything not in
+    the catalog for this system is replaced, so switching systems can't leave
+    a silicone product on an aluminum job."""
+    cat = PRODUCT_CATALOG.get(coating_system, PRODUCT_CATALOG["Silicone"])
+    defaults = default_products(coating_system)
+    top = topcoat if topcoat in cat["topcoats"] else defaults["top"]
+    base = basecoat if basecoat in cat["basecoats"] else defaults["base"]
+    mastic = butter_grade if butter_grade in cat["butter_grades"] else defaults["mastic"]
+    brand = brand_of(top)
+    return {"top": top, "base": base, "mastic": mastic, "brand": brand,
+            "adhesion_primer": PRIMERS[brand]["adhesion"],
+            "rust_primer": PRIMERS[brand]["rust"],
+            "manufacturer": MANUFACTURERS[brand],
+            "manufacturer_short": MANUFACTURERS_SHORT[brand]}
+
+
+def supported_roof_types(coating_system: str, acrylic_system_type: str = "Standard"):
+    """Roof types this system can actually be installed over."""
+    if coating_system == "Acrylic":
+        table = RATES["Acrylic"].get(acrylic_system_type or "Standard", {})
+    else:
+        table = RATES.get(coating_system, {})
+    return [rt for rt in ROOF_TYPES if table.get(rt)]
+
+
+def supported_warranties(coating_system: str, roof_type: str,
+                         acrylic_system_type: str = "Standard"):
+    """Warranty lengths published for this system on this roof."""
+    return [y for y in WARRANTY_YEARS
+            if get_rates(coating_system, roof_type, y, acrylic_system_type)]
 
 
 def round_to_pails(gallons: float) -> int:
@@ -101,7 +188,8 @@ def get_rates(coating_system: str, roof_type: str, warranty_years: int,
 def calculate(sqft, coating_system="Silicone", roof_type="Capsheet",
               warranty_years=10, acrylic_system_type="Standard",
               deduction_sqft=0, linear_feet=0, waste_pct=0, stretch_pct=0,
-              passed_adhesion=True, has_rust=False, rust_prime_method="field"):
+              passed_adhesion=True, has_rust=False, rust_prime_method="field",
+              topcoat="", basecoat="", butter_grade=""):
     """Materials plan for one roof. Percentages are whole numbers (5 = 5%).
 
     Returns None when the chosen system/roof/warranty combination has no
@@ -116,7 +204,7 @@ def calculate(sqft, coating_system="Silicone", roof_type="Capsheet",
     if not rates:
         return None
 
-    products = PRODUCTS.get(coating_system, PRODUCTS["Silicone"])
+    products = resolve_products(coating_system, topcoat, basecoat, butter_grade)
     coats = []
     for key, label, short in (("base", "Basecoat", "Base"),
                               ("top1", "Topcoat", "Top"),

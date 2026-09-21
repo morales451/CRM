@@ -151,6 +151,9 @@ CREATE TABLE IF NOT EXISTS bids (
     passed_adhesion INTEGER DEFAULT 1,
     has_rust INTEGER DEFAULT 0,
     rust_prime_method TEXT DEFAULT 'field',
+    selected_topcoat TEXT DEFAULT '',
+    selected_basecoat TEXT DEFAULT '',
+    selected_butter_grade TEXT DEFAULT '',
     price REAL,
     assessment_date TEXT DEFAULT '',      -- ISO date
     assessment_notes TEXT DEFAULT '',
@@ -390,7 +393,10 @@ def _migrate(conn) -> None:
                 ("stretch_pct", "REAL DEFAULT 0"),
                 ("passed_adhesion", "INTEGER DEFAULT 1"),
                 ("has_rust", "INTEGER DEFAULT 0"),
-                ("rust_prime_method", "TEXT DEFAULT 'field'")):
+                ("rust_prime_method", "TEXT DEFAULT 'field'"),
+                ("selected_topcoat", "TEXT DEFAULT ''"),
+                ("selected_basecoat", "TEXT DEFAULT ''"),
+                ("selected_butter_grade", "TEXT DEFAULT ''")):
             if name not in bid_cols:
                 conn.execute(f"ALTER TABLE bids ADD COLUMN {name} {ddl}")
 

@@ -43,6 +43,8 @@
     .photo img { width: 100%; height: auto; border-radius: 6px; border: 1px solid #dde; }
     .photo .cap { font-size: .85rem; color: #444; margin-top: .3rem; }
     .muted { color: #666; font-size: .9rem; }
+    .notready { background: #fdecea; border-left: 4px solid #c22; border-radius: 4px;
+                padding: .8rem 1.1rem; margin: .8rem 0; color: #7a1c14; }
     .glance { background: var(--light); border-left: 4px solid var(--brand); border-radius: 4px;
               padding: .8rem 1.1rem; margin: .6rem 0 1.2rem; }
     .glance div { margin: .25rem 0; }
@@ -166,16 +168,23 @@
     <div class="glance">
       <div><span class="gk">What we're doing:</span> Cleaning your roof and applying a{% if plan %} {{ plan.coats|length }}-layer {{ plan.coating_system|lower }}{% else %} three-layer silicone{% endif %} coating system that seals leaks and reflects the sun's heat.</div>
       <div><span class="gk">Why it helps:</span> It adds a new, seamless waterproof layer over your existing roof, without the cost and disruption of a full tear-off.</div>
-      <div><span class="gk">What's protected:</span> A {{ bid.warranty_years }}-year manufacturer warranty from Henry covering materials and labor, plus our own 2-year workmanship warranty.</div>
+      <div><span class="gk">What's protected:</span> A {{ bid.warranty_years }}-year manufacturer warranty from {{ plan.products.manufacturer_short if plan else 'the manufacturer' }} covering materials and labor, plus our own 2-year workmanship warranty.</div>
       <div><span class="gk">Proposal good for:</span> 14 days</div>
     </div>
 
     <h3>Coating — {{ bid.warranty_years }} Year {{ plan.coating_system if plan else 'Silicone' }} System{% if plan and plan.coating_system == 'Acrylic' %} ({{ plan.acrylic_system_type }}){% endif %}</h3>
-    {% set base_coat = (plan.coats | selectattr('key', 'equalto', 'base') | list | first) if plan else none %}
-    {% set top_coats = (plan.coats | rejectattr('key', 'equalto', 'base') | list) if plan else [] %}
+    {% if not plan %}
+    <div class="notready no-print">
+      ⚠️ <strong>This proposal has no coating spec yet.</strong> Enter the roof size and pick a
+      system, roof category and warranty length that exist together, then reopen this report.
+      Nothing below the spec has been filled in, so don't send this to a customer.
+    </div>
+    {% else %}
+    {% set base_coat = plan.coats | selectattr('key', 'equalto', 'base') | list | first %}
+    {% set top_coats = plan.coats | rejectattr('key', 'equalto', 'base') | list %}
     <ol class="steps">
       <li><strong>Clean the roof.</strong> We power wash the entire surface to remove dirt and debris. Coatings only bond to a clean surface, so this step matters more than it looks.</li>
-      <li><strong>Seal the weak spots.</strong> We apply {{ plan.mastic_product if plan else 'Henry #923 Butter Grade' }}, a thick, paste-like sealant, to the places roofs leak most often:
+      <li><strong>Seal the weak spots.</strong> We apply {{ plan.mastic_product }}, a thick, paste-like sealant, to the places roofs leak most often:
         <ul>
           <li><strong>Seams</strong> (where two sections of roofing overlap): 2 inches on each side</li>
           <li><strong>Penetrations</strong> (anything that comes up through the roof, like pipes and vents): 4 inches up and around</li>
@@ -183,10 +192,10 @@
         </ul>
       </li>
       {% if plan and plan.adhesion_primer_gal %}
-      <li><strong>Prime for adhesion.</strong> Because the adhesion test showed the coating needs help bonding, we apply a primer at 0.2 gallons per square before the coating goes on.</li>
+      <li><strong>Prime for adhesion.</strong> Because the adhesion test showed the coating needs help bonding, we apply {{ plan.products.adhesion_primer }} at 0.2 gallons per square before the coating goes on.</li>
       {% endif %}
       {% if plan and plan.rust_primer_gal %}
-      <li><strong>Prime the rust.</strong> Rusted metal gets a full field prime at 0.5 gallons per square so the coating bonds to sound material.</li>
+      <li><strong>Prime the rust.</strong> Rusted metal gets a full field prime with {{ plan.products.rust_primer }} at 0.5 gallons per square so the coating bonds to sound material.</li>
       {% endif %}
       {% if base_coat %}
       <li><strong>Apply the base coat.</strong> {{ base_coat.product }} at {{ base_coat.rate }} gallons per roofing square (1 square = 100 sq ft).
@@ -199,14 +208,11 @@
         {% else %}<div class="why">Why it matters: the extra coat builds the thickness your {{ bid.warranty_years }}-year warranty requires.</div>{% endif %}
       </li>
       {% endfor %}
-      {% if not plan %}
-      <li><strong>Apply the base coat.</strong> Henry #294 Basecoat at 1.25 gallons per roofing square (1 square = 100 sq ft).</li>
-      <li><strong>Apply the top coat.</strong> Henry #988 Silicone Coating over the entire roof at 2 gallons per square.</li>
-      {% endif %}
     </ol>
+    {% endif %}
 
     <h3>Manufacturer's Warranty ({{ bid.warranty_years }} years)</h3>
-    <p>Henry Company (a Carlisle Company) warrants the materials against manufacturing defects for {{ bid.warranty_years }} years. If a material turns out to be defective, this warranty also pays for the labor to fix it. Henry issues the warranty directly to you, and you'll receive the full written terms when the project is finished.</p>
+    <p>{{ plan.products.manufacturer if plan else 'The manufacturer' }} warrants the materials against manufacturing defects for {{ bid.warranty_years }} years. If a material turns out to be defective, this warranty also pays for the labor to fix it. Henry issues the warranty directly to you, and you'll receive the full written terms when the project is finished.</p>
     <h3>Our Workmanship Warranty (2 years)</h3>
     <p>We guarantee our installation for 2 years from the day we finish. If a problem comes from how we applied the system, we fix it. This warranty doesn't cover severe weather, foot traffic on the roof, damage from other trades, or hidden problems in the roof underneath that couldn't be seen before coating.</p>
     <h3>If You Want to Change Something</h3>
@@ -229,10 +235,10 @@
             <td>{{ c.gallons }} gal → {{ c.pails }} pails</td></tr>
         {% endfor %}
         {% if plan.adhesion_primer_gal %}
-        <tr><td>Adhesion Primer</td><td>0.2 gal / square</td><td>—</td><td>{{ plan.adhesion_primer_gal }} gal</td></tr>
+        <tr><td>{{ plan.products.adhesion_primer }}</td><td>0.2 gal / square</td><td>—</td><td>{{ plan.adhesion_primer_gal }} gal</td></tr>
         {% endif %}
         {% if plan.rust_primer_gal %}
-        <tr><td>Rust Primer</td><td>0.5 gal / square</td><td>—</td><td>{{ plan.rust_primer_gal }} gal</td></tr>
+        <tr><td>{{ plan.products.rust_primer }}</td><td>0.5 gal / square</td><td>—</td><td>{{ plan.rust_primer_gal }} gal</td></tr>
         {% endif %}
         {% if plan.mastic_buckets %}
         <tr><td>{{ plan.mastic_product }}</td><td>Seams &amp; penetrations</td>
@@ -264,7 +270,7 @@
     <h2>Warranty</h2>
     <div class="facts">
       <div class="fact"><div class="k">Warranty length</div><div class="v">{{ bid.warranty_years }} years</div></div>
-      <div class="fact"><div class="k">Warranty issued by</div><div class="v" style="font-size:.95rem">Henry, a Carlisle company</div></div>
+      <div class="fact"><div class="k">Warranty issued by</div><div class="v" style="font-size:.95rem">{{ plan.products.manufacturer if plan else '—' }}</div></div>
     </div>
     <h3>Your "Material Plus" Warranty: Materials and Labor Covered</h3>
     <p>Many roof coatings come with a "materials-only" warranty. That sounds fine until something fails. The manufacturer sends a new bucket of coating, and you pay for the labor to remove the failed system and install a new one. That labor bill is often bigger than the cost of the materials.</p>
@@ -276,7 +282,7 @@
       <li>All associated labor costs</li>
       <li>The entire process of restoring your roof to a watertight condition</li>
     </ul>
-    <p>Your out-of-pocket cost for a material defect: zero. Henry provides this coverage because we install their system exactly to their specifications, so you get the full protection you're paying for.</p>
+    <p>Your out-of-pocket cost for a material defect: zero. {{ plan.products.manufacturer_short if plan else 'The manufacturer' }} provides this coverage because we install their system exactly to their specifications, so you get the full protection you're paying for.</p>
     <p class="muted">Please note: The "Material Plus" warranty covers problems with the product itself. Problems with our installation are covered separately by our 2-Year Workmanship Warranty.</p>
   </div>
 
