@@ -4,13 +4,74 @@ All timestamps are strict ISO-8601 with local timezone offset,
 e.g. 2026-09-17T14:03:22-05:00.
 """
 
+import os
 import shutil
 import sqlite3
 from datetime import datetime, date
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "crm.db"
-BACKUP_DIR = Path(__file__).parent / "backups"
+APP_DIR = Path(__file__).parent
+
+
+def _resolve_data_dir() -> Path:
+    """Where the live data lives.
+
+    Deliberately OUTSIDE the app folder so updating the software — even by
+    deleting the folder and unzipping a new copy — can never destroy the
+    database, bid photos or backups.
+
+    Order: the ROOF_CRM_DATA environment variable, then Documents/RoofCRM,
+    then ~/RoofCRM. An existing crm.db still sitting in the app folder is
+    migrated on first run (see migrate_legacy_data).
+    """
+    env = os.environ.get("ROOF_CRM_DATA", "").strip()
+    if env:
+        return Path(env).expanduser()
+    home = Path.home()
+    documents = home / "Documents"
+    base = documents if documents.is_dir() else home
+    return base / "RoofCRM"
+
+
+DATA_DIR = _resolve_data_dir()
+DB_PATH = DATA_DIR / "crm.db"
+BACKUP_DIR = DATA_DIR / "backups"
+UPLOAD_DIR = DATA_DIR / "uploads" / "bid_photos"
+
+
+def migrate_legacy_data():
+    """Move data left in the app folder by older versions into DATA_DIR.
+
+    Returns a list of human-readable moves for the startup banner."""
+    moved = []
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return moved
+    legacy_db = APP_DIR / "crm.db"
+    if legacy_db.exists() and not DB_PATH.exists():
+        for suffix in ("", "-wal", "-shm"):
+            src = Path(str(legacy_db) + suffix)
+            if src.exists():
+                shutil.move(str(src), str(Path(str(DB_PATH) + suffix)))
+        moved.append(f"crm.db -> {DB_PATH}")
+    legacy_uploads = APP_DIR / "uploads" / "bid_photos"
+    if legacy_uploads.is_dir() and any(legacy_uploads.iterdir()):
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        for photo in legacy_uploads.iterdir():
+            target = UPLOAD_DIR / photo.name
+            if not target.exists():
+                shutil.move(str(photo), str(target))
+        moved.append(f"bid photos -> {UPLOAD_DIR}")
+    legacy_backups = APP_DIR / "backups"
+    if legacy_backups.is_dir() and any(legacy_backups.glob("crm-*.db")):
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        for backup in legacy_backups.glob("crm-*.db"):
+            target = BACKUP_DIR / backup.name
+            if not target.exists():
+                shutil.move(str(backup), str(target))
+        moved.append(f"backups -> {BACKUP_DIR}")
+    return moved
 
 PREFERRED_CONTACT_METHODS = ["Email", "Call", "Text", "Unknown"]
 
@@ -477,6 +538,7 @@ def backup_db(keep: int = 14):
 
 
 def init_db() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_db() as conn:
         conn.executescript(SCHEMA)
         _migrate(conn)

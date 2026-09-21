@@ -15,9 +15,21 @@ pip install -r requirements.txt
 python3 app.py
 ```
 
+**Your data lives outside this folder** — in `Documents/RoofCRM` (the startup
+window prints the path), so you can replace or delete the app folder when
+updating without losing anything. Data left in the app folder by older
+versions is moved there automatically on first run. To use a different
+location, set the `ROOF_CRM_DATA` environment variable.
+
 The database (`crm.db`) is created automatically on first run, and a dated
-backup copy is saved to `backups/` once per day on startup (newest 14 kept).
-The app runs on the production-grade `waitress` server.
+backup copy is saved once per day on startup (newest 14 kept). The app runs
+on the production-grade `waitress` server.
+
+### Updating
+
+Either `git pull` in the app folder, or download the new zip and replace the
+folder — both are safe now. Hit **Download Full Backup** on the Import page
+first if you want a guaranteed rollback point.
 
 **Phone tip:** open the app in your phone's browser and use "Add to Home
 Screen" — it installs like an app with its own icon and opens full-screen.
@@ -125,8 +137,11 @@ computer's firewall (Windows will usually prompt you the first time — choose
   can't resurrect them. Restore any time from Accounts → Archived.
   (Permanent delete also exists, but it forgets the company entirely, so a
   later import can add it back.)
-- **Export** — download accounts and interaction history as CSV from the
-  Import page any time.
+- **Export Everything (Excel)** — one workbook with a summary tab plus
+  accounts, contacts, full interaction history, roof reports (with computed
+  application rates and suggested prices), projects, invoices and today's
+  tasks. Every sheet is frozen and filterable. Also plain CSV exports of
+  accounts and interaction history.
 
 ## Cadence Logic
 

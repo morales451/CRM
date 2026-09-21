@@ -1283,6 +1283,120 @@ conn = db.get_db()
 conn.execute("DELETE FROM accounts WHERE company_name IN ('Junk Data Co','Brand New Co')")
 conn.commit(); conn.close()
 
+# ---- 23e. Full Excel export
+# seed a project + invoice so the money sheets have rows to verify
+conn = db.get_db()
+ts4 = db.now_iso()
+conn.execute("INSERT INTO projects (account_id, name, status, contract_amount, "
+             "created_at, updated_at) VALUES (?,'Export Test Project','In Progress',"
+             "24500,?,?)", (bid_acct, ts4, ts4))
+xproj = conn.execute("SELECT MAX(id) FROM projects").fetchone()[0]
+conn.execute("""INSERT INTO invoices (project_id, invoice_number, amount, status,
+    sent_date, due_date, notes, created_at, updated_at)
+    VALUES (?,'INV-EXP',12250,'Sent',?,?,'Final balance',?,?)""",
+    (xproj, date.today().isoformat(),
+     (date.today() - timedelta(days=5)).isoformat(), ts4, ts4))
+conn.commit(); conn.close()
+
+r = client.get("/export/workbook.xlsx")
+check("excel: route returns a workbook", r.status_code == 200
+      and r.data[:2] == b"PK"
+      and "spreadsheetml" in r.headers.get("Content-Type", "")
+      and ".xlsx" in r.headers.get("Content-Disposition", ""))
+from openpyxl import load_workbook
+xl = load_workbook(io.BytesIO(r.data))
+check("excel: one sheet per part of the business",
+      xl.sheetnames == ["Summary", "Accounts", "Contacts", "Interactions",
+                        "Roof Reports", "Projects", "Invoices", "Tasks Due"],
+      xl.sheetnames)
+ws = xl["Accounts"]
+headers = [c.value for c in ws[1]]
+check("excel: accounts sheet carries the full record",
+      {"Company", "Matching (🎯)", "Prospecting status", "Pipeline milestone",
+       "Archived", "Notes"} <= set(headers), headers)
+names = {ws.cell(row=i, column=1).value for i in range(2, ws.max_row + 1)}
+check("excel: includes both active and archived accounts",
+      "Sallyport Investments, Llc" in names, sorted(names)[:4])
+check("excel: every sheet is frozen and filterable",
+      all(xl[n].freeze_panes == "A2" and xl[n].auto_filter.ref
+          for n in xl.sheetnames if n != "Summary" and xl[n].max_row > 1))
+check("excel: money and dates carry real formats",
+      xl["Invoices"]["D2"].number_format.startswith('"$"')
+      and isinstance(xl["Invoices"]["F2"].value, (datetime, date))
+      and xl["Invoices"]["D2"].value == 12250,
+      (xl["Invoices"]["D2"].number_format, xl["Invoices"]["F2"].value))
+check("excel: overdue days computed on the invoices sheet",
+      xl["Invoices"]["I2"].value == 5, xl["Invoices"]["I2"].value)
+summary = [xl["Summary"].cell(row=i, column=1).value
+           for i in range(1, xl["Summary"].max_row + 1)]
+check("excel: summary covers pipeline, opportunity, money and activity",
+      {"Pipeline", "Opportunity", "Money", "Activity"} <= set(v for v in summary if v),
+      [v for v in summary if v][:8])
+rr = xl["Roof Reports"]
+rr_headers = [c.value for c in rr[1]]
+check("excel: roof reports include computed rates and suggested price",
+      "Rates (gal/sq)" in rr_headers and "Suggested price" in rr_headers
+      and "Total gallons" in rr_headers, rr_headers)
+
+# still works on a brand-new, empty database
+import tempfile as _tf
+prev_path = db.DB_PATH
+db.DB_PATH = Path(_tf.mkdtemp()) / "empty.db"
+db.init_db()
+econn = db.get_db()
+import excel_export as _xe
+empty = load_workbook(_xe.build_workbook(econn))
+econn.close()
+db.DB_PATH = prev_path
+check("excel: empty database exports without error",
+      empty.sheetnames[0] == "Summary" and empty["Accounts"].max_row == 1)
+
+# ---- 23f. Data lives outside the app folder (safe upgrades)
+import os as _os, shutil as _sh, tempfile as _tf2
+check("data dir: defaults outside the app folder",
+      db.APP_DIR not in db._resolve_data_dir().parents
+      and db._resolve_data_dir() != db.APP_DIR, db._resolve_data_dir())
+_prev_env = _os.environ.get("ROOF_CRM_DATA")
+_custom = _tf2.mkdtemp()
+_os.environ["ROOF_CRM_DATA"] = _custom
+check("data dir: ROOF_CRM_DATA overrides the default",
+      db._resolve_data_dir() == Path(_custom))
+if _prev_env is None:
+    _os.environ.pop("ROOF_CRM_DATA")
+else:
+    _os.environ["ROOF_CRM_DATA"] = _prev_env
+
+# a legacy install (crm.db + photos inside the app folder) is migrated out
+_legacy_app = Path(_tf2.mkdtemp())
+_legacy_data = Path(_tf2.mkdtemp()) / "RoofCRM"
+_prev = (db.APP_DIR, db.DATA_DIR, db.DB_PATH, db.BACKUP_DIR, db.UPLOAD_DIR)
+db.APP_DIR = _legacy_app
+db.DATA_DIR = _legacy_data
+db.DB_PATH = _legacy_data / "crm.db"
+db.BACKUP_DIR = _legacy_data / "backups"
+db.UPLOAD_DIR = _legacy_data / "uploads" / "bid_photos"
+(_legacy_app / "crm.db").write_bytes(b"SQLite format 3\x00legacy")
+(_legacy_app / "uploads" / "bid_photos").mkdir(parents=True)
+(_legacy_app / "uploads" / "bid_photos" / "old.jpg").write_bytes(b"\xff\xd8x")
+(_legacy_app / "backups").mkdir()
+(_legacy_app / "backups" / "crm-20260101-000000.db").write_bytes(b"backup")
+_moved = db.migrate_legacy_data()
+check("data dir: legacy database, photos and backups are moved out",
+      db.DB_PATH.exists() and not (_legacy_app / "crm.db").exists()
+      and (db.UPLOAD_DIR / "old.jpg").exists()
+      and (db.BACKUP_DIR / "crm-20260101-000000.db").exists()
+      and len(_moved) == 3, _moved)
+check("data dir: migration keeps the original bytes",
+      db.DB_PATH.read_bytes().endswith(b"legacy"))
+# replacing the whole app folder must not touch the data
+_sh.rmtree(_legacy_app)
+check("data dir: data survives deleting the entire app folder",
+      db.DB_PATH.exists() and (db.UPLOAD_DIR / "old.jpg").exists())
+# a second run finds nothing to move
+db.APP_DIR = Path(_tf2.mkdtemp())
+check("data dir: migration is a no-op once done", db.migrate_legacy_data() == [])
+db.APP_DIR, db.DATA_DIR, db.DB_PATH, db.BACKUP_DIR, db.UPLOAD_DIR = _prev
+
 # ---- 24. In-app guide
 r = client.get("/guide")
 check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data
