@@ -830,6 +830,24 @@ check("bid report: price in words", "FOR THE SUM OF FIFTEEN THOUSAND DOLLARS" in
 check("bid report: photo + caption in survey", ph["filename"] in html
       and "Ponding at NW corner" in html)
 check("bid report: observations as bullets", "<li>Cracked seams along HVAC curb</li>" in html)
+check("bid report: plain-English glance box", "Your Project At A Glance" in html
+      and "without the cost and disruption of a full tear-off" in html)
+check("bid report: plain-English coating steps",
+      "Clean the roof." in html and "Seal the weak spots." in html
+      and "where two sections of roofing overlap" in html
+      and "anything that comes up through the roof" in html)
+check("bid report: plain-English process tables",
+      "Check the Roof" in html and "Prepare the Surface" in html
+      and "Apply the Coating System" in html and "moisture survey" in html)
+check("bid report: warranty years flow into the text",
+      "10-year manufacturer warranty from Henry" in html
+      and "For the full 10 years" in html)
+check("bid report: plain-English next steps + acceptance",
+      "Here's how to move forward" in html and "No question is too small" in html
+      and "an authorized agent of the Owner" in html
+      and "good for 14 days" in html)
+check("bid report: investment heading replaces quotation",
+      "Your Investment" in html and "QUOTATION" not in html)
 r = client.get(f"/accounts/{bid_acct}")
 check("account page: bid listed", b"Roof Reports / Bids" in r.data
       and b"5231 Braesvalley" in r.data)
