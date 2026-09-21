@@ -65,8 +65,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   date to 30 days out; sent invoices pin to the Dashboard until paid, with
   overdue ones flagged red. The Projects page and Insights show the money
   rollup: contracted, invoiced, collected, outstanding.
-- **Accounts** — searchable list with filters for Prospecting Status and
-  Pipeline Milestone; tap-to-call / tap-to-text / tap-to-email links on mobile.
+- **Accounts** — searchable list with filters for Prospecting Status,
+  Pipeline Milestone and minimum matching buildings (🎯), sorted by
+  opportunity size by default; tap-to-call / tap-to-text / tap-to-email
+  links on mobile.
+- **Priority** — the criteria-matching building count drives what you work
+  first: the dashboard, the queue and the accounts list all lead with the
+  biggest portfolios, and a 🎯 Priority / 📅 Due date toggle switches the
+  ordering.
 - **Account Detail** — edit everything in place, log interactions, see a
   chronological history timeline and live cadence progress.
 - **Contacts** — each account holds a primary contact plus unlimited
@@ -80,21 +86,30 @@ computer's firewall (Windows will usually prompt you the first time — choose
 - **Outreach Templates & Scripts** — your cold call script, voicemail,
   text message, and three cadence emails live in the app (Templates page)
   and are fully editable, with placeholders like `{first_name}`, `{company}`,
-  and `{num_properties}`. Every dashboard reminder has a **📄 Script** button
+  and `{matching_properties}` (the buildings that fit your criteria). Every dashboard reminder has a **📄 Script** button
   that opens the right script personalized for that account: one-tap
   **Open in Email app** (subject and body pre-filled), **Dial**, or
   **Open in Messages**, plus Copy buttons and a **✓ Log** button to record
   the step when done. Missing info (no first name yet, etc.) is flagged in
   [brackets] so nothing goes out half-baked. Set your own name, company, and
   phone once on the Templates page and they fill into every script.
+- **Warranty calculator & pricing** — application rates ported from the
+  Warranty Roofing Calculator: Silicone / Acrylic (Standard + Reinforced) /
+  Aluminum across capsheet, single-ply, sprayfoam and metal at 10/15/20
+  years. Only combinations that actually exist can be selected. Suggested
+  pricing is $4.50/sq ft for capsheet and $4.00 elsewhere on a 10-year
+  system, +$0.15 at 15 years and +$0.10 more at 20 — all editable on the
+  Templates page.
 - **Roof Reports / Bid Generator** — create a full branded restoration
   proposal from any account page: cover, CEO letter (personalized to the
   contact), process overview, roof facts, site assessment with an uploaded
   photo survey (photos auto-resize and auto-rotate; captions print beside
-  them), the 10-year system spec, a materials quote computed from square
-  footage (1.25 gal/sq basecoat, 2 gal/sq topcoat, 5% waste, rounded to
-  5-gal pails), quotation in words and figures, warranties, and a signature
-  page. Print or save as PDF from the browser.
+  them), the coating spec, and a materials quote computed by the built-in
+  warranty calculator — real Henry Prograde / Enduraroof application rates
+  for the chosen system, roof type and warranty length, plus primers,
+  mastic and fabric, rounded to 5-gallon pails. Also quotes a suggested
+  price per square foot, then prints the figure in words, the warranties,
+  and a signature page. Print or save as PDF from the browser.
 - **Import** — upload `.xlsx` or `.csv` prospecting lists (e.g.
   `HTX_Office_5kto10k.xlsx`). Column headers are matched automatically and
   duplicates (same company name) are skipped, so re-uploads are safe.

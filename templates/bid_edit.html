@@ -74,7 +74,7 @@ refresh();
             <input name="deduction_sqft" type="number" min="0" class="form-control form-control-sm" value="{{ bid.deduction_sqft or '' }}">
           </div>
           <div class="col-4">
-            <label class="form-label small mb-0">Surface Type</label>
+            <label class="form-label small mb-0" title="Free text — printed on the proposal">Surface Type <span class="text-muted">(printed)</span></label>
             <input name="surface_type" class="form-control form-control-sm" list="surfaces" value="{{ bid.surface_type }}">
             <datalist id="surfaces">
               <option>Capsheet</option><option>Granulated Capsheet</option><option>TPO</option>
@@ -112,7 +112,7 @@ refresh();
             </select>
           </div>
           <div class="col-6 col-md-4">
-            <label class="form-label small mb-0">Roof Category</label>
+            <label class="form-label small mb-0" title="Drives application rates and pricing">Roof Category <span class="text-muted">(rates)</span></label>
             <select name="roof_type" id="f-roof" class="form-select form-select-sm">
               {% for rt in ROOF_TYPES %}<option {{ 'selected' if bid.roof_type == rt }}>{{ rt }}</option>{% endfor %}
             </select>

@@ -1124,6 +1124,78 @@ check("accounts: recent sort ok", r.status_code == 200)
 r = client.get("/accounts?min_matching=abc&sort=bogus")
 check("accounts: junk params handled", r.status_code == 200)
 
+# ---- 23c. Input hardening (polish pass)
+r = client.post("/reminders/quicklog", data={"account_id": "99999", "step_type": "Email 1"},
+                follow_redirects=True)
+check("hardening: quicklog on a deleted account fails gracefully",
+      r.status_code == 200 and b"no longer exists" in r.data)
+r = client.post("/reminders/dismiss", data={"account_id": "99999", "step_type": "Email 1"},
+                follow_redirects=True)
+check("hardening: dismiss on a deleted account fails gracefully",
+      r.status_code == 200 and b"no longer exists" in r.data)
+
+conn = db.get_db()
+hb = conn.execute("""INSERT INTO bids (account_id, roof_size_sqft, deduction_sqft,
+    linear_feet, waste_pct, warranty_years, price, coating_system, roof_type,
+    created_at, updated_at)
+    VALUES (?,3900,300,420,5,15,16740,'Silicone','Capsheet',?,?)""",
+    (bid_acct, db.now_iso(), db.now_iso())).lastrowid
+conn.commit(); conn.close()
+# a typo must not silently erase stored numbers
+r = client.post(f"/bids/{hb}/edit", data={"roof_size_sqft": "3,90O", "price": "16,74O",
+    "waste_pct": "five", "warranty_years": "15", "coating_system": "Silicone",
+    "roof_type": "Capsheet", "deduction_sqft": "300", "linear_feet": "420"},
+    follow_redirects=True)
+conn = db.get_db()
+hrow = conn.execute("SELECT * FROM bids WHERE id=?", (hb,)).fetchone()
+conn.close()
+check("hardening: unreadable numbers keep the previous value",
+      hrow["roof_size_sqft"] == 3900 and hrow["price"] == 16740.0
+      and hrow["waste_pct"] == 5, dict(hrow))
+check("hardening: the save warns about what it couldn't read",
+      b"couldn" in r.data and b"previous value was kept" in r.data)
+# commas and dollar signs are accepted
+client.post(f"/bids/{hb}/edit", data={"roof_size_sqft": "4,200", "price": "$18,500.00",
+    "waste_pct": "7.5", "linear_feet": "1,100", "warranty_years": "15",
+    "coating_system": "Silicone", "roof_type": "Capsheet", "deduction_sqft": "0"})
+conn = db.get_db()
+hrow = conn.execute("SELECT * FROM bids WHERE id=?", (hb,)).fetchone()
+conn.close()
+check("hardening: commas and $ parse correctly",
+      hrow["roof_size_sqft"] == 4200 and hrow["price"] == 18500.0
+      and hrow["linear_feet"] == 1100, dict(hrow))
+# clearing on purpose still clears
+client.post(f"/bids/{hb}/edit", data={"roof_size_sqft": "4200", "price": "",
+    "warranty_years": "15", "coating_system": "Silicone", "roof_type": "Capsheet"})
+conn = db.get_db()
+check("hardening: an empty field still clears the value",
+      conn.execute("SELECT price FROM bids WHERE id=?", (hb,)).fetchone()["price"] is None)
+conn.close()
+client.post(f"/bids/{hb}/delete")
+
+# account numbers behave the same way
+conn = db.get_db()
+conn.execute("UPDATE accounts SET num_properties=40, matching_properties=23 WHERE id=?",
+             (bid_acct,))
+conn.commit(); conn.close()
+client.post(f"/accounts/{bid_acct}/edit", data={"company_name": "Sallyport Investments, Llc",
+    "num_properties": "4O", "matching_properties": "1,250", "preferred_contact": "Call",
+    "prospecting_status": "Prospecting", "pipeline_milestone": "None / In Cadence"})
+conn = db.get_db()
+arow = conn.execute("SELECT * FROM accounts WHERE id=?", (bid_acct,)).fetchone()
+conn.close()
+check("hardening: account typo keeps value, commas parse",
+      arow["num_properties"] == 40 and arow["matching_properties"] == 1250,
+      (arow["num_properties"], arow["matching_properties"]))
+
+# junk pricing is refused rather than stored
+r = client.post("/settings", data={"price_capsheet_base": "abc"}, follow_redirects=True)
+conn = db.get_db()
+pv = conn.execute("SELECT value FROM settings WHERE key='price_capsheet_base'").fetchone()["value"]
+conn.close()
+check("hardening: non-numeric price rejected and reported",
+      pv != "abc" and b"left unchanged" in r.data, pv)
+
 # ---- 24. In-app guide
 r = client.get("/guide")
 check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data
