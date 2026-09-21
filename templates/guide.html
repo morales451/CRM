@@ -214,13 +214,27 @@ future import <em>can</em> add that company again.</div>
 replace, delete or re-download the app folder as often as you like and your accounts, photos and
 backups stay put. The first time you run this version, anything left in the old location is moved
 there automatically and the startup window lists what moved.</p>
-<h3>Two ways to update</h3>
-<ul>
-  <li><strong>Download the zip (what you're doing):</strong> unzip the new version, replace your app
-    folder, start it. That's now safe — nothing of yours is inside that folder.</li>
-  <li><strong>Or use git (cleaner):</strong> in the app folder run <code>git pull</code>. It updates
-    only the files that changed and never touches your data.</li>
-</ul>
+<h3>Option A — the zip (what you're doing now)</h3>
+<p>Unzip the new version, replace your app folder, start it. That's now safe — nothing of yours is
+inside that folder.</p>
+
+<h3>Option B — set up git once, then it's one double-click forever</h3>
+<p>A zipped folder can't update itself; it has to be <em>cloned</em> once. Ten minutes, once:</p>
+<ol>
+  <li>Install Git for Windows from <code>git-scm.com/download/win</code> (accept all the defaults).</li>
+  <li>Open the folder where you want the app to live (e.g. Desktop). Right-click an empty spot →
+    <strong>Open in Terminal</strong> (or "Git Bash Here"), and run:
+    <div><code>git clone https://github.com/morales451/CRM.git RoofCRM-App</code></div>
+  </li>
+  <li>That creates a <code>RoofCRM-App</code> folder. Start it with <code>start.bat</code> as usual —
+    your data in Documents\RoofCRM is picked up automatically.</li>
+  <li>You can delete the old unzipped folder once the app runs from the new one.</li>
+</ol>
+<p><strong>From then on, to update: double-click <code>update.bat</code></strong> inside that folder
+(<code>./update.sh</code> on Mac/Linux). It pulls the latest code, installs anything new, and tells
+you when it's done. If something goes wrong it says so and changes nothing.</p>
+<p class="muted">Under the hood <code>update.bat</code> just runs <code>git pull</code> — you can type
+that yourself in the folder if you prefer.</p>
 <div class="tip"><strong>Belt and braces:</strong> before any update, hit
 <kbd>⬇ Download Full Backup</kbd> on the <a href="{{ url_for('import_page') }}">Import</a> page, or
 just confirm your off-machine backup folder is set. Takes five seconds and makes an update

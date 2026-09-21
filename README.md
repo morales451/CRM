@@ -27,9 +27,17 @@ on the production-grade `waitress` server.
 
 ### Updating
 
-Either `git pull` in the app folder, or download the new zip and replace the
-folder — both are safe now. Hit **Download Full Backup** on the Import page
-first if you want a guaranteed rollback point.
+**Double-click `update.bat`** (Windows) or run `./update.sh` (Mac/Linux) — it
+pulls the latest code and installs any new requirements. This needs the app to
+have been **cloned** rather than unzipped; clone it once with:
+
+```bash
+git clone https://github.com/morales451/CRM.git RoofCRM-App
+```
+
+Downloading a new zip and replacing the folder also works. Either way your data
+in `Documents/RoofCRM` is untouched. Hit **Download Full Backup** on the Import
+page first if you want a guaranteed rollback point.
 
 **Phone tip:** open the app in your phone's browser and use "Add to Home
 Screen" — it installs like an app with its own icon and opens full-screen.
