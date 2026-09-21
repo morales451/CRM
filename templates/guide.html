@@ -29,6 +29,7 @@
     </div>
     <div class="col-6 col-md-4">
       <a href="#priority">6. Priority: biggest portfolios first</a><br>
+      <a href="#archive">6b. Archiving accounts</a><br>
       <a href="#cadence">7. The cold cadence</a><br>
       <a href="#contacts">8. Contacts &amp; ZoomInfo</a><br>
       <a href="#scripts">9. Scripts &amp; templates</a><br>
@@ -88,7 +89,7 @@
 <ul>
   <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
   <li><strong>Pacing:</strong> set "Start N /business day" (e.g. 25) so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
-  <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, and missing property counts are backfilled onto existing accounts.</li>
+  <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, missing property counts are backfilled onto existing accounts, and anything you <a href="#archive">archived</a> stays out.</li>
   <li>Imported accounts capture address/city/zip/website into Notes, the criteria-matching property count (🎯), and total properties owned. Defaults: Prospecting / None-In Cadence → straight into the cadence.</li>
 </ul>
 
@@ -104,6 +105,24 @@ The matching count is the money number, so the CRM sorts your work by it.</p>
   <li>Scripts already cite this number: <code>{matching_properties}</code> is what Email 1 means by "roughly N properties built before the 1980s."</li>
 </ul>
 <div class="tip">A prospect with 40 matching buildings is worth many calls; one with a single building is worth one email. Priority order makes that automatic instead of something you have to remember.</div>
+
+<h2 id="archive">6b. Archiving: removing accounts for good</h2>
+<p>When a company isn't worth your time — bad data, wrong company, do-not-contact, already has a
+contractor — <strong>archive</strong> it instead of deleting it. On the account page open
+<kbd>🗄 Archive / Remove</kbd>, pick a reason, and it's gone from your working life:</p>
+<ul>
+  <li>Hidden from the dashboard, queue, accounts list, pipeline, insights and recent activity.</li>
+  <li>Its cadence stops and any follow-up is cleared.</li>
+  <li><strong>Future imports skip it.</strong> Re-upload the same CoStar list and it will not come
+    back; the import summary tells you how many rows were skipped because you archived them.</li>
+  <li>Nothing is lost — interactions, bids and projects stay attached. Find it under
+    <a href="{{ url_for('accounts', view='archived') }}">Accounts → 🗄 Archived</a> and hit
+    <kbd>↩ Restore</kbd> to put it back on the list.</li>
+</ul>
+<div class="tip"><strong>Archive vs delete:</strong> archiving is the one you want almost always —
+it remembers the company so it can't sneak back in on the next import. <kbd>🗑 Delete permanently</kbd>
+erases the account and its history completely, which also means the CRM forgets it ever existed, so a
+future import <em>can</em> add that company again.</div>
 
 <h2 id="cadence">7. The cold cadence</h2>
 <table class="table table-sm w-auto">

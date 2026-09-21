@@ -1,51 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Roof Report — {{ bid.company_name }}<script>
-// Only combinations the manufacturers publish are selectable.
-const SUPPORT = {{ SUPPORT|tojson }};
-const $ = id => document.getElementById(id);
-
-function keepSelectable(sel, allowed, fallback) {
-  let seen = false;
-  [...sel.options].forEach(o => {
-    const ok = allowed.includes(o.value);
-    o.hidden = !ok; o.disabled = !ok;
-    if (ok && o.selected) seen = true;
-  });
-  if (!seen) sel.value = fallback !== undefined ? fallback : (allowed[0] ?? '');
-}
-
-function filterProducts() {
-  const sys = $('f-system').value;
-  ['f-topcoat', 'f-basecoat', 'f-butter'].forEach(id => {
-    const sel = $(id);
-    let seen = false;
-    [...sel.options].forEach(o => {
-      const ok = o.dataset.system === sys;
-      o.hidden = !ok; o.disabled = !ok;
-      if (ok && o.selected) seen = true;
-    });
-    if (!seen) {
-      const first = [...sel.options].find(o => o.dataset.system === sys);
-      sel.value = first ? first.value : '';
-    }
-  });
-}
-
-function refresh() {
-  const sys = $('f-system').value;
-  const acr = $('f-acrylic').value || 'Standard';
-  const table = (SUPPORT[sys] || {})[sys === 'Acrylic' ? acr : 'Standard'] || {};
-  $('f-acrylic').disabled = sys !== 'Acrylic';
-  keepSelectable($('f-roof'), Object.keys(table));
-  const years = (table[$('f-roof').value] || []).map(String);
-  keepSelectable($('f-warranty'), years);
-  filterProducts();
-}
-
-['f-system', 'f-acrylic', 'f-roof'].forEach(id => $(id).addEventListener('change', refresh));
-refresh();
-</script>
-{% endblock %}
+{% block title %}Roof Report — {{ bid.company_name }}{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div>

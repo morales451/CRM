@@ -53,6 +53,7 @@ def get_due_reminders(conn, account_id: int | None = None,
                matching_properties, num_properties
         FROM accounts
         WHERE prospecting_status = ? AND pipeline_milestone = ?
+          AND COALESCE(archived_at, '') = ''
     """
     params: list = [ACTIVE_STATUS, ACTIVE_MILESTONE]
     if account_id is not None:

@@ -180,12 +180,18 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             f"Found columns: {', '.join(str(c) for c in df.columns)}"
         )
 
-    existing = {
-        row["company_name"].strip().lower(): row["id"]
-        for row in conn.execute("SELECT id, company_name FROM accounts")
-    }
+    existing, archived = {}, {}
+    for row in conn.execute(
+            "SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
+            "FROM accounts"):
+        key = row["company_name"].strip().lower()
+        existing[key] = row["id"]
+        if row["archived_at"]:
+            archived[key] = row["company_name"]
 
     imported = skipped_dupe = skipped_blank = backfilled = 0
+    skipped_archived = 0
+    archived_names = []
     ts = now_iso()
     start_date = _next_business_day(date.today()) if per_day else date.today()
     start = start_date.isoformat()
@@ -197,6 +203,13 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             continue
         def row_int(name):
             return _clean_int(row.get(mapping[name])) if name in mapping else None
+
+        if company.lower() in archived:
+            # Deliberately removed from the working list — don't resurrect it.
+            skipped_archived += 1
+            if len(archived_names) < 25:
+                archived_names.append(archived[company.lower()])
+            continue
 
         if company.lower() in existing:
             # Duplicate: don't re-import, but fill in property counts the
@@ -264,6 +277,8 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
     return {
         "imported": imported,
         "backfilled": backfilled,
+        "skipped_archived": skipped_archived,
+        "archived_names": archived_names,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "total_rows": len(df),
@@ -308,7 +323,8 @@ def import_contacts(conn, file_storage) -> dict:
             f"'Last Name'). Found columns: {', '.join(str(c) for c in df.columns)}")
 
     accounts_by_key: dict[str, int] = {}
-    for row in conn.execute("SELECT id, company_name FROM accounts"):
+    for row in conn.execute("SELECT id, company_name FROM accounts "
+                            "WHERE COALESCE(archived_at, '') = ''"):
         accounts_by_key.setdefault(_company_key(row["company_name"]), row["id"])
 
     attached = skipped_dupe = skipped_blank = 0

@@ -19,7 +19,8 @@ from flask import (Flask, flash, redirect, render_template, request,
 import cadence
 import importer
 import warranty_calc
-from db import (DEFAULT_PROJECT_TASKS, INTERACTION_TYPES, INVOICE_STATUSES,
+from db import (ARCHIVE_REASONS, DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
+                INVOICE_STATUSES,
                 PIPELINE_MILESTONES, PREFERRED_CONTACT_METHODS,
                 PROJECT_STATUSES, PROSPECTING_STATUSES,
                 backup_db, get_db, init_db, now_iso, today_iso)
@@ -88,6 +89,7 @@ def inject_constants():
         "CONTACT_METHODS": PREFERRED_CONTACT_METHODS,
         "INTERACTION_TYPES": INTERACTION_TYPES,
         "PROJECT_STATUSES": PROJECT_STATUSES,
+        "ARCHIVE_REASONS": ARCHIVE_REASONS,
         "INVOICE_STATUSES": INVOICE_STATUSES,
         "today": today_iso(),
     }
@@ -175,7 +177,8 @@ def _due_followups(conn, order: str = "due"):
     sort = ("COALESCE(matching_properties, 0) DESC, next_follow_up"
             if order == "priority" else "next_follow_up")
     return conn.execute(
-        f"SELECT * FROM accounts WHERE next_follow_up != '' AND next_follow_up <= ? "
+        f"SELECT * FROM accounts WHERE COALESCE(archived_at, '') = '' AND next_follow_up != '' "
+        f"AND next_follow_up <= ? "
         f"ORDER BY {sort}, company_name COLLATE NOCASE",
         (today_iso(),)).fetchall()
 
@@ -187,7 +190,8 @@ def _top_priority_accounts(conn, limit: int = 8):
                   (SELECT MAX(created_at) FROM interactions i
                    WHERE i.account_id = a.id) AS last_activity
            FROM accounts a
-           WHERE COALESCE(a.matching_properties, 0) > 0
+           WHERE COALESCE(a.archived_at, '') = ''
+             AND COALESCE(a.matching_properties, 0) > 0
              AND a.prospecting_status != 'Not Interested'
              AND a.pipeline_milestone NOT IN ('Closed Won', 'Closed Lost')
            ORDER BY a.matching_properties DESC, a.company_name COLLATE NOCASE
@@ -202,7 +206,8 @@ def _stale_deals(conn):
                 (SELECT MAX(created_at) FROM interactions i WHERE i.account_id = a.id),
                 a.updated_at) AS last_touch
             FROM accounts a
-            WHERE a.pipeline_milestone NOT IN ({ph})
+            WHERE COALESCE(a.archived_at, '') = ''
+              AND a.pipeline_milestone NOT IN ({ph})
               AND a.prospecting_status != 'Not Interested'
               AND (a.next_follow_up IS NULL OR a.next_follow_up = '')""",
         STALE_EXCLUDED_MILESTONES).fetchall()
@@ -222,23 +227,24 @@ def dashboard():
         top_priority = _top_priority_accounts(conn)
         stats = {
             "total_accounts": conn.execute(
-                "SELECT COUNT(*) c FROM accounts").fetchone()["c"],
+                "SELECT COUNT(*) c FROM accounts WHERE COALESCE(archived_at, '') = ''").fetchone()["c"],
             "active_prospects": conn.execute(
-                "SELECT COUNT(*) c FROM accounts WHERE prospecting_status "
-                "NOT IN ('Not Interested') AND pipeline_milestone "
+                "SELECT COUNT(*) c FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                "AND prospecting_status NOT IN ('Not Interested') AND pipeline_milestone "
                 "NOT IN ('Closed Won','Closed Lost')").fetchone()["c"],
             "in_cadence": conn.execute(
-                "SELECT COUNT(*) c FROM accounts WHERE prospecting_status = ? "
-                "AND pipeline_milestone = ?",
+                "SELECT COUNT(*) c FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                "AND prospecting_status = ? AND pipeline_milestone = ?",
                 (cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE)).fetchone()["c"],
             "closed_won": conn.execute(
                 "SELECT COUNT(*) c FROM accounts "
-                "WHERE pipeline_milestone = 'Closed Won'").fetchone()["c"],
+                f"WHERE COALESCE(archived_at, '') = '' AND pipeline_milestone = 'Closed Won'").fetchone()["c"],
             "matching_due": sum(r["matching_properties"] or 0 for r in reminders),
         }
         recent = conn.execute(
             """SELECT i.*, a.company_name FROM interactions i
                JOIN accounts a ON a.id = i.account_id
+               WHERE COALESCE(a.archived_at, '') = ''
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
         return render_template("dashboard.html", reminders=reminders,
                                followups=followups, stale=stale, owed=owed,
@@ -403,17 +409,21 @@ def insights():
         def count(sql, *params):
             return conn.execute(sql, params).fetchone()[0]
 
-        total_accounts = count("SELECT COUNT(*) FROM accounts")
-        won = count("SELECT COUNT(*) FROM accounts WHERE pipeline_milestone='Closed Won'")
-        lost = count("SELECT COUNT(*) FROM accounts WHERE pipeline_milestone='Closed Lost'")
+        total_accounts = count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = ''")
+        won = count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                    "AND pipeline_milestone='Closed Won'")
+        lost = count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                     "AND pipeline_milestone='Closed Lost'")
         tiles = {
             "tasks_due": len(cadence.get_due_reminders(conn)) + len(_due_followups(conn)),
             "total_accounts": total_accounts,
             "active_prospects": count(
-                "SELECT COUNT(*) FROM accounts WHERE prospecting_status != 'Not Interested' "
+                f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                "AND prospecting_status != 'Not Interested' "
                 "AND pipeline_milestone NOT IN ('Closed Won','Closed Lost')"),
             "in_cadence": count(
-                "SELECT COUNT(*) FROM accounts WHERE prospecting_status=? AND pipeline_milestone=?",
+                f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                "AND prospecting_status=? AND pipeline_milestone=?",
                 cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE),
             "won": won,
             "win_rate": round(100 * won / (won + lost)) if (won + lost) else None,
@@ -425,7 +435,9 @@ def insights():
         buckets = {w.isoformat(): 0 for w in week_starts}
         since = week_starts[0].isoformat()
         for (created,) in conn.execute(
-                "SELECT created_at FROM interactions WHERE created_at >= ?", (since,)):
+                "SELECT i.created_at FROM interactions i JOIN accounts a "
+                "ON a.id = i.account_id WHERE COALESCE(a.archived_at, '') = '' "
+                "AND i.created_at >= ?", (since,)):
             d = datetime.fromisoformat(created).date()
             key = (d - timedelta(days=d.weekday())).isoformat()
             if key in buckets:
@@ -440,25 +452,29 @@ def insights():
 
         # Pipeline funnel (the cadence pool would dwarf it, so it's a tile instead)
         pipeline_bars = _bar_items([
-            (m, count("SELECT COUNT(*) FROM accounts WHERE pipeline_milestone=?", m))
+            (m, count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                      "AND pipeline_milestone=?", m))
             for m in PIPELINE_MILESTONES if m != "None / In Cadence"])
 
         # How far accounts get through the cadence (distinct accounts per step)
         cadence_bars = _bar_items([
             (f"Day {day}: {step}",
-             count("SELECT COUNT(DISTINCT account_id) FROM interactions "
-                   "WHERE interaction_type=?", step))
+             count("SELECT COUNT(DISTINCT i.account_id) FROM interactions i "
+                   "JOIN accounts a ON a.id = i.account_id "
+                   "WHERE COALESCE(a.archived_at, '') = '' AND i.interaction_type=?", step))
             for day, step in cadence.CADENCE_STEPS], total=total_accounts)
 
         status_bars = _bar_items([
-            (s, count("SELECT COUNT(*) FROM accounts WHERE prospecting_status=?", s))
+            (s, count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+                      "AND prospecting_status=?", s))
             for s in PROSPECTING_STATUSES], total=total_accounts)
 
         month_ago = (today - timedelta(days=30)).isoformat()
         type_bars = _bar_items(conn.execute(
-            "SELECT interaction_type, COUNT(*) FROM interactions "
-            "WHERE created_at >= ? GROUP BY interaction_type "
-            "ORDER BY COUNT(*) DESC", (month_ago,)).fetchall())
+            "SELECT i.interaction_type, COUNT(*) FROM interactions i "
+            "JOIN accounts a ON a.id = i.account_id "
+            "WHERE COALESCE(a.archived_at, '') = '' AND i.created_at >= ? "
+            "GROUP BY i.interaction_type ORDER BY COUNT(*) DESC", (month_ago,)).fetchall())
 
         money = None
         if count("SELECT COUNT(*) FROM projects"):
@@ -496,7 +512,7 @@ def pipeline():
             rows = conn.execute(
                 """SELECT a.*, (SELECT MAX(created_at) FROM interactions i
                                 WHERE i.account_id = a.id) AS last_activity
-                   FROM accounts a WHERE a.pipeline_milestone = ?
+                   FROM accounts a WHERE COALESCE(a.archived_at, '') = '' AND a.pipeline_milestone = ?
                    ORDER BY a.updated_at DESC""", (m,)).fetchall()
             columns.append({"milestone": m, "count": len(rows), "accounts": rows[:20]})
     finally:
@@ -986,8 +1002,8 @@ def projects():
         items = [{"project": r, "money": _project_money(conn, r["id"])} for r in rows]
         # accounts eligible for a new project: Closed Won without one
         eligible = conn.execute(
-            """SELECT id, company_name FROM accounts
-               WHERE pipeline_milestone = 'Closed Won'
+            f"""SELECT id, company_name FROM accounts
+               WHERE COALESCE(archived_at, '') = '' AND pipeline_milestone = 'Closed Won'
                  AND id NOT IN (SELECT account_id FROM projects)
                ORDER BY company_name COLLATE NOCASE""").fetchall()
         totals = conn.execute(
@@ -1339,11 +1355,14 @@ def accounts():
     sort = request.args.get("sort", "priority")
     if sort not in ACCOUNT_SORTS:
         sort = "priority"
+    view = "archived" if request.args.get("view") == "archived" else "active"
 
     sql = """SELECT a.*,
                     (SELECT MAX(created_at) FROM interactions i
                      WHERE i.account_id = a.id) AS last_activity
              FROM accounts a WHERE 1=1"""
+    sql += (" AND COALESCE(a.archived_at, '') != ''" if view == "archived"
+            else " AND COALESCE(a.archived_at, '') = ''")
     params = []
     if status:
         sql += " AND a.prospecting_status = ?"
@@ -1364,12 +1383,16 @@ def accounts():
     try:
         rows = conn.execute(sql, params).fetchall()
         total_matching = sum(r["matching_properties"] or 0 for r in rows)
+        archived_count = conn.execute(
+            "SELECT COUNT(*) c FROM accounts "
+            "WHERE COALESCE(archived_at, '') != ''").fetchone()["c"]
     finally:
         conn.close()
     return render_template("accounts.html", accounts=rows,
                            status=status, milestone=milestone, q=q,
                            min_matching=min_matching_raw, sort=sort,
-                           total_matching=total_matching)
+                           total_matching=total_matching, view=view,
+                           archived_count=archived_count)
 
 
 @app.route("/accounts/new", methods=["GET", "POST"])
@@ -1478,16 +1501,58 @@ def restart_cadence(account_id):
     return redirect(url_for("account_detail", account_id=account_id))
 
 
-@app.route("/accounts/<int:account_id>/delete", methods=["POST"])
-def delete_account(account_id):
+@app.route("/accounts/<int:account_id>/archive", methods=["POST"])
+def archive_account(account_id):
+    """Take an account off the working list without losing it. Archived
+    accounts keep every interaction, bid and project, disappear from the
+    dashboard, queue, lists and stats, and are skipped by future imports."""
     conn = get_db()
     try:
         acct = _account_or_404(conn, account_id)
+        reason = request.form.get("archive_reason", "").strip()
+        conn.execute("UPDATE accounts SET archived_at=?, archive_reason=?, "
+                     "next_follow_up='', follow_up_note='', updated_at=? WHERE id=?",
+                     (now_iso(), reason, now_iso(), account_id))
+        conn.commit()
+    finally:
+        conn.close()
+    flash(f"Archived “{acct['company_name']}”. It won't come back on future "
+          f"imports — find it under Accounts → Archived to restore it.", "warning")
+    return redirect(request.form.get("next") or url_for("accounts"))
+
+
+@app.route("/accounts/<int:account_id>/restore", methods=["POST"])
+def restore_account(account_id):
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        conn.execute("UPDATE accounts SET archived_at='', archive_reason='', "
+                     "updated_at=? WHERE id=?", (now_iso(), account_id))
+        conn.commit()
+    finally:
+        conn.close()
+    flash(f"Restored “{acct['company_name']}” to your working list.", "success")
+    return redirect(request.form.get("next")
+                    or url_for("account_detail", account_id=account_id))
+
+
+@app.route("/accounts/<int:account_id>/delete", methods=["POST"])
+def delete_account(account_id):
+    """Erase an account for good. Unlike archiving, this forgets the company
+    entirely, so a future import can bring it back."""
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        for row in conn.execute(
+                "SELECT p.filename FROM bid_photos p JOIN bids b ON b.id = p.bid_id "
+                "WHERE b.account_id = ?", (account_id,)):
+            (PHOTO_DIR / row["filename"]).unlink(missing_ok=True)
         conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
         conn.commit()
     finally:
         conn.close()
-    flash(f"Account “{acct['company_name']}” deleted.", "warning")
+    flash(f"Permanently deleted “{acct['company_name']}” and all of its history. "
+          f"A future import can add this company again.", "warning")
     return redirect(url_for("accounts"))
 
 
@@ -1813,8 +1878,8 @@ def repace():
     conn = get_db()
     try:
         rows = conn.execute(
-            """SELECT id FROM accounts a
-               WHERE prospecting_status = ? AND pipeline_milestone = ?
+            f"""SELECT id FROM accounts a
+               WHERE COALESCE(a.archived_at, '') = '' AND prospecting_status = ? AND pipeline_milestone = ?
                  AND NOT EXISTS (SELECT 1 FROM interactions i WHERE i.account_id = a.id)
                  AND NOT EXISTS (SELECT 1 FROM cadence_dismissals d WHERE d.account_id = a.id)
                ORDER BY id""",

@@ -4,6 +4,15 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
   <div>
     <h1 class="mb-1">{{ account.company_name }}</h1>
+    {% if account.archived_at %}
+    <div class="alert alert-warning py-2 px-3 mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <span>🗄 <strong>Archived</strong> {{ account.archived_at|dt }}{% if account.archive_reason %} — {{ account.archive_reason }}{% endif %}.
+        Hidden from your lists and skipped by imports.</span>
+      <form method="post" action="{{ url_for('restore_account', account_id=account.id) }}">
+        <button class="btn btn-sm btn-success">↩ Restore</button>
+      </form>
+    </div>
+    {% endif %}
     <div class="text-muted small">
       Created {{ account.created_at|dt }}
       {% if in_cadence %}<span class="badge text-bg-primary ms-1">In Cadence</span>{% endif %}
@@ -101,10 +110,24 @@
               onsubmit="return confirm('Restart the 10-day cadence from today? Status resets to Prospecting / None-In Cadence.')">
           <button class="btn btn-sm btn-outline-primary">↻ Restart Cadence</button>
         </form>
-        <form method="post" action="{{ url_for('delete_account', account_id=account.id) }}"
-              onsubmit="return confirm('Delete this account and all its history? This cannot be undone.')">
-          <button class="btn btn-sm btn-outline-danger">🗑 Delete Account</button>
-        </form>
+        <details>
+          <summary class="btn btn-sm btn-outline-danger">🗄 Archive / Remove</summary>
+          <div class="mt-2 p-2 border rounded bg-light" style="min-width: 280px;">
+            <form method="post" action="{{ url_for('archive_account', account_id=account.id) }}">
+              <label class="form-label small mb-0">Why are you removing it?</label>
+              <select name="archive_reason" class="form-select form-select-sm mb-2">
+                {% for r in ARCHIVE_REASONS %}<option>{{ r }}</option>{% endfor %}
+              </select>
+              <button class="btn btn-sm btn-warning w-100">🗄 Archive (keeps history, blocks re-import)</button>
+            </form>
+            <div class="form-text mb-2">Archiving hides it from every list and stops future
+              imports from adding it back. You can restore it any time.</div>
+            <form method="post" action="{{ url_for('delete_account', account_id=account.id) }}"
+                  onsubmit="return confirm('Permanently delete this account and all of its history? A future import CAN add this company again — archive instead if you want it blocked.')">
+              <button class="btn btn-sm btn-outline-danger w-100">🗑 Delete permanently</button>
+            </form>
+          </div>
+        </details>
       </div>
     </div>
 

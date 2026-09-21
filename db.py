@@ -53,6 +53,17 @@ PROJECT_STATUSES = [
 
 INVOICE_STATUSES = ["Draft", "Sent", "Paid"]
 
+# Why an account was taken off the working list. Archived accounts keep all
+# their history and are skipped by future imports.
+ARCHIVE_REASONS = [
+    "Not a fit",
+    "Bad data / wrong company",
+    "Do not contact",
+    "Already has a contractor",
+    "Duplicate",
+    "Other",
+]
+
 # Checklist seeded onto every new project — the standard steps of a
 # roof-coating job from contract to warranty. Fully editable per project.
 DEFAULT_PROJECT_TASKS = [
@@ -88,6 +99,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     cadence_start TEXT NOT NULL,          -- ISO date the cadence clock starts from
     next_follow_up TEXT DEFAULT '',       -- ISO date; pins to dashboard when due
     follow_up_note TEXT DEFAULT '',
+    archived_at TEXT DEFAULT '',          -- ISO timestamp; hidden + skipped on import
+    archive_reason TEXT DEFAULT '',
     created_at TEXT NOT NULL,             -- ISO timestamp
     updated_at TEXT NOT NULL              -- ISO timestamp
 );
@@ -399,6 +412,14 @@ def _migrate(conn) -> None:
                 ("selected_butter_grade", "TEXT DEFAULT ''")):
             if name not in bid_cols:
                 conn.execute(f"ALTER TABLE bids ADD COLUMN {name} {ddl}")
+
+    if "archived_at" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN archived_at TEXT DEFAULT ''")
+    if "archive_reason" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN archive_reason TEXT DEFAULT ''")
+    # Created here rather than in SCHEMA: the column may have just been added.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_archived "
+                 "ON accounts(archived_at)")
 
     if "matching_properties" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN matching_properties INTEGER")
