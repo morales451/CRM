@@ -257,6 +257,11 @@ DEFAULT_SETTINGS = {
     "my_email": "sales@siliconeroofpros.com",
     "my_website": "siliconeroofpros.com",
     "my_address": "",
+    # Sell price per sq ft of coated roof (see warranty_calc.DEFAULT_PRICING)
+    "price_capsheet_base": "4.50",
+    "price_other_base": "4.00",
+    "price_add_15": "0.15",
+    "price_add_20": "0.10",
     # Shown at the bottom of printed invoices; drawn from the standard
     # SRP contract payment terms. Editable on the Templates page.
     "invoice_terms": (

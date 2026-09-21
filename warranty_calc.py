@@ -206,3 +206,35 @@ def guess_roof_type(surface_type: str) -> str:
     if any(k in s for k in ("tpo", "epdm", "pvc", "single", "membrane", "ply")):
         return "Single-Ply"
     return "Capsheet"
+
+
+# ---------------------------------------------------------------- Pricing
+
+# Sell price per square foot of coated roof. Longer warranties need more
+# coating, so each step up adds to the base rate (cumulative at 20 years).
+DEFAULT_PRICING = {
+    "capsheet_base": 4.50,   # capsheet, 10-year system
+    "other_base": 4.00,      # single-ply, sprayfoam, metal — 10-year system
+    "add_15": 0.15,          # added for a 15-year system
+    "add_20": 0.10,          # added on top of add_15 for a 20-year system
+}
+
+
+def price_per_sqft(roof_type: str, warranty_years, pricing: dict | None = None) -> float:
+    p = {**DEFAULT_PRICING, **(pricing or {})}
+    rate = p["capsheet_base"] if roof_type == "Capsheet" else p["other_base"]
+    years = int(warranty_years or 10)
+    if years >= 15:
+        rate += p["add_15"]
+    if years >= 20:
+        rate += p["add_20"]
+    return round(rate, 2)
+
+
+def suggested_price(net_sqft, roof_type: str, warranty_years,
+                    pricing: dict | None = None) -> dict:
+    """Suggested sell price for a roof, priced on the coated (net) area."""
+    rate = price_per_sqft(roof_type, warranty_years, pricing)
+    sqft = max(0, net_sqft or 0)
+    return {"rate": rate, "sqft": sqft, "total": round(sqft * rate, 2),
+            "warranty_years": int(warranty_years or 10), "roof_type": roof_type}
