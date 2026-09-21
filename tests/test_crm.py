@@ -815,6 +815,33 @@ check("price: other surfaces 4.00 / 4.15 / 4.25",
 sp = wc.suggested_price(3600, "Capsheet", 15)
 check("price: total = rate x coated sqft",
       sp["rate"] == 4.65 and sp["total"] == 16740.0, sp)
+# products: Henry Prograde defaults, catalog-constrained per system
+pr = wc.resolve_products("Silicone")
+check("products: silicone defaults to Prograde",
+      pr["top"] == "Prograde 988 Silicone" and pr["base"] == "Prograde 294 BaseCoat"
+      and pr["mastic"] == "Prograde 923 Butter Grade"
+      and pr["manufacturer"].startswith("Henry Company")
+      and pr["adhesion_primer"] == "Prograde 941 Adhesion Promoting Primer", pr)
+pr_e = wc.resolve_products("Silicone", topcoat="Enduraroof Premium Silicone")
+check("products: enduraroof topcoat switches brand, primers and warranty holder",
+      pr_e["brand"] == "Enduraroof" and pr_e["manufacturer"] == "Enduraroof"
+      and pr_e["rust_primer"] == "Enduraroof Metal Roofing Primer", pr_e)
+check("products: a product from another system is replaced",
+      wc.resolve_products("Aluminum", topcoat="Prograde 988 Silicone")["top"]
+      == "Pro-Grade 586")
+check("products: aluminum has no basecoat",
+      wc.resolve_products("Aluminum")["base"] == "")
+
+# only published combinations exist
+check("support: aluminum is metal/capsheet at 10 years only",
+      wc.supported_roof_types("Aluminum") == ["Capsheet", "Metal"]
+      and wc.supported_warranties("Aluminum", "Metal") == [10])
+check("support: reinforced acrylic excludes metal and sprayfoam",
+      wc.supported_roof_types("Acrylic", "Reinforced") == ["Capsheet", "Single-Ply"])
+check("support: silicone covers every roof at 10/15/20",
+      all(wc.supported_warranties("Silicone", rt) == [10, 15, 20]
+          for rt in wc.ROOF_TYPES))
+
 check("price: custom rules honored",
       wc.price_per_sqft("Capsheet", 20, {"capsheet_base": 5, "add_15": .2, "add_20": .3}) == 5.5)
 check("bid words: 15000", app_mod.dollars_in_words(15000) == "FIFTEEN THOUSAND DOLLARS")
@@ -950,6 +977,48 @@ check("bid photo: served", r.status_code == 200 and r.data[:2] == b"\xff\xd8")
 # delete cleans up files
 r = client.post(f"/bids/{bid['id']}/delete", follow_redirects=True)
 check("bid: delete removes photo file", not (app_mod.PHOTO_DIR / ph["filename"]).exists())
+
+# ---- 22b. Impossible combinations can't be saved or printed
+r = client.post(f"/accounts/{bid_acct}/bids/new", data={"roof_size_sqft": "10000",
+                "surface_type": "Metal"}, follow_redirects=True)
+conn = db.get_db()
+combo_id = conn.execute("SELECT MAX(id) FROM bids").fetchone()[0]
+conn.close()
+r = client.post(f"/bids/{combo_id}/edit", data={
+    "roof_address": "Metal Shop", "roof_size_sqft": "10000", "deduction_sqft": "0",
+    "surface_type": "Metal", "candidate": "Yes", "warranty_years": "20",
+    "coating_system": "Aluminum", "acrylic_system_type": "Standard",
+    "roof_type": "Sprayfoam", "linear_feet": "0", "waste_pct": "5",
+    "stretch_pct": "0", "passed_adhesion": "1", "price": "40000"},
+    follow_redirects=True)
+check("combo: unsupported roof + warranty snapped with a notice",
+      b"Saved, with adjustments" in r.data, r.data[:400])
+conn = db.get_db()
+snap = conn.execute("SELECT * FROM bids WHERE id=?", (combo_id,)).fetchone()
+conn.close()
+check("combo: snapped to a real aluminum combination",
+      snap["roof_type"] in ("Capsheet", "Metal") and snap["warranty_years"] == 10,
+      (snap["roof_type"], snap["warranty_years"]))
+check("combo: products snapped to the aluminum catalog",
+      snap["selected_topcoat"] == "Pro-Grade 586" and snap["selected_basecoat"] == "")
+html = client.get(f"/bids/{combo_id}/report").data.decode()
+check("report: aluminum job never shows silicone products",
+      "Prograde 988" not in html and "Prograde 294" not in html
+      and "Pro-Grade 586" in html, [l for l in html.splitlines() if "Prograde" in l][:3])
+
+# a bid with no computable plan prints a warning instead of a wrong spec
+conn = db.get_db()
+ts2 = db.now_iso()
+conn.execute("""INSERT INTO bids (account_id, roof_size_sqft, coating_system, roof_type,
+    warranty_years, created_at, updated_at) VALUES (?,0,'Silicone','Capsheet',10,?,?)""",
+    (bid_acct, ts2, ts2))
+conn.commit()
+empty_id = conn.execute("SELECT MAX(id) FROM bids").fetchone()[0]
+conn.close()
+html = client.get(f"/bids/{empty_id}/report").data.decode()
+check("report: no plan -> explicit warning, no invented spec",
+      "no coating spec yet" in html and "Prograde 294" not in html
+      and "gallons per roofing square" not in html)
 
 # ---- 23. Off-machine backup
 mirror_dir = db.DB_PATH.parent / "mirror"

@@ -539,6 +539,19 @@ def dollars_in_words(amount) -> str:
 
 
 
+def _support_map():
+    """{system: {acrylic_type: {roof_type: [warranty years]}}} for the editor,
+    so only combinations that exist can be picked."""
+    out = {}
+    for system in warranty_calc.COATING_SYSTEMS:
+        types = warranty_calc.ACRYLIC_TYPES if system == "Acrylic" else ["Standard"]
+        out[system] = {
+            t: {rt: warranty_calc.supported_warranties(system, rt, t)
+                for rt in warranty_calc.supported_roof_types(system, t)}
+            for t in types}
+    return out
+
+
 def _pricing_settings(conn):
     """Per-sq-ft pricing rules, editable on the Templates page."""
     rows = {r["key"]: r["value"] for r in conn.execute(
@@ -580,7 +593,10 @@ def _bid_plan(bid, warranty_years=None):
         stretch_pct=bid["stretch_pct"] or 0,
         passed_adhesion=bool(bid["passed_adhesion"]),
         has_rust=bool(bid["has_rust"]),
-        rust_prime_method=bid["rust_prime_method"] or "field")
+        rust_prime_method=bid["rust_prime_method"] or "field",
+        topcoat=bid["selected_topcoat"] or "",
+        basecoat=bid["selected_basecoat"] or "",
+        butter_grade=bid["selected_butter_grade"] or "")
 
 
 def _bid_warranty_options(bid):
@@ -649,7 +665,9 @@ def bid_edit(bid_id):
                            COATING_SYSTEMS=warranty_calc.COATING_SYSTEMS,
                            ACRYLIC_TYPES=warranty_calc.ACRYLIC_TYPES,
                            ROOF_TYPES=warranty_calc.ROOF_TYPES,
-                           WARRANTY_YEARS=warranty_calc.WARRANTY_YEARS)
+                           WARRANTY_YEARS=warranty_calc.WARRANTY_YEARS,
+                           CATALOG=warranty_calc.PRODUCT_CATALOG,
+                           SUPPORT=_support_map())
 
 
 @app.route("/bids/<int:bid_id>/edit", methods=["POST"])
@@ -676,18 +694,38 @@ def save_bid(bid_id):
         acrylic_type = request.form.get("acrylic_system_type", "Standard")
         if acrylic_type not in warranty_calc.ACRYLIC_TYPES:
             acrylic_type = "Standard"
+
+        # Only combinations the manufacturers actually publish can be saved.
+        snapped = []
+        roofs = warranty_calc.supported_roof_types(system, acrylic_type)
+        if roof_type not in roofs:
+            snapped.append(f"{system}"
+                           + (f" ({acrylic_type})" if system == "Acrylic" else "")
+                           + f" isn't offered over {roof_type}")
+            roof_type = roofs[0] if roofs else "Capsheet"
+        years = num("warranty_years") or 10
+        supported_years = warranty_calc.supported_warranties(system, roof_type, acrylic_type)
+        if supported_years and years not in supported_years:
+            snapped.append(f"{system} on {roof_type} only comes in "
+                           + " / ".join(f"{y}-year" for y in supported_years))
+            years = supported_years[0]
+        products = warranty_calc.resolve_products(
+            system, request.form.get("selected_topcoat", ""),
+            request.form.get("selected_basecoat", ""),
+            request.form.get("selected_butter_grade", ""))
         conn.execute(
             """UPDATE bids SET roof_address=?, roof_size_sqft=?, deduction_sqft=?,
                surface_type=?, candidate=?, warranty_years=?, price=?,
                assessment_date=?, assessment_notes=?, coating_system=?,
                acrylic_system_type=?, roof_type=?, linear_feet=?, waste_pct=?,
                stretch_pct=?, passed_adhesion=?, has_rust=?, rust_prime_method=?,
+               selected_topcoat=?, selected_basecoat=?, selected_butter_grade=?,
                updated_at=? WHERE id=?""",
             (request.form.get("roof_address", "").strip(), num("roof_size_sqft"),
              num("deduction_sqft") or 0,
              request.form.get("surface_type", "").strip(),
              request.form.get("candidate", "Yes"),
-             num("warranty_years") or 10,
+             years,
              _parse_amount(request.form.get("price")),
              request.form.get("assessment_date", "").strip(),
              request.form.get("assessment_notes", "").strip(),
@@ -696,11 +734,15 @@ def save_bid(bid_id):
              1 if request.form.get("passed_adhesion") else 0,
              1 if request.form.get("has_rust") else 0,
              request.form.get("rust_prime_method", "field"),
+             products["top"], products["base"], products["mastic"],
              now_iso(), bid_id))
         conn.commit()
     finally:
         conn.close()
-    flash("Roof report saved.", "success")
+    if snapped:
+        flash("Saved, with adjustments: " + "; ".join(snapped) + ".", "warning")
+    else:
+        flash("Roof report saved.", "success")
     return redirect(url_for("bid_edit", bid_id=bid_id))
 
 
