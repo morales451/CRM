@@ -861,6 +861,89 @@ r = client.get("/import")
 check("import page: backup UI present", b"Off-Machine Backup Folder" in r.data
       and b"Download Full Backup" in r.data)
 
+# ---- 23b. Priority by matching buildings
+conn = db.get_db()
+ts = db.now_iso()
+today_s = date.today().isoformat()
+old_s = (date.today() - timedelta(days=9)).isoformat()
+# Big fish: many matching buildings, due TODAY (newest due date)
+conn.execute("""INSERT INTO accounts (company_name, matching_properties, num_properties,
+    prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at)
+    VALUES ('Big Portfolio Co', 40, 60, 'Prospecting', 'None / In Cadence', ?, ?, ?)""",
+    (today_s, ts, ts))
+# Small fish: few buildings but an OLDER due date
+conn.execute("""INSERT INTO accounts (company_name, matching_properties, num_properties,
+    prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at)
+    VALUES ('Tiny Single Co', 1, 1, 'Prospecting', 'None / In Cadence', ?, ?, ?)""",
+    (old_s, ts, ts))
+conn.commit()
+big_id = conn.execute("SELECT id FROM accounts WHERE company_name='Big Portfolio Co'").fetchone()["id"]
+tiny_id = conn.execute("SELECT id FROM accounts WHERE company_name='Tiny Single Co'").fetchone()["id"]
+
+pri = cadence.get_due_reminders(conn, order="priority")
+due = cadence.get_due_reminders(conn, order="due")
+check("priority: reminder carries matching count",
+      all("matching_properties" in r for r in pri))
+def first_of(rs, aid):
+    return next(i for i, r in enumerate(rs) if r["account_id"] == aid)
+check("priority order: big portfolio outranks older small one",
+      first_of(pri, big_id) < first_of(pri, tiny_id),
+      [(r["company_name"], r["matching_properties"], r["due_date"]) for r in pri[:4]])
+check("due order: oldest first regardless of size",
+      first_of(due, tiny_id) < first_of(due, big_id))
+conn.close()
+
+# the saved setting drives dashboard + queue
+conn = db.get_db()
+check("task order: defaults to priority", app_mod._task_order(conn) == "priority")
+conn.close()
+r = client.get("/")
+html = r.data.decode()
+check("dashboard: priority toggle + matching column", "🎯 Priority" in html
+      and "Buildings in today's tasks" in html)
+check("dashboard: big portfolio listed before tiny one",
+      html.index("Big Portfolio Co") < html.index("Tiny Single Co"))
+check("dashboard: top priority card", "Top Priority Accounts" in html
+      and "40" in html)
+conn = db.get_db()
+qt = app_mod._build_queue(conn)
+conn.close()
+check("queue: priority order puts big portfolio first",
+      qt[0]["account_id"] == big_id, [(t["account_id"], t["matching"]) for t in qt[:3]])
+# switch to due-date order
+r = client.post("/settings/task-order", data={"order": "due"}, follow_redirects=True)
+html = r.data.decode()
+check("dashboard: switched to due order",
+      html.index("Tiny Single Co") < html.index("Big Portfolio Co"))
+conn = db.get_db()
+check("task order: setting persisted", app_mod._task_order(conn) == "due")
+qt = app_mod._build_queue(conn)
+conn.close()
+check("queue: due order follows setting", qt[0]["account_id"] == tiny_id)
+r = client.post("/settings/task-order", data={"order": "bogus"}, follow_redirects=True)
+conn = db.get_db()
+check("task order: junk value ignored", app_mod._task_order(conn) == "due")
+conn.close()
+client.post("/settings/task-order", data={"order": "priority"})
+
+# accounts page: sort + min filter
+r = client.get("/accounts?sort=priority")
+html = r.data.decode()
+check("accounts: priority sort", html.index("Big Portfolio Co") < html.index("Tiny Single Co"))
+check("accounts: total matching badge", "buildings" in html and "🎯" in html)
+r = client.get("/accounts?min_matching=10")
+html = r.data.decode()
+check("accounts: min matching filter", "Big Portfolio Co" in html
+      and "Tiny Single Co" not in html)
+r = client.get("/accounts?sort=name")
+html = r.data.decode()
+check("accounts: A-Z sort still works",
+      html.index("Big Portfolio Co") < html.index("Tiny Single Co"))
+r = client.get("/accounts?sort=recent")
+check("accounts: recent sort ok", r.status_code == 200)
+r = client.get("/accounts?min_matching=abc&sort=bogus")
+check("accounts: junk params handled", r.status_code == 200)
+
 # ---- 24. In-app guide
 r = client.get("/guide")
 check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data

@@ -31,18 +31,26 @@ def _parse_date(iso_str: str) -> date:
     return date.fromisoformat(iso_str[:10])
 
 
-def get_due_reminders(conn, account_id: int | None = None) -> list[dict]:
-    """Return due cadence reminders, oldest due date first.
+def get_due_reminders(conn, account_id: int | None = None,
+                      order: str = "due") -> list[dict]:
+    """Return due cadence reminders.
+
+    order="due"      -> oldest due date first (classic cadence order)
+    order="priority" -> accounts with the most criteria-matching buildings
+                        first, then oldest due date. Biggest portfolios are
+                        the highest-potential deals, so they get worked first.
 
     Each reminder: {account_id, company_name, first_name, last_name,
                     work_phone, mobile_phone, email, preferred_contact,
+                    matching_properties, num_properties,
                     day, step_type, due_date, days_overdue}
     """
     today = date.today()
 
     sql = """
         SELECT id, company_name, first_name, last_name, work_phone,
-               mobile_phone, email, preferred_contact, cadence_start
+               mobile_phone, email, preferred_contact, cadence_start,
+               matching_properties, num_properties
         FROM accounts
         WHERE prospecting_status = ? AND pipeline_milestone = ?
     """
@@ -88,13 +96,21 @@ def get_due_reminders(conn, account_id: int | None = None) -> list[dict]:
                 "mobile_phone": acct["mobile_phone"],
                 "email": acct["email"],
                 "preferred_contact": acct["preferred_contact"],
+                "matching_properties": acct["matching_properties"],
+                "num_properties": acct["num_properties"],
                 "day": day,
                 "step_type": step_type,
                 "due_date": due.isoformat(),
                 "days_overdue": (today - due).days,
             })
 
-    reminders.sort(key=lambda r: (r["due_date"], r["company_name"].lower(), r["day"]))
+    if order == "priority":
+        reminders.sort(key=lambda r: (-(r["matching_properties"] or 0),
+                                      r["due_date"], r["company_name"].lower(),
+                                      r["day"]))
+    else:
+        reminders.sort(key=lambda r: (r["due_date"], r["company_name"].lower(),
+                                      r["day"]))
     return reminders
 
 

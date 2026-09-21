@@ -135,12 +135,60 @@ def _account_fields_from_form(form):
 STALE_DAYS = 14
 STALE_EXCLUDED_MILESTONES = ("None / In Cadence", "Closed Won", "Closed Lost", "On Hold")
 
+TASK_ORDERS = ("priority", "due")
 
-def _due_followups(conn):
+
+def _task_order(conn) -> str:
+    """How the dashboard and queue order today's work.
+
+    'priority' (default) works accounts with the most criteria-matching
+    buildings first — biggest portfolios are the biggest deals.
+    'due' keeps the classic oldest-due-first cadence order.
+    """
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key='task_order'").fetchone()
+    value = (row["value"] if row else "") or "priority"
+    return value if value in TASK_ORDERS else "priority"
+
+
+@app.route("/settings/task-order", methods=["POST"])
+def set_task_order():
+    order = request.form.get("order", "priority")
+    if order in TASK_ORDERS:
+        conn = get_db()
+        try:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('task_order', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (order,))
+            conn.commit()
+        finally:
+            conn.close()
+    return redirect(request.form.get("next") or url_for("dashboard"))
+
+
+def _due_followups(conn, order: str = "due"):
+    """Follow-ups whose date has arrived. In priority order, accounts with
+    more matching buildings come first."""
+    sort = ("COALESCE(matching_properties, 0) DESC, next_follow_up"
+            if order == "priority" else "next_follow_up")
     return conn.execute(
-        "SELECT * FROM accounts WHERE next_follow_up != '' AND next_follow_up <= ? "
-        "ORDER BY next_follow_up, company_name COLLATE NOCASE",
+        f"SELECT * FROM accounts WHERE next_follow_up != '' AND next_follow_up <= ? "
+        f"ORDER BY {sort}, company_name COLLATE NOCASE",
         (today_iso(),)).fetchall()
+
+
+def _top_priority_accounts(conn, limit: int = 8):
+    """Highest-potential accounts still in play, most matching buildings first."""
+    return conn.execute(
+        """SELECT a.*,
+                  (SELECT MAX(created_at) FROM interactions i
+                   WHERE i.account_id = a.id) AS last_activity
+           FROM accounts a
+           WHERE COALESCE(a.matching_properties, 0) > 0
+             AND a.prospecting_status != 'Not Interested'
+             AND a.pipeline_milestone NOT IN ('Closed Won', 'Closed Lost')
+           ORDER BY a.matching_properties DESC, a.company_name COLLATE NOCASE
+           LIMIT ?""", (limit,)).fetchall()
 
 
 def _stale_deals(conn):
@@ -163,10 +211,12 @@ def _stale_deals(conn):
 def dashboard():
     conn = get_db()
     try:
-        reminders = cadence.get_due_reminders(conn)
-        followups = _due_followups(conn)
+        order = _task_order(conn)
+        reminders = cadence.get_due_reminders(conn, order=order)
+        followups = _due_followups(conn, order)
         stale = _stale_deals(conn)
         owed = _outstanding_invoices(conn)
+        top_priority = _top_priority_accounts(conn)
         stats = {
             "total_accounts": conn.execute(
                 "SELECT COUNT(*) c FROM accounts").fetchone()["c"],
@@ -181,6 +231,7 @@ def dashboard():
             "closed_won": conn.execute(
                 "SELECT COUNT(*) c FROM accounts "
                 "WHERE pipeline_milestone = 'Closed Won'").fetchone()["c"],
+            "matching_due": sum(r["matching_properties"] or 0 for r in reminders),
         }
         recent = conn.execute(
             """SELECT i.*, a.company_name FROM interactions i
@@ -188,7 +239,8 @@ def dashboard():
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
         return render_template("dashboard.html", reminders=reminders,
                                followups=followups, stale=stale, owed=owed,
-                               stats=stats, recent=recent, today=today_iso())
+                               stats=stats, recent=recent, today=today_iso(),
+                               order=order, top_priority=top_priority)
     finally:
         conn.close()
 
@@ -268,13 +320,23 @@ def set_followup(account_id):
                     or url_for("account_detail", account_id=account_id))
 
 
-def _build_queue(conn):
-    """Today's work: due cadence steps + due follow-ups, oldest first."""
+def _build_queue(conn, order: str | None = None):
+    """Today's work: due cadence steps + due follow-ups.
+
+    Ordered by the saved task order — biggest matching portfolios first by
+    default, so the highest-potential accounts get worked while you're fresh.
+    """
+    order = order or _task_order(conn)
     tasks = [{"kind": "cadence", "due": r["due_date"], "account_id": r["account_id"],
-              "reminder": r} for r in cadence.get_due_reminders(conn)]
+              "matching": r["matching_properties"] or 0, "reminder": r}
+             for r in cadence.get_due_reminders(conn, order=order)]
     tasks += [{"kind": "followup", "due": a["next_follow_up"], "account_id": a["id"],
-               "note": a["follow_up_note"]} for a in _due_followups(conn)]
-    tasks.sort(key=lambda t: t["due"])
+               "matching": a["matching_properties"] or 0,
+               "note": a["follow_up_note"]} for a in _due_followups(conn, order)]
+    if order == "priority":
+        tasks.sort(key=lambda t: (-t["matching"], t["due"]))
+    else:
+        tasks.sort(key=lambda t: (t["due"], -t["matching"]))
     return tasks
 
 
@@ -1083,11 +1145,26 @@ def export_interactions():
 
 # ----------------------------------------------------------------- Accounts
 
+ACCOUNT_SORTS = {
+    "priority": ("COALESCE(a.matching_properties, 0) DESC, "
+                 "a.company_name COLLATE NOCASE"),
+    "name": "a.company_name COLLATE NOCASE",
+    "recent": ("COALESCE((SELECT MAX(created_at) FROM interactions i "
+               "WHERE i.account_id = a.id), '') DESC, "
+               "a.company_name COLLATE NOCASE"),
+}
+
+
 @app.route("/accounts")
 def accounts():
     status = request.args.get("status", "")
     milestone = request.args.get("milestone", "")
     q = request.args.get("q", "").strip()
+    min_matching_raw = request.args.get("min_matching", "").strip()
+    min_matching = int(min_matching_raw) if min_matching_raw.isdigit() else None
+    sort = request.args.get("sort", "priority")
+    if sort not in ACCOUNT_SORTS:
+        sort = "priority"
 
     sql = """SELECT a.*,
                     (SELECT MAX(created_at) FROM interactions i
@@ -1100,19 +1177,25 @@ def accounts():
     if milestone:
         sql += " AND a.pipeline_milestone = ?"
         params.append(milestone)
+    if min_matching is not None:
+        sql += " AND COALESCE(a.matching_properties, 0) >= ?"
+        params.append(min_matching)
     if q:
         sql += (" AND (a.company_name LIKE ? OR a.first_name LIKE ? "
                 "OR a.last_name LIKE ? OR a.email LIKE ?)")
         params += [f"%{q}%"] * 4
-    sql += " ORDER BY a.company_name COLLATE NOCASE"
+    sql += " ORDER BY " + ACCOUNT_SORTS[sort]
 
     conn = get_db()
     try:
         rows = conn.execute(sql, params).fetchall()
+        total_matching = sum(r["matching_properties"] or 0 for r in rows)
     finally:
         conn.close()
     return render_template("accounts.html", accounts=rows,
-                           status=status, milestone=milestone, q=q)
+                           status=status, milestone=milestone, q=q,
+                           min_matching=min_matching_raw, sort=sort,
+                           total_matching=total_matching)
 
 
 @app.route("/accounts/new", methods=["GET", "POST"])

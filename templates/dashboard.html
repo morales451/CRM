@@ -3,22 +3,34 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <h1 class="mb-0">Daily Dashboard</h1>
-  {% if reminders or followups %}
-  <a href="{{ url_for('queue') }}" class="btn btn-primary">▶ Work the Queue ({{ reminders|length + followups|length }})</a>
-  {% endif %}
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    <form method="post" action="{{ url_for('set_task_order') }}" class="btn-group btn-group-sm" role="group">
+      <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
+      <button name="order" value="priority" class="btn btn-sm {{ 'btn-warning' if order == 'priority' else 'btn-outline-secondary' }}"
+              title="Work the accounts with the most criteria-matching buildings first">🎯 Priority</button>
+      <button name="order" value="due" class="btn btn-sm {{ 'btn-warning' if order == 'due' else 'btn-outline-secondary' }}"
+              title="Work the oldest-due tasks first">📅 Due date</button>
+    </form>
+    {% if reminders or followups %}
+    <a href="{{ url_for('queue') }}" class="btn btn-primary">▶ Work the Queue ({{ reminders|length + followups|length }})</a>
+    {% endif %}
+  </div>
 </div>
 
 <div class="row g-2 mb-4">
-  <div class="col-6 col-md-3"><div class="card text-center p-2">
+  <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ reminders|length + followups|length }}</div><div class="text-muted small">Tasks Due</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2">
+  <div class="col-6 col-md"><div class="card text-center p-2 h-100">
+    <div class="stat-value">🎯 {{ stats.matching_due }}</div><div class="text-muted small">Buildings in today's tasks</div>
+  </div></div>
+  <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ stats.active_prospects }}</div><div class="text-muted small">Active Prospects</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2">
+  <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ stats.in_cadence }}</div><div class="text-muted small">In Cadence</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2">
+  <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ stats.closed_won }}</div><div class="text-muted small">Closed Won</div>
   </div></div>
 </div>
@@ -29,12 +41,13 @@
   <div class="table-responsive">
     <table class="table table-hover mb-0">
       <thead class="table-light"><tr>
-        <th>Company</th><th>Contact</th><th>Step</th><th>Due</th><th class="text-end">Actions</th>
+        <th>Company</th><th title="Buildings matching your criteria">🎯</th><th>Contact</th><th>Step</th><th>Due</th><th class="text-end">Actions</th>
       </tr></thead>
       <tbody>
       {% for r in reminders %}
         <tr>
           <td><a href="{{ url_for('account_detail', account_id=r.account_id) }}" class="fw-semibold text-decoration-none">{{ r.company_name }}</a></td>
+          <td>{% if r.matching_properties %}<span class="badge text-bg-warning" title="{{ r.matching_properties }} buildings match your criteria{% if r.num_properties %} of {{ r.num_properties }} owned{% endif %}">{{ r.matching_properties }}</span>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
           <td class="small">
             {{ r.first_name }} {{ r.last_name }}
             {% if r.preferred_contact|pref %}<span class="badge text-bg-light border">{{ r.preferred_contact|pref }}</span>{% endif %}
@@ -104,6 +117,7 @@
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
           <a href="{{ url_for('account_detail', account_id=f.id) }}" class="fw-semibold text-decoration-none">{{ f.company_name }}</a>
+          {% if f.matching_properties %}<span class="badge text-bg-warning" title="Buildings matching your criteria">🎯 {{ f.matching_properties }}</span>{% endif %}
           {% if f.first_name or f.last_name %}<span class="small text-muted">— {{ f.first_name }} {{ f.last_name }}</span>{% endif %}
           {% if f.preferred_contact|pref %}<span class="badge text-bg-light border">{{ f.preferred_contact|pref }}</span>{% endif %}
           <span class="small {{ 'overdue' if f.next_follow_up < today }}">· due {{ f.next_follow_up|d }}</span>
@@ -142,6 +156,7 @@
     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
       <span>
         <a href="{{ url_for('account_detail', account_id=s.id) }}" class="fw-semibold text-decoration-none">{{ s.company_name }}</a>
+        {% if s.matching_properties %}<span class="badge text-bg-warning">🎯 {{ s.matching_properties }}</span>{% endif %}
         <span class="badge text-bg-secondary">{{ s.pipeline_milestone }}</span>
         <span class="small text-muted">last touch {{ s.last_touch|dt }}</span>
       </span>
@@ -153,6 +168,36 @@
     </li>
     {% endfor %}
   </ul>
+</div>
+{% endif %}
+
+{% if top_priority %}
+<div class="card mb-4 border-warning">
+  <div class="card-header bg-warning-subtle fw-bold d-flex justify-content-between flex-wrap gap-1">
+    <span>🎯 Top Priority Accounts — most matching buildings</span>
+    <a href="{{ url_for('accounts', sort='priority') }}" class="small">See all →</a>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0">
+      <thead class="table-light"><tr>
+        <th>Company</th><th title="Buildings matching your criteria">🎯 Matching</th>
+        <th class="d-none d-sm-table-cell">Total owned</th>
+        <th class="d-none d-md-table-cell">Status</th>
+        <th class="d-none d-lg-table-cell">Last touch</th>
+      </tr></thead>
+      <tbody>
+        {% for a in top_priority %}
+        <tr>
+          <td><a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a></td>
+          <td><span class="badge text-bg-warning">{{ a.matching_properties }}</span></td>
+          <td class="small d-none d-sm-table-cell">{{ a.num_properties or '—' }}</td>
+          <td class="small d-none d-md-table-cell">{{ a.prospecting_status }}{% if a.pipeline_milestone != 'None / In Cadence' %} · {{ a.pipeline_milestone }}{% endif %}</td>
+          <td class="small text-muted d-none d-lg-table-cell">{{ a.last_activity|dt if a.last_activity else 'never' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 
