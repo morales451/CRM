@@ -2182,14 +2182,22 @@ def parse_contact(account_id):
         return redirect(url_for("account_detail", account_id=account_id))
     parsed = importer.parse_contact_blob(paste)
     found = [c for c in CONTACT_COLS if parsed.get(c)]
-    if not parsed["first_name"] and not parsed["last_name"]:
-        flash("Couldn't find a person's name in that paste. Make sure the "
-              "contact's name is in what you copied, or just type it in below.",
-              "warning")
+    label = lambda c: c.replace("_", " ").replace("linkedin url", "LinkedIn")
+    if not found:
+        flash("Nothing recognisable in that paste — no name, email or phone "
+              "number. Try selecting the contact's details again, or just type "
+              "them in below.", "warning")
+    elif not (parsed["first_name"] or parsed["last_name"]):
+        # ZoomInfo's "Contact Details" panel has no name in it — the name sits
+        # higher up the page. Say what came through so it's clear what's left.
+        flash("Got the " + ", ".join(label(c) for c in found)
+              + " — but no name, which ZoomInfo keeps above the Contact "
+                "Details panel. Type the name below (or copy from higher up "
+                "the page) and press Add Contact.", "warning")
     else:
-        missing = [c.replace("_", " ") for c in ("email", "work_phone", "title")
+        missing = [label(c) for c in ("email", "work_phone", "title")
                    if not parsed.get(c)]
-        msg = "Read: " + ", ".join(c.replace("_", " ") for c in found) + "."
+        msg = "Read: " + ", ".join(label(c) for c in found) + "."
         if missing:
             msg += " Didn't find: " + ", ".join(missing) + " — add below if you have it."
         msg += " Check it over, then press Add Contact."

@@ -1917,8 +1917,10 @@ r = client.post(f"/accounts/{_target}/contacts/parse",
 check("preview: an empty paste just says so", b"Paste something into the box" in r.data)
 r = client.post(f"/accounts/{_target}/contacts/parse",
                 data={"paste": "719 Main Street, Suite 400"}, follow_redirects=True)
-check("preview: no name found is explained, not silent",
-      b"Couldn" in r.data and b"name" in r.data)
+check("preview: a paste with no contact in it is refused, not guessed at",
+      b"Nothing recognisable" in r.data)
+check("preview: stray text never becomes a job title",
+      not importer.parse_contact_blob("719 Main Street, Suite 400")["title"])
 # after a preview, clearing a box must stick
 client.post(f"/accounts/{_target}/contacts/add", data={
     "paste": "Marco Webb\nSenior Property Manager\nmwebb@example.com\n"
@@ -1933,6 +1935,97 @@ check("preview: a field you cleared is not re-filled from the paste",
       dict(_saved) if _saved else None)
 check("preview: the parts you kept are saved",
       _saved["first_name"] == "Marco" and _saved["title"] == "Senior Property Manager")
+
+# ---- 37. ZoomInfo's Contact Details panel, tags and all
+_panel = """Contact Details
+Emails
+mdelacruz@harlowenterprises.com
+(B)
+
+Phone numbers
+(713) 555-0100
+(HQ)
+(409) 555-0102
+(M)"""
+_r = importer.parse_contact_blob(_panel)
+check("panel: section headings are not mistaken for a name",
+      not _r["first_name"] and not _r["last_name"], _r)
+check("panel: the email comes through",
+      _r["email"] == "mdelacruz@harlowenterprises.com", _r)
+check("panel: (HQ) is the work line and (M) is the mobile",
+      _r["work_phone"] == "(713) 555-0100"
+      and _r["mobile_phone"] == "(409) 555-0102", _r)
+check("panel: no heading leaks into the title or company",
+      not _r["title"] and not _r["company"], _r)
+
+_r = importer.parse_contact_blob("""Michael Delacruz
+Director of Facilities
+Harlow Enterprises
+Contact Details
+Emails
+mdelacruz@harlowenterprises.com
+(B)
+Phone numbers
+(713) 555-0100
+(HQ)
+(409) 555-0102
+(M)""")
+check("panel: name and title above the panel are picked up",
+      _r["first_name"] == "Michael" and _r["last_name"] == "Delacruz"
+      and _r["title"] == "Director of Facilities"
+      and _r["company"] == "Harlow Enterprises", _r)
+check("panel: phones still sorted by their tags",
+      _r["work_phone"] == "(713) 555-0100"
+      and _r["mobile_phone"] == "(409) 555-0102", _r)
+
+_r = importer.parse_contact_blob("""Sara Lin
+Asset Manager
+Phone numbers
+(713) 555-0100
+(HQ)
+(281) 555-7788
+(D)
+(409) 555-0102
+(M)""")
+check("panel: a direct dial beats the HQ switchboard",
+      _r["work_phone"] == "(281) 555-7788"
+      and _r["mobile_phone"] == "(409) 555-0102", _r)
+
+_r = importer.parse_contact_blob("Dana Price\nCOO\ndana@bnog.com (B)\n(713) 555-7777 (M)")
+check("panel: tags on the end of the value's own line work too",
+      _r["email"] == "dana@bnog.com" and _r["mobile_phone"] == "(713) 555-7777"
+      and not _r["work_phone"], _r)
+
+# Seniority: abbreviations must match as words, not as substrings.
+check("seniority: 'director' is not read as CTO",
+      importer.seniority_from_title("Director of Facilities") == "Director")
+check("seniority: 'coordinator' is not read as COO",
+      importer.seniority_from_title("Project Coordinator") == "")
+check("seniority: real abbreviations still match",
+      importer.seniority_from_title("COO") == "C-Level"
+      and importer.seniority_from_title("CFO") == "C-Level"
+      and importer.seniority_from_title("VP of Operations") == "VP-Level")
+check("seniority: plurals and phrases still match",
+      importer.seniority_from_title("Board of Directors") == "Director"
+      and importer.seniority_from_title("Head of Real Estate") == "Director"
+      and importer.seniority_from_title("Vice President of Asset Management") == "VP-Level")
+
+# The preview explains a panel-only paste rather than just refusing it.
+_conn = db.get_db()
+_t = _conn.execute("SELECT id FROM accounts WHERE COALESCE(archived_at,'')='' "
+                   "LIMIT 1").fetchone()["id"]
+_conn.close()
+_html = client.post(f"/accounts/{_t}/contacts/parse", data={"paste": _panel},
+                    follow_redirects=True).data.decode()
+check("preview: a panel-only paste says what it got and what's missing",
+      "no name" in _html and "Contact Details" in _html
+      and 'value="mdelacruz@harlowenterprises.com"' in _html, )
+check("preview: the phones are prefilled from the panel",
+      'value="(713) 555-0100"' in _html and 'value="(409) 555-0102"' in _html)
+_html = client.post(f"/accounts/{_t}/contacts/parse",
+                    data={"paste": "....."}, follow_redirects=True).data.decode()
+check("preview: an unusable paste says so plainly",
+      "Nothing recognisable" in _html or "Nothing recognisable" in _html)
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

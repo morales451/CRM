@@ -112,9 +112,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   unlimited additional people. Add them on the account detail page, promote
   anyone to primary with ★, and use the 🔎 ZoomInfo / LinkedIn buttons to
   jump straight to research for that company.
-  - **Paste a profile** — copy a ZoomInfo profile into the paste box and the
-    name, title, email, direct line, mobile and LinkedIn URL are read out of
-    it. Works with a plain copy, "Label: value" lines, or a spreadsheet row.
+  - **Paste a profile** — copy a ZoomInfo profile into the paste box, press
+    **Read the paste**, and the name, title, email, direct line, mobile and
+    LinkedIn URL fill the form so you can check them before saving. It reads
+    ZoomInfo's **Contact Details** panel directly, including the `(B)` / `(HQ)`
+    / `(D)` / `(M)` type tags that say which number is the mobile and which is
+    the work line — plus plain copies, "Label: value" lines, and spreadsheet
+    rows. Extra text you grabbed by accident is ignored, and a paste with no
+    contact in it is refused rather than guessed at.
   - **Bulk upload** a ZoomInfo export on the Import page. People are matched
     to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings /
     Group and punctuation ignored; the first person on an empty account
@@ -181,6 +186,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   tasks. Every sheet is frozen and filterable. Also plain CSV exports of
   accounts and interaction history.
 
+## Speed
+
+Pages are bounded so the app stays quick however big the list gets: the
+dashboard draws the top 25 due reminders (with the true total and a link to
+see them all), the accounts list pages at 100, and an account's history shows
+the 25 most recent entries. With 400 accounts and 773 due reminders this takes
+the dashboard from 1.3 MB and ~950 ms of browser load down to 52 KB and ~50 ms.
+
 ## Cadence Logic
 
 Standard 10-day cadence, computed from each account's cadence start date:
@@ -230,4 +243,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-342 checks, about two seconds.
+382 checks, about two seconds.

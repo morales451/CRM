@@ -509,13 +509,19 @@ _TITLE_HINTS = (
 
 # ZoomInfo's "Management Level" values, matched loosely against a title.
 # Ordered: "Vice President of Asset Management" must read VP-Level, not
-# C-Level, so the VP rule is tested before the one that matches "president".
+# C-Level, so the VP rule is tested before the one matching "president".
+#
+# Each rule carries two kinds of hint, because a plain substring test is
+# wrong for abbreviations: "cto" hides inside "dire-cto-r" and "coo" inside
+# "coo-rdinator". Abbreviations must match as whole words; the spelled-out
+# terms match as word prefixes so "Directors" still reads as Director.
 _SENIORITY_RULES = (
-    ("VP-Level", ("vp", "vice president", "svp", "evp")),
-    ("C-Level", ("chief", "ceo", "cfo", "coo", "cto", "president",
-                 "owner", "principal", "founder", "partner")),
-    ("Director", ("director", "head of")),
-    ("Manager", ("manager", "supervisor", "superintendent")),
+    ("VP-Level", ("vp", "svp", "evp", "avp"),
+     ("vice president", "vice-president")),
+    ("C-Level", ("ceo", "cfo", "coo", "cto", "cio", "cmo", "cro"),
+     ("chief", "president", "owner", "principal", "founder", "partner")),
+    ("Director", (), ("director", "head of")),
+    ("Manager", (), ("manager", "supervisor", "superintendent")),
 )
 
 _LABELS = {
@@ -535,6 +541,37 @@ _LABELS = {
 }
 _LABEL_LOOKUP = {alias: field for field, aliases in _LABELS.items()
                  for alias in aliases}
+
+# ZoomInfo's own panel headings. They sit on their own lines and are not data —
+# without this, "Contact Details" became the contact's name.
+_SECTION_HEADINGS = {
+    _normalize(h) for h in (
+        "Contact Details", "Contact Detail", "Contact Info",
+        "Contact Information", "Details", "Overview", "About",
+        "Emails", "Email", "Email Address", "Email Addresses",
+        "Phone Numbers", "Phone Number", "Phone", "Phones",
+        "Direct Dial", "Direct Phone", "HQ Phone", "Mobile Phone",
+        "Company Details", "Company Detail", "Company Information",
+        "Location", "Locations", "Education", "Employment History",
+        "Work History", "Web References", "Technologies", "Skills",
+        "Social", "Social Media", "Websites", "Bio", "Summary",
+    )
+}
+
+# The short type tag ZoomInfo prints beside (or under) each value.
+_TYPE_TAGS = {
+    "m": "mobile", "c": "mobile", "cell": "mobile", "mobile": "mobile",
+    "d": "direct", "dd": "direct", "direct": "direct",
+    "hq": "hq", "headquarters": "hq",
+    "o": "work", "b": "work", "w": "work", "work": "work",
+    "office": "work", "business": "work",
+    "p": "personal", "personal": "personal", "h": "personal",
+}
+
+# A line that is nothing but a tag: "(M)", "[HQ]", "M".
+_TAG_ONLY_RE = re.compile(r"^\s*[\[(]?\s*[A-Za-z]{1,12}\s*[\])]?\s*$")
+# ...or the same tag parked at the end of the value's own line.
+_INLINE_TAG_RE = re.compile(r"\s*[\[(]\s*([A-Za-z]{1,12})\s*[\])]\s*$")
 
 
 def _remainder(line: str) -> str:
@@ -559,6 +596,8 @@ def _looks_like_name(line: str) -> bool:
     if not 1 < len(words) <= 4:
         return False
     low = line.lower()
+    if _normalize(line) in _SECTION_HEADINGS:
+        return False
     if any(hint in low for hint in _TITLE_HINTS):
         return False
     return all(re.fullmatch(r"[A-Za-z][A-Za-z.'\-]*", w) for w in words)
@@ -578,8 +617,10 @@ def _split_name(full: str) -> tuple[str, str]:
 def seniority_from_title(title: str) -> str:
     """Best-guess ZoomInfo management level from a job title."""
     low = (title or "").lower()
-    for level, hints in _SENIORITY_RULES:
-        if any(h in low for h in hints):
+    for level, abbreviations, terms in _SENIORITY_RULES:
+        if any(re.search(rf"\b{re.escape(a)}\b", low) for a in abbreviations):
+            return level
+        if any(re.search(rf"\b{re.escape(t)}", low) for t in terms):
             return level
     return ""
 
@@ -587,14 +628,22 @@ def seniority_from_title(title: str) -> str:
 def parse_contact_blob(text: str) -> dict:
     """Pull a contact out of text copied from a ZoomInfo profile.
 
-    Handles the three shapes people actually paste: a plain stack of lines
-    (name, title, company, email, phones), "Label: value" pairs, and a
-    tab-separated row copied out of a spreadsheet. Anything it can't place is
-    simply left blank — the Add Contact form is still shown, so nothing is
-    silently wrong.
+    Handles the shapes people actually paste:
 
-    Returns a dict with the contact fields plus "company" (used only to say
-    which company the paste named, never to re-point the contact).
+    * ZoomInfo's own **Contact Details** panel, where the headings ("Emails",
+      "Phone numbers") sit on their own lines and each value is followed by a
+      type tag on the NEXT line — (B) business, (HQ) head office, (D) direct,
+      (M) mobile. Those tags decide which number is the mobile and which is
+      the work line, instead of it coming down to the order they appear in.
+    * A plain stack of lines: name, title, company, email, phones.
+    * "Label: value" pairs.
+    * A row copied out of a spreadsheet (tab separated).
+
+    Anything it can't place is left blank rather than guessed at — the form is
+    still shown, so nothing ends up silently wrong.
+
+    Returns the contact fields plus "company" (only to report which company
+    the paste named; it never re-points the contact).
     """
     out = {f: "" for f in PERSON_FIELDS}
     out["company"] = ""
@@ -607,9 +656,37 @@ def parse_contact_blob(text: str) -> dict:
         raw_lines = [c.strip() for c in text.split("\t")]
     lines = [l for l in raw_lines if l]
 
-    leftovers = []
+    emails: list[list] = []   # [[address, tag], ...]
+    phones: list[list] = []   # [[number, tag], ...]
+    leftovers: list[str] = []
+    last = None               # the list a trailing type tag belongs to
+
+    def take_tag(line):
+        """A line that is only a type tag, e.g. "(M)" or "HQ"."""
+        return _TYPE_TAGS.get(re.sub(r"[^a-z]", "", line.lower())) \
+            if _TAG_ONLY_RE.match(line) else None
+
     for line in lines:
-        # LinkedIn and email can sit anywhere, including inside another line.
+        if _normalize(line) in _SECTION_HEADINGS:
+            last = None
+            continue
+
+        tag = take_tag(line)
+        if tag:
+            # Belongs to the value on the line above.
+            if last:
+                last[1] = last[1] or tag
+            continue
+
+        # A tag can also sit at the end of the value's own line.
+        inline = _INLINE_TAG_RE.search(line)
+        inline_tag = ""
+        if inline:
+            found = _TYPE_TAGS.get(re.sub(r"[^a-z]", "", inline.group(1).lower()))
+            if found:
+                inline_tag = found
+                line = line[:inline.start()].strip()
+
         li = _LINKEDIN_RE.search(line)
         if li and not out["linkedin_url"]:
             out["linkedin_url"] = li.group(0).rstrip(".,;")
@@ -617,8 +694,9 @@ def parse_contact_blob(text: str) -> dict:
             if not line:
                 continue
         em = _EMAIL_RE.search(line)
-        if em and not out["email"]:
-            out["email"] = em.group(0)
+        if em:
+            emails.append([em.group(0), inline_tag])
+            last = emails[-1]
             line = _remainder(line.replace(em.group(0), ""))
             if not line:
                 continue
@@ -631,7 +709,9 @@ def parse_contact_blob(text: str) -> dict:
                 if not (out["first_name"] or out["last_name"]):
                     out["first_name"], out["last_name"] = _split_name(value)
             elif field in ("work_phone", "mobile_phone"):
-                out[field] = out[field] or _clean_phone(value)
+                phones.append([_clean_phone(value),
+                               "mobile" if field == "mobile_phone" else "work"])
+                last = phones[-1]
             elif field == "company":
                 out["company"] = out["company"] or value
             elif not out.get(field):
@@ -641,15 +721,34 @@ def parse_contact_blob(text: str) -> dict:
         digits = re.sub(r"\D", "", line)
         if len(digits) >= 10 and len(re.sub(r"[\d\s().+\-x/]", "", line)) <= 12:
             low = line.lower()
-            slot = ("mobile_phone" if ("mobile" in low or "cell" in low)
-                    else "work_phone")
-            if out[slot]:
-                slot = "mobile_phone" if slot == "work_phone" else "work_phone"
-            if not out[slot]:
-                out[slot] = _clean_phone(line)
+            phone_tag = inline_tag or (
+                "mobile" if ("mobile" in low or "cell" in low)
+                else "direct" if "direct" in low
+                else "work" if ("office" in low or "work" in low) else "")
+            phones.append([_clean_phone(line), phone_tag])
+            last = phones[-1]
             continue
 
         leftovers.append(line)
+        last = None
+
+    # --- pick the best of each ------------------------------------------
+    if not out["email"] and emails:
+        # A business address beats a personal one.
+        out["email"] = next((e[0] for e in emails if e[1] == "work"), emails[0][0])
+
+    if phones:
+        mobiles = [p[0] for p in phones if p[1] == "mobile"]
+        direct = [p[0] for p in phones if p[1] == "direct"]
+        work = [p[0] for p in phones if p[1] in ("work", "hq")]
+        untagged = [p[0] for p in phones if not p[1]]
+        # A direct dial is worth more than the company switchboard.
+        work_order = direct + work + untagged
+        if not out["work_phone"] and work_order:
+            out["work_phone"] = work_order[0]
+        mobile_order = mobiles + [p for p in untagged if p != out["work_phone"]]
+        if not out["mobile_phone"] and mobile_order:
+            out["mobile_phone"] = mobile_order[0]
 
     # Unlabeled lines, in ZoomInfo's own order: name, then title, then company.
     if not (out["first_name"] or out["last_name"]):
@@ -658,10 +757,16 @@ def parse_contact_blob(text: str) -> dict:
                 out["first_name"], out["last_name"] = _split_name(line)
                 leftovers.pop(i)
                 break
-    if not out["title"] and leftovers:
-        out["title"] = leftovers.pop(0)
-    if not out["company"] and leftovers:
-        out["company"] = leftovers.pop(0)
+    # Only read a title or company out of the leftovers once the paste has
+    # proved it really is a contact. Otherwise a stray line — an address, a
+    # mis-selected paragraph — would quietly become somebody's job title.
+    is_a_contact = bool(out["first_name"] or out["last_name"]
+                        or out["email"] or out["work_phone"] or out["mobile_phone"])
+    if is_a_contact:
+        if not out["title"] and leftovers:
+            out["title"] = leftovers.pop(0)
+        if not out["company"] and leftovers:
+            out["company"] = leftovers.pop(0)
     if not out["seniority"]:
         out["seniority"] = seniority_from_title(out["title"])
     return out
