@@ -131,24 +131,22 @@ def _offer_undo(conn, label: str, ops: list[dict]) -> None:
     """
     undo_id = undo_module.record(conn, label, ops)
     if undo_id is not None:
-        session[UNDO_SESSION_KEY] = undo_id
+        # The label rides along in the session so drawing the Undo bar costs
+        # nothing: this runs on every page render, and opening a second
+        # database connection here (while the page's own is still open) made
+        # every click pay for a lock it didn't need.
+        session[UNDO_SESSION_KEY] = {"id": undo_id, "label": label}
 
 
 @app.context_processor
 def inject_undo():
-    """The pending undo, if the last action left one and it's still good."""
-    undo_id = session.get(UNDO_SESSION_KEY)
-    if not undo_id:
-        return {"pending_undo": None}
-    conn = get_db()
-    try:
-        label = undo_module.peek(conn, undo_id)
-    finally:
-        conn.close()
-    if label is None:
-        session.pop(UNDO_SESSION_KEY, None)
-        return {"pending_undo": None}
-    return {"pending_undo": {"id": undo_id, "label": label}}
+    """The pending undo, if the last action left one. Session-only — the
+    record itself is re-checked (and may be refused as used or expired) when
+    the button is actually pressed."""
+    pending = session.get(UNDO_SESSION_KEY)
+    if isinstance(pending, dict) and pending.get("id"):
+        return {"pending_undo": pending}
+    return {"pending_undo": None}
 
 
 @app.route("/undo/<int:undo_id>", methods=["POST"])
@@ -303,14 +301,29 @@ def _today_progress(conn, remaining: int) -> dict:
             "all_done": total > 0 and remaining == 0}
 
 
+# How many rows of each list the dashboard draws. Past a few hundred accounts
+# the page was rendering every due reminder — 1,500+ forms and over a megabyte
+# of HTML on the page you land on after EVERY action, which is what made the
+# whole app feel slow. The Queue is the right tool for working a long list;
+# the dashboard only has to show you the top of it. "?all=1" still renders
+# everything for anyone who wants it.
+DASHBOARD_ROWS = 25
+
+
 @app.route("/")
 def dashboard():
     conn = get_db()
     try:
         order = _task_order(conn)
-        reminders = cadence.get_due_reminders(conn, order=order)
-        followups = _due_followups(conn, order)
-        stale = _stale_deals(conn)
+        show_all = request.args.get("all") == "1"
+        cut = (lambda rows: rows) if show_all else (lambda rows: rows[:DASHBOARD_ROWS])
+        all_reminders = cadence.get_due_reminders(conn, order=order)
+        all_followups = _due_followups(conn, order)
+        all_stale = _stale_deals(conn)
+        totals = {"reminders": len(all_reminders), "followups": len(all_followups),
+                  "stale": len(all_stale)}
+        reminders, followups, stale = (cut(all_reminders), cut(all_followups),
+                                       cut(all_stale))
         owed = _outstanding_invoices(conn)
         top_priority = _top_priority_accounts(conn)
         stats = {
@@ -327,19 +340,20 @@ def dashboard():
             "closed_won": conn.execute(
                 "SELECT COUNT(*) c FROM accounts "
                 f"WHERE COALESCE(archived_at, '') = '' AND pipeline_milestone = 'Closed Won'").fetchone()["c"],
-            "matching_due": sum(r["matching_properties"] or 0 for r in reminders),
+            "matching_due": sum(r["matching_properties"] or 0 for r in all_reminders),
         }
         recent = conn.execute(
             """SELECT i.*, a.company_name FROM interactions i
                JOIN accounts a ON a.id = i.account_id
                WHERE COALESCE(a.archived_at, '') = ''
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
-        progress = _today_progress(conn, len(reminders) + len(followups))
+        progress = _today_progress(conn, totals["reminders"] + totals["followups"])
         return render_template("dashboard.html", reminders=reminders,
                                followups=followups, stale=stale, owed=owed,
                                stats=stats, recent=recent, today=today_iso(),
                                order=order, top_priority=top_priority,
-                               progress=progress)
+                               progress=progress, totals=totals,
+                               show_all=show_all)
     finally:
         conn.close()
 
@@ -1557,6 +1571,15 @@ def _search_clause(q: str):
     return "(" + " OR ".join(parts) + ")", params
 
 
+# A page of accounts. Drawing every row turned a 2,000-account list into a
+# multi-megabyte page; paging keeps each click the same speed whatever the
+# size of the list.
+ACCOUNTS_PER_PAGE = 100
+
+# Timeline entries drawn on an account page before the "show all" link.
+TIMELINE_ROWS = 25
+
+
 def _contact_match_hints(conn, q: str, rows) -> dict:
     """{account_id: "Jane Doe (VP)"} for rows whose match came from a contact
     rather than from the account's own fields."""
@@ -1600,32 +1623,44 @@ def accounts():
         sort = "priority"
     view = "archived" if request.args.get("view") == "archived" else "active"
 
-    sql = """SELECT a.*,
-                    (SELECT MAX(created_at) FROM interactions i
-                     WHERE i.account_id = a.id) AS last_activity
-             FROM accounts a WHERE 1=1"""
-    sql += (" AND COALESCE(a.archived_at, '') != ''" if view == "archived"
-            else " AND COALESCE(a.archived_at, '') = ''")
+    page = _parse_int(request.args.get("page", "1"), on_error=1) or 1
+    page = max(1, page)
+
+    where = (" AND COALESCE(a.archived_at, '') != ''" if view == "archived"
+             else " AND COALESCE(a.archived_at, '') = ''")
     params = []
     if status:
-        sql += " AND a.prospecting_status = ?"
+        where += " AND a.prospecting_status = ?"
         params.append(status)
     if milestone:
-        sql += " AND a.pipeline_milestone = ?"
+        where += " AND a.pipeline_milestone = ?"
         params.append(milestone)
     if min_matching is not None:
-        sql += " AND COALESCE(a.matching_properties, 0) >= ?"
+        where += " AND COALESCE(a.matching_properties, 0) >= ?"
         params.append(min_matching)
     if q:
         clause, search_params = _search_clause(q)
-        sql += " AND " + clause
+        where += " AND " + clause
         params += search_params
-    sql += " ORDER BY " + ACCOUNT_SORTS[sort]
 
     conn = get_db()
     try:
-        rows = conn.execute(sql, params).fetchall()
-        total_matching = sum(r["matching_properties"] or 0 for r in rows)
+        # Totals come from a COUNT/SUM over the whole filter, so the header
+        # still describes every match even though only one page is drawn.
+        summary = conn.execute(
+            f"SELECT COUNT(*) c, COALESCE(SUM(a.matching_properties), 0) m "
+            f"FROM accounts a WHERE 1=1{where}", params).fetchone()
+        total, total_matching = summary["c"], summary["m"]
+        pages = max(1, -(-total // ACCOUNTS_PER_PAGE))
+        page = min(page, pages)
+        rows = conn.execute(
+            f"""SELECT a.*,
+                       (SELECT MAX(created_at) FROM interactions i
+                        WHERE i.account_id = a.id) AS last_activity
+                FROM accounts a WHERE 1=1{where}
+                ORDER BY {ACCOUNT_SORTS[sort]}
+                LIMIT ? OFFSET ?""",
+            params + [ACCOUNTS_PER_PAGE, (page - 1) * ACCOUNTS_PER_PAGE]).fetchall()
         archived_count = conn.execute(
             "SELECT COUNT(*) c FROM accounts "
             "WHERE COALESCE(archived_at, '') != ''").fetchone()["c"]
@@ -1639,7 +1674,9 @@ def accounts():
                            min_matching=min_matching_raw, sort=sort,
                            total_matching=total_matching, view=view,
                            archived_count=archived_count,
-                           match_hints=match_hints)
+                           match_hints=match_hints,
+                           total=total, page=page, pages=pages,
+                           per_page=ACCOUNTS_PER_PAGE)
 
 
 @app.route("/accounts/new", methods=["GET", "POST"])
@@ -1668,6 +1705,10 @@ def new_account():
 
 @app.route("/accounts/<int:account_id>")
 def account_detail(account_id):
+    return _render_account_detail(account_id)
+
+
+def _render_account_detail(account_id, **extra):
     conn = get_db()
     try:
         acct = _account_or_404(conn, account_id)
@@ -1675,9 +1716,18 @@ def account_detail(account_id):
             "SELECT * FROM contacts WHERE account_id = ? "
             "ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE",
             (account_id,)).fetchall()
+        # Each timeline entry carries an inline edit form, so a long history
+        # is the heaviest thing on this page. Draw the recent ones and offer
+        # the rest behind a link.
+        history_total = conn.execute(
+            "SELECT COUNT(*) c FROM interactions WHERE account_id = ?",
+            (account_id,)).fetchone()["c"]
+        show_all_history = request.args.get("history") == "all"
         interactions = conn.execute(
             "SELECT * FROM interactions WHERE account_id = ? "
-            "ORDER BY created_at DESC, id DESC", (account_id,)).fetchall()
+            "ORDER BY created_at DESC, id DESC" +
+            ("" if show_all_history else f" LIMIT {TIMELINE_ROWS}"),
+            (account_id,)).fetchall()
         steps = cadence.get_cadence_progress(conn, account_id)
         in_cadence = (acct["prospecting_status"] == cadence.ACTIVE_STATUS
                       and acct["pipeline_milestone"] == cadence.ACTIVE_MILESTONE)
@@ -1691,7 +1741,8 @@ def account_detail(account_id):
     return render_template("account_detail.html", account=acct,
                            contacts=contacts, interactions=interactions,
                            steps=steps, in_cadence=in_cadence, project=project,
-                           bids=bids)
+                           bids=bids, history_total=history_total,
+                           show_all_history=show_all_history, **extra)
 
 
 @app.route("/accounts/<int:account_id>/edit", methods=["POST"])
@@ -2080,7 +2131,7 @@ def add_contact(account_id):
     person = {c: request.form.get(c, "").strip() for c in CONTACT_COLS}
     parsed_note = ""
     paste = request.form.get("paste", "").strip()
-    if paste:
+    if paste and not request.form.get("already_parsed"):
         # "Paste from ZoomInfo": the blob fills whatever the form left blank,
         # so a copied profile becomes a contact without retyping six fields.
         parsed = importer.parse_contact_blob(paste)
@@ -2115,6 +2166,36 @@ def add_contact(account_id):
     flash(f"Contact {person['first_name']} {person['last_name']} added"
           + (" as primary." if make_primary else ".") + parsed_note, "success")
     return redirect(url_for("account_detail", account_id=account_id))
+
+
+@app.route("/accounts/<int:account_id>/contacts/parse", methods=["POST"])
+def parse_contact(account_id):
+    """Read a pasted profile and show what came out of it, without saving.
+
+    The paste box on its own asked people to trust it blind. This fills the
+    form in front of them so they can see what it got, fix anything it missed,
+    and only then press Add.
+    """
+    paste = request.form.get("paste", "").strip()
+    if not paste:
+        flash("Paste something into the box first.", "warning")
+        return redirect(url_for("account_detail", account_id=account_id))
+    parsed = importer.parse_contact_blob(paste)
+    found = [c for c in CONTACT_COLS if parsed.get(c)]
+    if not parsed["first_name"] and not parsed["last_name"]:
+        flash("Couldn't find a person's name in that paste. Make sure the "
+              "contact's name is in what you copied, or just type it in below.",
+              "warning")
+    else:
+        missing = [c.replace("_", " ") for c in ("email", "work_phone", "title")
+                   if not parsed.get(c)]
+        msg = "Read: " + ", ".join(c.replace("_", " ") for c in found) + "."
+        if missing:
+            msg += " Didn't find: " + ", ".join(missing) + " — add below if you have it."
+        msg += " Check it over, then press Add Contact."
+        flash(msg, "info")
+    return _render_account_detail(account_id, contact_prefill=parsed,
+                                  contact_paste=paste)
 
 
 @app.route("/accounts/<int:account_id>/contacts/<int:contact_id>/promote", methods=["POST"])

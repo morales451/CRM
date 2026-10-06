@@ -297,22 +297,57 @@
         <li class="list-group-item px-0 text-muted small">No contacts yet — use the 🔎 ZoomInfo button above to find decision-makers, then add them here.</li>
         {% endif %}
       </ul>
-      <details class="mt-2" {{ 'open' if not (account.first_name or account.last_name or account.email) }}>
+      {% set pre = contact_prefill | default({}) %}
+      <details class="mt-2" {{ 'open' if pre or not (account.first_name or account.last_name or account.email) }}>
         <summary class="fw-semibold" style="cursor:pointer">+ Add Contact</summary>
         <form method="post" action="{{ url_for('add_contact', account_id=account.id) }}" class="mt-2">
+          {# After a preview the boxes below are the truth: don't let the paste
+             re-fill something the user deliberately cleared. #}
+          {% if pre %}<input type="hidden" name="already_parsed" value="1">{% endif %}
           <div class="row g-2">
             <div class="col-12">
-              <textarea name="paste" rows="3" class="form-control form-control-sm"
-                        placeholder="Paste from ZoomInfo — copy the profile (name, title, email, phones, LinkedIn) and drop it here. Anything you leave blank below gets filled in from it."></textarea>
-              <div class="form-text">Works with a plain copy, “Label: value” lines, or a row copied from a spreadsheet.</div>
+              <label class="form-label small mb-1 fw-semibold">
+                Paste from ZoomInfo <span class="text-muted fw-normal">(optional — or just type below)</span>
+              </label>
+              <textarea name="paste" rows="4" class="form-control form-control-sm" id="pastebox"
+                        placeholder="Select the contact's details on the ZoomInfo page, copy, and paste here.">{{ contact_paste | default('') }}</textarea>
+              <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
+                <button class="btn btn-sm btn-outline-primary"
+                        formaction="{{ url_for('parse_contact', account_id=account.id) }}"
+                        formnovalidate>📋 Read the paste</button>
+                <span class="small text-muted">fills the boxes below so you can check it first</span>
+              </div>
+              <details class="small mt-2">
+                <summary class="text-muted" style="cursor:pointer">What exactly do I copy?</summary>
+                <div class="mt-1">
+                  <p class="mb-1">On a ZoomInfo contact, <strong>drag-select the block with the
+                    person's name, job title, email and phone numbers</strong>, press
+                    <kbd>Ctrl</kbd>+<kbd>C</kbd>, then paste it here. It's fine if you grab extra
+                    text around it — anything it can't place is ignored.</p>
+                  <p class="mb-1">All three of these work:</p>
+                  <pre class="bg-light border rounded p-2 mb-1" style="white-space:pre-wrap">Jane Doe
+Vice President of Asset Management
+Hartman Income REIT, Inc.
+jane.doe@hartman.com
+Direct: (713) 555-0142
+Mobile: (713) 555-9981
+linkedin.com/in/janedoe</pre>
+                  <pre class="bg-light border rounded p-2 mb-1" style="white-space:pre-wrap">Name: Robert Chen
+Job Title: Director of Facilities
+Email Address: rchen@boxer.com
+Direct Phone: 713-555-0199</pre>
+                  <p class="mb-0">…or a row copied straight out of a ZoomInfo export in Excel.</p>
+                </div>
+              </details>
+              <hr class="my-2">
             </div>
-            <div class="col-6"><input name="first_name" class="form-control form-control-sm" placeholder="First name"></div>
-            <div class="col-6"><input name="last_name" class="form-control form-control-sm" placeholder="Last name"></div>
-            <div class="col-12"><input name="title" class="form-control form-control-sm" placeholder="Title (e.g. Facilities Manager)"></div>
-            <div class="col-12"><input name="email" type="email" class="form-control form-control-sm" placeholder="Email"></div>
-            <div class="col-6"><input name="work_phone" type="tel" class="form-control form-control-sm" placeholder="Direct phone"></div>
-            <div class="col-6"><input name="mobile_phone" type="tel" class="form-control form-control-sm" placeholder="Mobile phone"></div>
-            <div class="col-12"><input name="linkedin_url" class="form-control form-control-sm" placeholder="LinkedIn profile URL"></div>
+            <div class="col-6"><input name="first_name" class="form-control form-control-sm" placeholder="First name" value="{{ pre.get('first_name', '') }}"></div>
+            <div class="col-6"><input name="last_name" class="form-control form-control-sm" placeholder="Last name" value="{{ pre.get('last_name', '') }}"></div>
+            <div class="col-12"><input name="title" class="form-control form-control-sm" placeholder="Title (e.g. Facilities Manager)" value="{{ pre.get('title', '') }}"></div>
+            <div class="col-12"><input name="email" type="email" class="form-control form-control-sm" placeholder="Email" value="{{ pre.get('email', '') }}"></div>
+            <div class="col-6"><input name="work_phone" type="tel" class="form-control form-control-sm" placeholder="Direct phone" value="{{ pre.get('work_phone', '') }}"></div>
+            <div class="col-6"><input name="mobile_phone" type="tel" class="form-control form-control-sm" placeholder="Mobile phone" value="{{ pre.get('mobile_phone', '') }}"></div>
+            <div class="col-12"><input name="linkedin_url" class="form-control form-control-sm" placeholder="LinkedIn profile URL" value="{{ pre.get('linkedin_url', '') }}"></div>
             <div class="col-12 d-flex align-items-center gap-2">
               <button class="btn btn-sm btn-success">+ Add Contact</button>
               <label class="small"><input type="checkbox" name="set_primary" value="1"> Make primary</label>
@@ -338,7 +373,16 @@
     </div>
 
     <div class="card p-3">
-      <h5>History Timeline</h5>
+      <h5 class="d-flex justify-content-between align-items-baseline flex-wrap gap-1">
+        <span>History Timeline</span>
+        {% if history_total > interactions|length %}
+        <a class="small fw-normal" href="{{ url_for('account_detail', account_id=account.id, history='all') }}">
+          showing {{ interactions|length }} of {{ history_total }} — show all</a>
+        {% elif show_all_history and history_total > 25 %}
+        <a class="small fw-normal" href="{{ url_for('account_detail', account_id=account.id) }}">
+          show recent only</a>
+        {% endif %}
+      </h5>
       {% if interactions %}
       <div class="timeline mt-2">
         {% for i in interactions %}

@@ -2,7 +2,7 @@
 {% block title %}Accounts — Roof CRM{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ accounts|length }})</span>
+  <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ total }})</span>
     {% if total_matching %}<span class="badge text-bg-warning fs-6" title="Total buildings matching your criteria in this view">🎯 {{ total_matching }} buildings</span>{% endif %}
   </h1>
   <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -53,6 +53,27 @@
   </div>
 </form>
 
+{% set filters = {'q': q, 'status': status, 'milestone': milestone,
+                  'min_matching': min_matching, 'sort': sort,
+                  'view': 'archived' if view == 'archived' else none} %}
+{% macro pager() %}
+  {% if pages > 1 %}
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 px-2 py-2 small">
+    <span class="text-muted">
+      Showing <strong>{{ (page - 1) * per_page + 1 }}–{{ (page - 1) * per_page + accounts|length }}</strong>
+      of <strong>{{ total }}</strong>
+    </span>
+    <span class="btn-group btn-group-sm">
+      <a class="btn btn-outline-secondary {{ 'disabled' if page <= 1 }}"
+         href="{{ url_for('accounts', page=page - 1, **filters) }}">← Prev</a>
+      <span class="btn btn-outline-secondary disabled">Page {{ page }} of {{ pages }}</span>
+      <a class="btn btn-outline-secondary {{ 'disabled' if page >= pages }}"
+         href="{{ url_for('accounts', page=page + 1, **filters) }}">Next →</a>
+    </span>
+  </div>
+  {% endif %}
+{% endmacro %}
+
 <form method="post" action="{{ url_for('bulk_accounts') }}" id="bulkform">
 <input type="hidden" name="next" value="{{ request.full_path }}">
 
@@ -60,6 +81,7 @@
 <div class="card p-2 mb-2 d-none" id="bulkbar">
   <div class="d-flex flex-wrap gap-2 align-items-center">
     <span class="badge text-bg-primary" id="bulkcount">0 selected</span>
+    {% if pages > 1 %}<span class="text-muted small">(this page only)</span>{% endif %}
     <select name="action" class="form-select form-select-sm" style="max-width: 15rem" id="bulkaction">
       <option value="">Choose an action…</option>
       {% if view == 'archived' %}
@@ -84,10 +106,11 @@
 </div>
 
 <div class="card">
+  {{ pager() }}
   <div class="table-responsive">
     <table class="table table-hover mb-0">
       <thead class="table-light"><tr>
-        <th style="width:2.2rem"><input type="checkbox" class="form-check-input" id="checkall" title="Select all"></th>
+        <th style="width:2.2rem"><input type="checkbox" class="form-check-input" id="checkall" title="Select every account on this page"></th>
         <th>Company</th><th title="Buildings matching your criteria">🎯</th><th>Contact</th><th class="d-none d-md-table-cell">Phone</th>
         <th>Status</th><th class="d-none d-sm-table-cell">Milestone</th>
         {% if view == 'archived' %}<th>Archived</th><th></th>
@@ -128,6 +151,7 @@
       </tbody>
     </table>
   </div>
+  {{ pager() }}
 </div>
 </form>
 

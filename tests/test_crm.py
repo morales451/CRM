@@ -1813,6 +1813,127 @@ db.init_db()
 check("migrate: running again changes nothing", True)
 db.DB_PATH = _keep
 
+# ---- 35. Big lists stay light: the page is capped, the counts are not
+import app as _app
+conn = db.get_db()
+_ts = db.now_iso()
+_today = db.today_iso()
+for _i in range(_app.DASHBOARD_ROWS + _app.ACCOUNTS_PER_PAGE + 20):
+    conn.execute(
+        "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+        "pipeline_milestone, cadence_start, matching_properties, created_at, updated_at) "
+        "VALUES (?,'Unknown','Prospecting','None / In Cadence',?,?,?,?)",
+        (f"Bulk Volume Test {_i:04d} LLC", _today, _i, _ts, _ts))
+conn.commit()
+_due = len(cadence.get_due_reminders(conn))
+_active = conn.execute("SELECT COUNT(*) c FROM accounts WHERE "
+                       "COALESCE(archived_at,'')=''").fetchone()["c"]
+check("volume: the test really is oversized",
+      _due > _app.DASHBOARD_ROWS and _active > _app.ACCOUNTS_PER_PAGE,
+      f"{_due} reminders, {_active} accounts")
+
+r = client.get("/")
+_html = r.data.decode()
+check("dashboard: draws at most DASHBOARD_ROWS reminder rows",
+      _html.count('name="step_type"') <= _app.DASHBOARD_ROWS * 2,
+      _html.count('name="step_type"'))
+check("dashboard: still reports the true total",
+      f"of <strong>{_due}</strong> due reminders" in _html
+      or f">{_due}</strong> due reminders" in _html, _due)
+check("dashboard: points at the Queue for the rest",
+      "Work the Queue" in _html and "Show all" in _html)
+check("dashboard: the page stays small", len(r.data) < 200_000, f"{len(r.data)} bytes")
+_all = client.get("/?all=1").data.decode()
+check("dashboard: ?all=1 really does draw them all",
+      _all.count('name="step_type"') > _html.count('name="step_type"'))
+
+r = client.get("/accounts")
+_html = r.data.decode()
+check("accounts: one page of rows at a time",
+      _html.count('name="account_ids"') == _app.ACCOUNTS_PER_PAGE,
+      _html.count('name="account_ids"'))
+check("accounts: the header counts every match, not the page",
+      f"({_active})" in _html, _active)
+check("accounts: a pager is offered", "Page 1 of" in _html)
+_p2 = client.get("/accounts?page=2").data.decode()
+check("accounts: page 2 shows different accounts",
+      _p2.count('name="account_ids"') > 0 and "Page 2 of" in _p2)
+_far = client.get("/accounts?page=9999").data.decode()
+check("accounts: a page past the end clamps instead of coming back empty",
+      _far.count('name="account_ids"') > 0)
+check("accounts: a junk page number is harmless",
+      client.get("/accounts?page=abc").status_code == 200)
+check("accounts: filters survive paging",
+      b"Bulk Volume Test" in client.get(
+          "/accounts?q=Bulk+Volume&page=2").data)
+
+# a long history is capped on the account page
+_acct = conn.execute("SELECT id FROM accounts WHERE company_name LIKE "
+                     "'Bulk Volume Test%' LIMIT 1").fetchone()["id"]
+for _i in range(_app.TIMELINE_ROWS + 10):
+    conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
+                 "created_at) VALUES (?,?,?,?)", (_acct, "General Note", f"n{_i}", _ts))
+conn.commit()
+_html = client.get(f"/accounts/{_acct}").data.decode()
+check("timeline: capped on the account page",
+      _html.count('name="created_date"') == _app.TIMELINE_ROWS,
+      _html.count('name="created_date"'))
+check("timeline: says how many there are and offers them all",
+      f"of {_app.TIMELINE_ROWS + 10}" in _html and "show all" in _html)
+_html = client.get(f"/accounts/{_acct}?history=all").data.decode()
+check("timeline: show all draws the whole history",
+      _html.count('name="created_date"') == _app.TIMELINE_ROWS + 10)
+
+# clean up so later checks aren't swamped
+conn.execute("DELETE FROM accounts WHERE company_name LIKE 'Bulk Volume Test%'")
+conn.commit()
+conn.close()
+
+# ---- 36. The paste preview: see it before you save it
+_pa = conn = db.get_db()
+_target = conn.execute("SELECT id FROM accounts WHERE COALESCE(archived_at,'')='' "
+                       "LIMIT 1").fetchone()["id"]
+conn.close()
+r = client.post(f"/accounts/{_target}/contacts/parse", data={
+    "paste": "Marco Webb\nSenior Property Manager\nmwebb@example.com\n"
+             "Direct: (713) 555-4321"}, follow_redirects=True)
+_html = r.data.decode()
+check("preview: fills the form instead of saving straight away",
+      'value="Marco"' in _html and 'value="Webb"' in _html
+      and 'value="Senior Property Manager"' in _html
+      and 'value="mwebb@example.com"' in _html)
+check("preview: says what it read", "Read:" in _html and "press Add Contact" in _html)
+check("preview: nothing was saved yet",
+      db.get_db().execute("SELECT 1 FROM contacts WHERE email='mwebb@example.com'"
+                          ).fetchone() is None)
+_partial = client.post(f"/accounts/{_target}/contacts/parse",
+                       data={"paste": "Nina Alvarez\nFacilities Director"},
+                       follow_redirects=True).data.decode()
+check("preview: tells you what it couldn't find",
+      ("Didn&#39;t find" in _partial or "Didn't find" in _partial)
+      and "email" in _partial)
+r = client.post(f"/accounts/{_target}/contacts/parse",
+                data={"paste": "   "}, follow_redirects=True)
+check("preview: an empty paste just says so", b"Paste something into the box" in r.data)
+r = client.post(f"/accounts/{_target}/contacts/parse",
+                data={"paste": "719 Main Street, Suite 400"}, follow_redirects=True)
+check("preview: no name found is explained, not silent",
+      b"Couldn" in r.data and b"name" in r.data)
+# after a preview, clearing a box must stick
+client.post(f"/accounts/{_target}/contacts/add", data={
+    "paste": "Marco Webb\nSenior Property Manager\nmwebb@example.com\n"
+             "Direct: (713) 555-4321",
+    "already_parsed": "1", "first_name": "Marco", "last_name": "Webb",
+    "title": "Senior Property Manager", "email": "mwebb@example.com",
+    "work_phone": ""}, follow_redirects=True)
+_saved = db.get_db().execute(
+    "SELECT * FROM contacts WHERE email='mwebb@example.com'").fetchone()
+check("preview: a field you cleared is not re-filled from the paste",
+      _saved is not None and _saved["work_phone"] == "",
+      dict(_saved) if _saved else None)
+check("preview: the parts you kept are saved",
+      _saved["first_name"] == "Marco" and _saved["title"] == "Senior Property Manager")
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)
