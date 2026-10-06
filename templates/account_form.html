@@ -41,6 +41,20 @@
       <label class="form-label">Mobile Phone</label>
       <input name="mobile_phone" type="tel" class="form-control" value="{{ a.get('mobile_phone', '') }}">
     </div>
+    <div class="col-12 col-md-8">
+      <label class="form-label">LinkedIn Profile</label>
+      <input name="linkedin_url" class="form-control" value="{{ a.get('linkedin_url', '') }}"
+             placeholder="linkedin.com/in/…">
+    </div>
+    <div class="col-12 col-md-4">
+      <label class="form-label">Management Level</label>
+      <input name="seniority" class="form-control" value="{{ a.get('seniority', '') }}"
+             placeholder="e.g. VP-Level" list="seniority-options">
+      <datalist id="seniority-options">
+        <option>C-Level</option><option>VP-Level</option>
+        <option>Director</option><option>Manager</option>
+      </datalist>
+    </div>
     <div class="col-12 col-md-4">
       <label class="form-label">Preferred Contact</label>
       <select name="preferred_contact" class="form-select">

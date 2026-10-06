@@ -42,6 +42,15 @@ COLUMN_SYNONYMS = {
         "mobilephone", "mobile", "cell", "cellphone", "cellular",
         "mobilenumber", "cellnumber",
     ],
+    # ZoomInfo exports these; they make a contact far more useful to work.
+    "linkedin_url": [
+        "linkedincontactprofileurl", "linkedinurl", "linkedin",
+        "linkedinprofile", "linkedinprofileurl", "contactlinkedin",
+    ],
+    "seniority": [
+        "managementlevel", "seniority", "joblevel", "level", "contactlevel",
+        "senioritylevel",
+    ],
     "notes": ["notes", "note", "comments", "comment", "description", "remarks"],
 }
 
@@ -76,8 +85,11 @@ _KEYWORD_TESTS = [
     ("first_name", lambda n: "first" in n and "name" in n),
     ("last_name", lambda n: ("last" in n and "name" in n) or "surname" in n),
     ("title", lambda n: "title" in n),
+    ("linkedin_url", lambda n: "linkedin" in n),
+    ("seniority", lambda n: "managementlevel" in n or "seniority" in n
+     or "joblevel" in n),
     ("company_name", lambda n: ("company" in n or "account" in n) and not any(
-        k in n for k in ("address", "phone", "website", "type",
+        k in n for k in ("address", "phone", "website", "type", "linkedin",
                          "city", "state", "zip", "email"))),
     ("notes", lambda n: "note" in n or "comment" in n),
 ]
@@ -180,14 +192,17 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             f"Found columns: {', '.join(str(c) for c in df.columns)}"
         )
 
+    # Matched on the NORMALIZED name so "Boxer Property Corp" and
+    # "Boxer Property, Corp." are the same company — otherwise a re-pull from
+    # CoStar silently creates duplicates and un-archives companies you removed.
     existing, archived = {}, {}
     for row in conn.execute(
             "SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
             "FROM accounts"):
-        key = row["company_name"].strip().lower()
-        existing[key] = row["id"]
+        key = normalize_company(row["company_name"])
+        existing.setdefault(key, row["id"])
         if row["archived_at"]:
-            archived[key] = row["company_name"]
+            archived.setdefault(key, row["company_name"])
 
     imported = skipped_dupe = skipped_blank = backfilled = 0
     skipped_archived = 0
@@ -204,17 +219,18 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         def row_int(name):
             return _clean_int(row.get(mapping[name])) if name in mapping else None
 
-        if company.lower() in archived:
+        key = normalize_company(company)
+        if key in archived:
             # Deliberately removed from the working list — don't resurrect it.
             skipped_archived += 1
             if len(archived_names) < 25:
-                archived_names.append(archived[company.lower()])
+                archived_names.append(archived[key])
             continue
 
-        if company.lower() in existing:
+        if key in existing:
             # Duplicate: don't re-import, but fill in property counts the
             # account doesn't have yet (lets a re-upload backfill new columns).
-            acct_id = existing[company.lower()]
+            acct_id = existing[key]
             updated = conn.execute(
                 """UPDATE accounts SET
                      num_properties = COALESCE(num_properties, ?),
@@ -256,18 +272,20 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             """INSERT INTO accounts
                (company_name, first_name, last_name, title, num_properties,
                 matching_properties, email, work_phone, mobile_phone,
+                linkedin_url, seniority,
                 preferred_contact, notes, prospecting_status,
                 pipeline_milestone, cadence_start, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (company, field("first_name"), field("last_name"), field("title"),
              row_int("num_properties"), row_int("matching_properties"),
              field("email"),
              _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
              _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
+             field("linkedin_url"), field("seniority"),
              "Unknown", notes,
              "Prospecting", "None / In Cadence", start, ts, ts),
         )
-        existing[company.lower()] = cur.lastrowid
+        existing[key] = cur.lastrowid
         imported += 1
         if per_day and imported % per_day == 0:
             start_date = _next_business_day(start_date + timedelta(days=1))
@@ -292,23 +310,60 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
     }
 
 
-def _company_key(name: str) -> str:
-    """Normalize a company name for matching: lowercase, strip punctuation
-    and common legal suffixes (LLC, Inc, LP, ...)."""
-    s = re.sub(r"[^a-z0-9 ]", "", str(name).lower())
-    s = re.sub(r"\b(llc|llp|lp|inc|incorporated|corp|corporation|co|company|ltd|limited)\b",
-               "", s)
-    return re.sub(r"\s+", " ", s).strip()
+_FILLER_WORDS = {"the", "a", "an", "of", "and"}
+
+_LEGAL_SUFFIXES = (r"\b(llc|llp|lp|inc|incorporated|corp|corporation|co|company"
+                   r"|ltd|limited|lllp|plc|pllc|trust|reit|partners|partnership"
+                   r"|holdings|group)\b")
 
 
-def import_contacts(conn, file_storage) -> dict:
-    """Attach a contact export (e.g. from ZoomInfo) to existing accounts.
+def normalize_company(name: str) -> str:
+    """The key two spellings of the same company have in common.
 
-    Rows are matched to accounts by normalized company name. The first
-    contact for an account with no primary contact becomes the primary
-    (filling the account's own contact fields); the rest become contacts
-    rows. Duplicate people (same email, or same first+last name) on an
-    account are skipped. Unmatched company names are reported back.
+    Lowercases, drops punctuation and strips common legal/entity suffixes, so
+    "Hartman Income REIT, Inc.", "Hartman Income Reit Inc" and "HARTMAN
+    INCOME REIT LP" all collapse to "hartman income".
+
+    Used for EVERY company match in the app — account import duplicates, the
+    archived-account block list, and attaching ZoomInfo contacts — so a
+    CoStar list that spells a name slightly differently next month can't
+    create a second account or resurrect one you archived.
+
+    Falls back to the plain lowercased name when stripping would leave
+    nothing distinctive — "The Group" and "The Trust" must not collapse into
+    each other just because "group" and "trust" are entity words.
+    """
+    base = re.sub(r"[^a-z0-9 ]", " ", str(name).lower())
+    base = re.sub(r"\s+", " ", base).strip()
+    stripped = re.sub(r"\s+", " ", re.sub(_LEGAL_SUFFIXES, "", base)).strip()
+    # Nothing but filler left ("The Group" -> "the") means the entity word WAS
+    # the name; keep the full name so two such companies stay distinct.
+    if not stripped or all(w in _FILLER_WORDS for w in stripped.split()):
+        return base
+    return stripped
+
+
+# Kept as the old internal name so existing callers keep working.
+_company_key = normalize_company
+
+
+PERSON_FIELDS = ("first_name", "last_name", "title", "email",
+                 "work_phone", "mobile_phone", "linkedin_url", "seniority")
+
+
+def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
+    """Attach a contact export (e.g. from ZoomInfo) to accounts.
+
+    Rows are matched to accounts by normalized company name (see
+    normalize_company). The first contact for an account with no primary
+    contact becomes the primary (filling the account's own contact fields);
+    the rest become contacts rows. Duplicate people (same email, or same
+    first+last name) on an account are skipped.
+
+    create_missing=True opens a new account for any company in the file you
+    don't already have, so a ZoomInfo pull can seed accounts instead of
+    reporting them as unmatched. Archived companies are NEVER re-created or
+    attached to — archiving means "stop showing me this company".
     """
     df = read_file(file_storage)
     mapping = map_columns(df.columns)
@@ -323,39 +378,63 @@ def import_contacts(conn, file_storage) -> dict:
             f"'Last Name'). Found columns: {', '.join(str(c) for c in df.columns)}")
 
     accounts_by_key: dict[str, int] = {}
-    for row in conn.execute("SELECT id, company_name FROM accounts "
-                            "WHERE COALESCE(archived_at, '') = ''"):
-        accounts_by_key.setdefault(_company_key(row["company_name"]), row["id"])
+    archived: dict[str, str] = {}
+    for row in conn.execute(
+            "SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
+            "FROM accounts"):
+        key = normalize_company(row["company_name"])
+        if row["archived_at"]:
+            archived.setdefault(key, row["company_name"])
+        else:
+            accounts_by_key.setdefault(key, row["id"])
 
-    attached = skipped_dupe = skipped_blank = 0
+    attached = skipped_dupe = skipped_blank = skipped_archived = 0
+    accounts_created = 0
     unmatched: dict[str, int] = {}
+    archived_names: list[str] = []
     matched_accounts: set[int] = set()
     ts = now_iso()
+    today = date.today().isoformat()
 
     for _, row in df.iterrows():
         company = _clean(row.get(mapping["company_name"]))
         if not company:
             skipped_blank += 1
             continue
-        account_id = accounts_by_key.get(_company_key(company))
-        if account_id is None:
-            unmatched[company] = unmatched.get(company, 0) + 1
-            continue
 
         def field(name):
             return _clean(row.get(mapping[name])) if name in mapping else ""
 
-        person = {
-            "first_name": field("first_name"),
-            "last_name": field("last_name"),
-            "title": field("title"),
-            "email": field("email"),
-            "work_phone": _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
-            "mobile_phone": _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
-        }
+        person = {f: field(f) for f in PERSON_FIELDS}
+        person["work_phone"] = (_clean_phone(row.get(mapping["work_phone"]))
+                                if "work_phone" in mapping else "")
+        person["mobile_phone"] = (_clean_phone(row.get(mapping["mobile_phone"]))
+                                  if "mobile_phone" in mapping else "")
         if not (person["first_name"] or person["last_name"]):
             skipped_blank += 1
             continue
+
+        key = normalize_company(company)
+        if key in archived:
+            skipped_archived += 1
+            if archived[key] not in archived_names and len(archived_names) < 25:
+                archived_names.append(archived[key])
+            continue
+
+        account_id = accounts_by_key.get(key)
+        if account_id is None:
+            if not create_missing:
+                unmatched[company] = unmatched.get(company, 0) + 1
+                continue
+            cur = conn.execute(
+                """INSERT INTO accounts
+                   (company_name, preferred_contact, prospecting_status,
+                    pipeline_milestone, cadence_start, created_at, updated_at)
+                   VALUES (?, 'Unknown', 'Prospecting', 'None / In Cadence', ?, ?, ?)""",
+                (company, today, ts, ts))
+            account_id = cur.lastrowid
+            accounts_by_key[key] = account_id
+            accounts_created += 1
 
         acct = conn.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
         existing_people = [dict(acct)] + [
@@ -363,8 +442,8 @@ def import_contacts(conn, file_storage) -> dict:
                 "SELECT * FROM contacts WHERE account_id=?", (account_id,))]
         name_key = (person["first_name"].lower(), person["last_name"].lower())
         is_dupe = any(
-            (person["email"] and p["email"].lower() == person["email"].lower())
-            or (p["first_name"].lower(), p["last_name"].lower()) == name_key
+            (person["email"] and (p["email"] or "").lower() == person["email"].lower())
+            or ((p["first_name"] or "").lower(), (p["last_name"] or "").lower()) == name_key
             for p in existing_people)
         if is_dupe:
             skipped_dupe += 1
@@ -382,15 +461,18 @@ def import_contacts(conn, file_storage) -> dict:
                     + f"Company main line: {acct['work_phone']}"
             conn.execute(
                 "UPDATE accounts SET first_name=?, last_name=?, title=?, email=?, "
-                "work_phone=?, mobile_phone=?, notes=?, updated_at=? WHERE id=?",
+                "work_phone=?, mobile_phone=?, linkedin_url=?, seniority=?, "
+                "notes=?, updated_at=? WHERE id=?",
                 (person["first_name"], person["last_name"], person["title"],
-                 person["email"], work_phone, person["mobile_phone"], notes,
+                 person["email"], work_phone, person["mobile_phone"],
+                 person["linkedin_url"], person["seniority"], notes,
                  ts, account_id))
         else:
             conn.execute(
                 "INSERT INTO contacts (account_id, first_name, last_name, title, "
-                "email, work_phone, mobile_phone, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (account_id, *person.values(), ts))
+                "email, work_phone, mobile_phone, linkedin_url, seniority, "
+                "created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (account_id, *(person[f] for f in PERSON_FIELDS), ts))
         matched_accounts.add(account_id)
         attached += 1
 
@@ -398,9 +480,206 @@ def import_contacts(conn, file_storage) -> dict:
     return {
         "attached": attached,
         "companies_matched": len(matched_accounts),
+        "accounts_created": accounts_created,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
+        "skipped_archived": skipped_archived,
+        "archived_names": archived_names,
         "unmatched": unmatched,          # {company name: row count}
         "total_rows": len(df),
         "mapped_columns": {f: str(c) for f, c in mapping.items()},
     }
+
+
+# --------------------------------------------------------- Paste a profile
+
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_LINKEDIN_RE = re.compile(
+    r"(?:https?://)?(?:[\w-]+\.)?linkedin\.com/\S+", re.I)
+_LABEL_RE = re.compile(r"^\s*([A-Za-z][A-Za-z /#.'-]{1,30})\s*[:\-–]\s*(.+?)\s*$")
+
+# Words that mean a line is a job title, not a person's name.
+_TITLE_HINTS = (
+    "president", "vp", "vice", "director", "manager", "officer", "chief",
+    "ceo", "cfo", "coo", "cto", "owner", "principal", "partner", "head",
+    "lead", "supervisor", "coordinator", "administrator", "executive",
+    "asset", "property", "facilities", "operations", "real estate",
+    "engineer", "analyst", "specialist", "associate", "controller",
+)
+
+# ZoomInfo's "Management Level" values, matched loosely against a title.
+# Ordered: "Vice President of Asset Management" must read VP-Level, not
+# C-Level, so the VP rule is tested before the one that matches "president".
+_SENIORITY_RULES = (
+    ("VP-Level", ("vp", "vice president", "svp", "evp")),
+    ("C-Level", ("chief", "ceo", "cfo", "coo", "cto", "president",
+                 "owner", "principal", "founder", "partner")),
+    ("Director", ("director", "head of")),
+    ("Manager", ("manager", "supervisor", "superintendent")),
+)
+
+_LABELS = {
+    "full_name": ("name", "full name", "contact", "contact name", "person"),
+    "first_name": ("first name", "first", "given name"),
+    "last_name": ("last name", "last", "surname", "family name"),
+    "title": ("title", "job title", "position", "role"),
+    "email": ("email", "email address", "work email", "e-mail"),
+    "work_phone": ("direct", "direct phone", "direct phone number", "phone",
+                   "work phone", "office", "office phone", "work", "tel",
+                   "telephone", "company phone", "hq phone"),
+    "mobile_phone": ("mobile", "mobile phone", "cell", "cell phone",
+                     "mobile number"),
+    "linkedin_url": ("linkedin", "linkedin url", "linkedin profile"),
+    "seniority": ("management level", "seniority", "job level", "level"),
+    "company": ("company", "company name", "account", "employer"),
+}
+_LABEL_LOOKUP = {alias: field for field, aliases in _LABELS.items()
+                 for alias in aliases}
+
+
+def _remainder(line: str) -> str:
+    """What's left of a line after lifting an email/LinkedIn URL out of it.
+
+    Returns "" for leftovers that carry no information — a bare separator
+    ("|", "-") or the label the value belonged to ("Email Address:") —
+    so they can't be mistaken for a name or a company later on."""
+    line = line.strip(" \t|,;:-\u2013")
+    if not any(ch.isalnum() for ch in line):
+        return ""
+    if line.strip().rstrip(":").strip().lower() in _LABEL_LOOKUP:
+        return ""
+    return line
+
+
+def _looks_like_name(line: str) -> bool:
+    """A person's name: 2-4 words, letters only, no title words."""
+    if not line or len(line) > 60 or any(ch.isdigit() for ch in line):
+        return False
+    words = line.replace(",", " ").split()
+    if not 1 < len(words) <= 4:
+        return False
+    low = line.lower()
+    if any(hint in low for hint in _TITLE_HINTS):
+        return False
+    return all(re.fullmatch(r"[A-Za-z][A-Za-z.'\-]*", w) for w in words)
+
+
+def _split_name(full: str) -> tuple[str, str]:
+    full = full.strip()
+    if "," in full:                       # "Doe, Jane"
+        last, _, first = full.partition(",")
+        return first.strip(), last.strip()
+    parts = full.split()
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], " ".join(parts[1:])
+
+
+def seniority_from_title(title: str) -> str:
+    """Best-guess ZoomInfo management level from a job title."""
+    low = (title or "").lower()
+    for level, hints in _SENIORITY_RULES:
+        if any(h in low for h in hints):
+            return level
+    return ""
+
+
+def parse_contact_blob(text: str) -> dict:
+    """Pull a contact out of text copied from a ZoomInfo profile.
+
+    Handles the three shapes people actually paste: a plain stack of lines
+    (name, title, company, email, phones), "Label: value" pairs, and a
+    tab-separated row copied out of a spreadsheet. Anything it can't place is
+    simply left blank — the Add Contact form is still shown, so nothing is
+    silently wrong.
+
+    Returns a dict with the contact fields plus "company" (used only to say
+    which company the paste named, never to re-point the contact).
+    """
+    out = {f: "" for f in PERSON_FIELDS}
+    out["company"] = ""
+    if not text or not text.strip():
+        return out
+
+    # A single tab-separated line is a spreadsheet row; treat cells as lines.
+    raw_lines = [l.strip() for l in text.replace("\r", "").split("\n")]
+    if len([l for l in raw_lines if l]) == 1 and "\t" in text:
+        raw_lines = [c.strip() for c in text.split("\t")]
+    lines = [l for l in raw_lines if l]
+
+    leftovers = []
+    for line in lines:
+        # LinkedIn and email can sit anywhere, including inside another line.
+        li = _LINKEDIN_RE.search(line)
+        if li and not out["linkedin_url"]:
+            out["linkedin_url"] = li.group(0).rstrip(".,;")
+            line = _remainder(line.replace(li.group(0), ""))
+            if not line:
+                continue
+        em = _EMAIL_RE.search(line)
+        if em and not out["email"]:
+            out["email"] = em.group(0)
+            line = _remainder(line.replace(em.group(0), ""))
+            if not line:
+                continue
+
+        m = _LABEL_RE.match(line)
+        field = _LABEL_LOOKUP.get(m.group(1).strip().lower()) if m else None
+        if field:
+            value = m.group(2).strip()
+            if field == "full_name":
+                if not (out["first_name"] or out["last_name"]):
+                    out["first_name"], out["last_name"] = _split_name(value)
+            elif field in ("work_phone", "mobile_phone"):
+                out[field] = out[field] or _clean_phone(value)
+            elif field == "company":
+                out["company"] = out["company"] or value
+            elif not out.get(field):
+                out[field] = value
+            continue
+
+        digits = re.sub(r"\D", "", line)
+        if len(digits) >= 10 and len(re.sub(r"[\d\s().+\-x/]", "", line)) <= 12:
+            low = line.lower()
+            slot = ("mobile_phone" if ("mobile" in low or "cell" in low)
+                    else "work_phone")
+            if out[slot]:
+                slot = "mobile_phone" if slot == "work_phone" else "work_phone"
+            if not out[slot]:
+                out[slot] = _clean_phone(line)
+            continue
+
+        leftovers.append(line)
+
+    # Unlabeled lines, in ZoomInfo's own order: name, then title, then company.
+    if not (out["first_name"] or out["last_name"]):
+        for i, line in enumerate(leftovers):
+            if _looks_like_name(line):
+                out["first_name"], out["last_name"] = _split_name(line)
+                leftovers.pop(i)
+                break
+    if not out["title"] and leftovers:
+        out["title"] = leftovers.pop(0)
+    if not out["company"] and leftovers:
+        out["company"] = leftovers.pop(0)
+    if not out["seniority"]:
+        out["seniority"] = seniority_from_title(out["title"])
+    return out
+
+
+# ------------------------------------------------------ Duplicate accounts
+
+def find_duplicate_groups(conn) -> list[dict]:
+    """Active accounts that normalize to the same company.
+
+    Older versions matched on the exact name, so a CoStar re-pull spelled
+    "… Corp." instead of "… Corp" could create a second account. This finds
+    what slipped through before the fix so it can be cleaned up by hand.
+    """
+    groups: dict[str, list] = {}
+    for row in conn.execute(
+            "SELECT id, company_name, matching_properties, prospecting_status, "
+            "pipeline_milestone, created_at FROM accounts "
+            "WHERE COALESCE(archived_at, '') = '' ORDER BY id"):
+        groups.setdefault(normalize_company(row["company_name"]), []).append(dict(row))
+    return [{"key": k, "accounts": v} for k, v in groups.items() if len(v) > 1]

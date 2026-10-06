@@ -65,6 +65,15 @@
       </div>
     {% endfor %}
   {% endwith %}
+  {% if pending_undo %}
+  <div class="alert alert-secondary d-flex align-items-center justify-content-between py-2">
+    <span class="small">Just did: {{ pending_undo.label }}.</span>
+    <form method="post" action="{{ url_for('undo_action', undo_id=pending_undo.id) }}" class="m-0">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <button class="btn btn-sm btn-outline-dark">↶ Undo</button>
+    </form>
+  </div>
+  {% endif %}
   {% block content %}{% endblock %}
 </div>
 <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>

@@ -76,6 +76,20 @@
             <label class="form-label small mb-0">Mobile Phone</label>
             <input name="mobile_phone" type="tel" class="form-control form-control-sm" value="{{ account.mobile_phone }}">
           </div>
+          <div class="col-8">
+            <label class="form-label small mb-0">LinkedIn Profile</label>
+            <input name="linkedin_url" class="form-control form-control-sm"
+                   value="{{ account.linkedin_url }}" placeholder="linkedin.com/in/…">
+          </div>
+          <div class="col-4">
+            <label class="form-label small mb-0">Level</label>
+            <input name="seniority" class="form-control form-control-sm"
+                   value="{{ account.seniority }}" placeholder="VP-Level" list="seniority-options">
+            <datalist id="seniority-options">
+              <option>C-Level</option><option>VP-Level</option>
+              <option>Director</option><option>Manager</option>
+            </datalist>
+          </div>
           <div class="col-12">
             <label class="form-label small mb-0">Preferred Contact</label>
             <select name="preferred_contact" class="form-select form-select-sm">
@@ -241,11 +255,13 @@
             <div>
               <strong>{{ account.first_name }} {{ account.last_name }}</strong>
               <span class="badge text-bg-primary">Primary</span>
+              {% if account.seniority %}<span class="badge text-bg-light border">{{ account.seniority }}</span>{% endif %}
               {% if account.title %}<div class="small text-muted">{{ account.title }}</div>{% endif %}
               <div class="small">
                 {% if account.email %}<a href="mailto:{{ account.email }}">{{ account.email }}</a><br>{% endif %}
                 {% if account.work_phone %}<a href="tel:{{ account.work_phone|tel }}">{{ account.work_phone }}</a> (work) {% endif %}
                 {% if account.mobile_phone %}<a href="tel:{{ account.mobile_phone|tel }}">{{ account.mobile_phone }}</a> (mobile){% endif %}
+                {% if account.linkedin_url %}<br><a href="{{ account.linkedin_url if '://' in account.linkedin_url else 'https://' + account.linkedin_url }}" target="_blank" rel="noopener">in/ LinkedIn profile</a>{% endif %}
               </div>
             </div>
           </div>
@@ -256,11 +272,13 @@
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
             <div>
               <strong>{{ c.first_name }} {{ c.last_name }}</strong>
+              {% if c.seniority %}<span class="badge text-bg-light border">{{ c.seniority }}</span>{% endif %}
               {% if c.title %}<div class="small text-muted">{{ c.title }}</div>{% endif %}
               <div class="small">
                 {% if c.email %}<a href="mailto:{{ c.email }}">{{ c.email }}</a><br>{% endif %}
                 {% if c.work_phone %}<a href="tel:{{ c.work_phone|tel }}">{{ c.work_phone }}</a> (work) {% endif %}
                 {% if c.mobile_phone %}<a href="tel:{{ c.mobile_phone|tel }}">{{ c.mobile_phone }}</a> (mobile){% endif %}
+                {% if c.linkedin_url %}<br><a href="{{ c.linkedin_url if '://' in c.linkedin_url else 'https://' + c.linkedin_url }}" target="_blank" rel="noopener">in/ LinkedIn profile</a>{% endif %}
               </div>
             </div>
             <div class="text-nowrap">
@@ -283,12 +301,18 @@
         <summary class="fw-semibold" style="cursor:pointer">+ Add Contact</summary>
         <form method="post" action="{{ url_for('add_contact', account_id=account.id) }}" class="mt-2">
           <div class="row g-2">
+            <div class="col-12">
+              <textarea name="paste" rows="3" class="form-control form-control-sm"
+                        placeholder="Paste from ZoomInfo — copy the profile (name, title, email, phones, LinkedIn) and drop it here. Anything you leave blank below gets filled in from it."></textarea>
+              <div class="form-text">Works with a plain copy, “Label: value” lines, or a row copied from a spreadsheet.</div>
+            </div>
             <div class="col-6"><input name="first_name" class="form-control form-control-sm" placeholder="First name"></div>
             <div class="col-6"><input name="last_name" class="form-control form-control-sm" placeholder="Last name"></div>
             <div class="col-12"><input name="title" class="form-control form-control-sm" placeholder="Title (e.g. Facilities Manager)"></div>
             <div class="col-12"><input name="email" type="email" class="form-control form-control-sm" placeholder="Email"></div>
             <div class="col-6"><input name="work_phone" type="tel" class="form-control form-control-sm" placeholder="Direct phone"></div>
             <div class="col-6"><input name="mobile_phone" type="tel" class="form-control form-control-sm" placeholder="Mobile phone"></div>
+            <div class="col-12"><input name="linkedin_url" class="form-control form-control-sm" placeholder="LinkedIn profile URL"></div>
             <div class="col-12 d-flex align-items-center gap-2">
               <button class="btn btn-sm btn-success">+ Add Contact</button>
               <label class="small"><input type="checkbox" name="set_primary" value="1"> Make primary</label>
@@ -321,9 +345,34 @@
         <div class="timeline-item">
           <div class="d-flex justify-content-between flex-wrap gap-1">
             <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
-            <small class="text-muted">{{ i.created_at|dt }}</small>
+            <small class="text-muted">
+              {{ i.created_at|dt }}
+              <a href="#" class="ms-1 text-decoration-none" title="Edit this entry"
+                 onclick="document.getElementById('edit-{{ i.id }}').toggleAttribute('open');return false">✎</a>
+            </small>
           </div>
           {% if i.notes %}<div class="small mt-1">{{ i.notes }}</div>{% endif %}
+          <details id="edit-{{ i.id }}" class="mt-1">
+            <summary class="d-none"></summary>
+            <form method="post" action="{{ url_for('edit_interaction', interaction_id=i.id) }}" class="row g-1 mt-1">
+              <input type="hidden" name="next" value="{{ url_for('account_detail', account_id=account.id) }}">
+              <div class="col-7">
+                <select name="interaction_type" class="form-select form-select-sm">
+                  {% for t in INTERACTION_TYPES %}<option {{ 'selected' if t == i.interaction_type }}>{{ t }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-5"><input type="date" name="created_date" value="{{ i.created_at[:10] }}" class="form-control form-control-sm"></div>
+              <div class="col-12"><textarea name="notes" rows="2" class="form-control form-control-sm">{{ i.notes }}</textarea></div>
+              <div class="col-12 d-flex gap-1">
+                <button class="btn btn-sm btn-primary">Save</button>
+                <button class="btn btn-sm btn-outline-danger"
+                        formaction="{{ url_for('delete_interaction', interaction_id=i.id) }}"
+                        formnovalidate
+                        onclick="return confirm('Delete this entry? If it was a cadence step, its reminder comes back.')">Delete</button>
+              </div>
+              <div class="col-12"><div class="form-text">Changing the date moves this in the cadence — reminders are worked out from what's logged.</div></div>
+            </form>
+          </details>
         </div>
         {% endfor %}
       </div>

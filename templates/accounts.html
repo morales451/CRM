@@ -18,7 +18,8 @@
   <div class="row g-2">
     {% if view == 'archived' %}<input type="hidden" name="view" value="archived">{% endif %}
     <div class="col-12 col-md-4">
-      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm" placeholder="Search company, name, email…">
+      <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm"
+             placeholder="Search company, any contact, title, phone, notes…">
     </div>
     <div class="col-6 col-md-3">
       <select name="status" class="form-select form-select-sm">
@@ -52,10 +53,41 @@
   </div>
 </form>
 
+<form method="post" action="{{ url_for('bulk_accounts') }}" id="bulkform">
+<input type="hidden" name="next" value="{{ request.full_path }}">
+
+<!-- Appears only once something is ticked, so it never gets in the way. -->
+<div class="card p-2 mb-2 d-none" id="bulkbar">
+  <div class="d-flex flex-wrap gap-2 align-items-center">
+    <span class="badge text-bg-primary" id="bulkcount">0 selected</span>
+    <select name="action" class="form-select form-select-sm" style="max-width: 15rem" id="bulkaction">
+      <option value="">Choose an action…</option>
+      {% if view == 'archived' %}
+      <option value="restore">↩ Restore to working list</option>
+      <option value="delete">🗑 Delete permanently</option>
+      {% else %}
+      <option value="status">Set Prospecting Status</option>
+      <option value="milestone">Set Pipeline Milestone</option>
+      <option value="followup">Set follow-up date</option>
+      <option value="restart_cadence">Restart cadence from today</option>
+      <option value="archive">🗄 Archive</option>
+      {% endif %}
+    </select>
+    <select name="value" class="form-select form-select-sm d-none" style="max-width: 18rem" id="bulkvalue"></select>
+    <input type="date" name="value" class="form-control form-control-sm d-none" style="max-width: 11rem" id="bulkdate">
+    <input type="text" name="follow_up_note" class="form-control form-control-sm d-none"
+           style="max-width: 16rem" id="bulknote" placeholder="Follow-up note (optional)">
+    <button class="btn btn-sm btn-primary" id="bulkgo" disabled>Apply</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="bulkclear">Clear selection</button>
+    <span class="text-muted small" id="bulkhint"></span>
+  </div>
+</div>
+
 <div class="card">
   <div class="table-responsive">
     <table class="table table-hover mb-0">
       <thead class="table-light"><tr>
+        <th style="width:2.2rem"><input type="checkbox" class="form-check-input" id="checkall" title="Select all"></th>
         <th>Company</th><th title="Buildings matching your criteria">🎯</th><th>Contact</th><th class="d-none d-md-table-cell">Phone</th>
         <th>Status</th><th class="d-none d-sm-table-cell">Milestone</th>
         {% if view == 'archived' %}<th>Archived</th><th></th>
@@ -64,7 +96,13 @@
       <tbody>
       {% for a in accounts %}
         <tr>
-          <td><a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a></td>
+          <td><input type="checkbox" class="form-check-input rowcheck" name="account_ids" value="{{ a.id }}"></td>
+          <td>
+            <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a>
+            {% if match_hints and match_hints.get(a.id) %}
+            <div class="small text-muted">matched contact: {{ match_hints[a.id] }}</div>
+            {% endif %}
+          </td>
           <td>{% if a.matching_properties %}<span class="badge text-bg-warning" title="{{ a.matching_properties }} matching{% if a.num_properties %} of {{ a.num_properties }} owned{% endif %}">{{ a.matching_properties }}</span>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
           <td class="small">{{ a.first_name }} {{ a.last_name }}</td>
           <td class="small d-none d-md-table-cell">
@@ -76,20 +114,98 @@
           {% if view == 'archived' %}
           <td class="small text-muted">{{ a.archived_at|d }}{% if a.archive_reason %}<div>{{ a.archive_reason }}</div>{% endif %}</td>
           <td class="text-end">
-            <form method="post" action="{{ url_for('restore_account', account_id=a.id) }}">
-              <input type="hidden" name="next" value="{{ url_for('accounts', view='archived') }}">
-              <button class="btn btn-sm btn-outline-success">↩ Restore</button>
-            </form>
+            <button class="btn btn-sm btn-outline-success"
+                    formaction="{{ url_for('restore_account', account_id=a.id) }}"
+                    formnovalidate>↩ Restore</button>
           </td>
           {% else %}
           <td class="small text-muted d-none d-lg-table-cell">{{ a.last_activity|dt if a.last_activity else '—' }}</td>
           {% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="8" class="text-muted text-center py-4">{% if view == 'archived' %}Nothing archived yet. Archiving an account hides it from your lists and stops future imports from adding it back.{% else %}No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.{% endif %}</td></tr>
+        <tr><td colspan="9" class="text-muted text-center py-4">{% if view == 'archived' %}Nothing archived yet. Archiving an account hides it from your lists and stops future imports from adding it back.{% elif q %}No accounts match “{{ q }}”. The search covers company names, every contact on an account, titles, phone numbers and notes.{% else %}No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+</form>
+
+<script>
+(function () {
+  const STATUSES = {{ STATUSES|tojson }};
+  const MILESTONES = {{ MILESTONES|tojson }};
+  const REASONS = {{ ARCHIVE_REASONS|tojson }};
+  // Each action says which extra input it needs and what to warn about.
+  const ACTIONS = {
+    status:          {options: STATUSES, label: 'Set status to'},
+    milestone:       {options: MILESTONES, label: 'Set milestone to'},
+    archive:         {options: REASONS, label: 'Reason', optional: true,
+                      hint: 'Archived accounts are skipped by future imports.'},
+    followup:        {date: true, note: true,
+                      hint: 'Leave the date empty to clear the follow-up.'},
+    restart_cadence: {hint: 'Resets Day 1 to today and clears checked-off steps.'},
+    restore:         {hint: 'Puts these back on your working list.'},
+    delete:          {confirm: true,
+                      hint: 'Erases them for good — a future import could add them back.'}
+  };
+  const bar = document.getElementById('bulkbar');
+  const count = document.getElementById('bulkcount');
+  const action = document.getElementById('bulkaction');
+  const value = document.getElementById('bulkvalue');
+  const date = document.getElementById('bulkdate');
+  const note = document.getElementById('bulknote');
+  const go = document.getElementById('bulkgo');
+  const hint = document.getElementById('bulkhint');
+  const all = document.getElementById('checkall');
+  const rows = () => Array.from(document.querySelectorAll('.rowcheck'));
+  const picked = () => rows().filter(c => c.checked);
+
+  function refresh() {
+    const n = picked().length;
+    bar.classList.toggle('d-none', n === 0);
+    count.textContent = n + ' selected';
+    go.disabled = n === 0 || !action.value;
+    if (all) all.checked = n > 0 && n === rows().length;
+  }
+  function refreshAction() {
+    const cfg = ACTIONS[action.value] || {};
+    // Only ONE field may be named "value", or the form submits both.
+    value.classList.toggle('d-none', !cfg.options);
+    value.disabled = !cfg.options;
+    date.classList.toggle('d-none', !cfg.date);
+    date.disabled = !cfg.date;
+    note.classList.toggle('d-none', !cfg.note);
+    note.disabled = !cfg.note;
+    hint.textContent = cfg.hint || '';
+    if (cfg.options) {
+      value.innerHTML = (cfg.optional ? '<option value="">— no reason —</option>' : '')
+        + cfg.options.map(o => '<option>' + o + '</option>').join('');
+    }
+    refresh();
+  }
+  rows().forEach(c => c.addEventListener('change', refresh));
+  if (all) all.addEventListener('change', () => {
+    rows().forEach(c => { c.checked = all.checked; });
+    refresh();
+  });
+  action.addEventListener('change', refreshAction);
+  document.getElementById('bulkclear').addEventListener('click', () => {
+    rows().forEach(c => { c.checked = false; });
+    if (all) all.checked = false;
+    refresh();
+  });
+  document.getElementById('bulkform').addEventListener('submit', e => {
+    // The per-row Restore button posts through this same form; let it past.
+    if (e.submitter && e.submitter.hasAttribute('formaction')) return;
+    const cfg = ACTIONS[action.value] || {};
+    if (cfg.confirm && !confirm('Permanently delete ' + picked().length
+        + ' account(s) and all of their history? This cannot be undone later — '
+        + 'only right after, with the Undo button.')) {
+      e.preventDefault();
+    }
+  });
+  refreshAction();
+})();
+</script>
 {% endblock %}

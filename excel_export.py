@@ -167,21 +167,23 @@ def build_workbook(conn) -> io.BytesIO:
                     a.company_name COLLATE NOCASE""").fetchall()
     _add_sheet(wb, "Accounts",
                ["Company", "Matching (🎯)", "Total properties", "First name",
-                "Last name", "Title", "Email", "Work phone", "Mobile phone",
+                "Last name", "Title", "Level", "Email", "Work phone",
+                "Mobile phone", "LinkedIn",
                 "Preferred contact", "Prospecting status", "Pipeline milestone",
                 "Cadence start", "Next follow-up", "Follow-up note", "Touches",
                 "Last activity", "Archived", "Archive reason", "Notes", "Created"],
                [[r["company_name"], r["matching_properties"], r["num_properties"],
-                 r["first_name"], r["last_name"], r["title"], r["email"],
-                 r["work_phone"], r["mobile_phone"], r["preferred_contact"],
+                 r["first_name"], r["last_name"], r["title"], r["seniority"],
+                 r["email"], r["work_phone"], r["mobile_phone"], r["linkedin_url"],
+                 r["preferred_contact"],
                  r["prospecting_status"], r["pipeline_milestone"], r["cadence_start"],
                  r["next_follow_up"], r["follow_up_note"], r["touches"],
                  r["last_activity"], "Yes" if r["archived_at"] else "",
                  r["archive_reason"], (r["notes"] or "").replace("\n", " · "),
                  r["created_at"]] for r in rows],
-               widths=[34, 12, 12, 14, 14, 20, 26, 16, 16, 12, 22, 20, 12, 12,
-                       24, 9, 14, 10, 20, 46, 12],
-               int_cols=(2, 3, 16))
+               widths=[34, 12, 12, 14, 14, 20, 12, 26, 16, 16, 30, 12, 22, 20,
+                       12, 12, 24, 9, 14, 10, 20, 46, 12],
+               int_cols=(2, 3, 18))
 
     # --- Contacts -----------------------------------------------------
     rows = conn.execute(
@@ -189,12 +191,13 @@ def build_workbook(conn) -> io.BytesIO:
            JOIN accounts a ON a.id = c.account_id
            ORDER BY a.company_name COLLATE NOCASE, c.last_name""").fetchall()
     _add_sheet(wb, "Contacts",
-               ["Company", "First name", "Last name", "Title", "Email",
-                "Work phone", "Mobile phone", "Added"],
+               ["Company", "First name", "Last name", "Title", "Level", "Email",
+                "Work phone", "Mobile phone", "LinkedIn", "Added"],
                [[r["company_name"], r["first_name"], r["last_name"], r["title"],
-                 r["email"], r["work_phone"], r["mobile_phone"], r["created_at"]]
+                 r["seniority"], r["email"], r["work_phone"], r["mobile_phone"],
+                 r["linkedin_url"], r["created_at"]]
                 for r in rows],
-               widths=[34, 14, 14, 24, 26, 16, 16, 12])
+               widths=[34, 14, 14, 24, 12, 26, 16, 16, 30, 12])
 
     # --- Interactions -------------------------------------------------
     rows = conn.execute(

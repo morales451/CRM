@@ -76,6 +76,49 @@
   </div>
   {% endif %}
 
+  <div class="card p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2">
+      <div>
+        <h5 class="mb-1">Daily activity</h5>
+        <div class="text-muted small">
+          Interactions logged per day, last 14 days.
+          {% if activity.goal %}
+          Goal: <strong>{{ activity.goal }}/day</strong> — hit on
+          {{ activity.hit_days }} of the last {{ activity.workdays }} weekdays,
+          averaging {{ activity.avg }}.
+          {% else %}
+          Set a daily goal on the <a href="{{ url_for('templates_page') }}">Templates</a> page
+          to track whether the calls are actually happening.
+          {% endif %}
+        </div>
+      </div>
+      <div class="text-end">
+        <div class="stat-value">{{ activity.today_count }}</div>
+        <div class="text-muted small">logged today</div>
+      </div>
+    </div>
+    <div class="cols mt-3 position-relative">
+      {% if activity.goal %}
+      <!-- The goal line: every bar that reaches it was a full day. -->
+      <div style="position:absolute; left:0; right:0; bottom:{{ activity.goal_pct }}%;
+                  border-top:2px dashed #dc3545; opacity:.6"
+           title="Daily goal: {{ activity.goal }}"></div>
+      {% endif %}
+      {% for d in activity.days %}
+      <div class="col-slot" title="{{ d.date }}: {{ d.count }} interaction(s)">
+        <div class="col-value">{{ d.count if d.count }}</div>
+        <div class="col-bar {{ 'bg-success' if d.hit }}"
+             style="height: {{ d.pct }}%; {{ 'opacity:.45;' if d.weekend }}"></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="cols cols-baseline" style="height:auto">
+      {% for d in activity.days %}
+      <div class="col-slot"><div class="col-label {{ 'fw-bold' if d.is_today }}">{{ d.label }}<br>{{ d.day }}</div></div>
+      {% endfor %}
+    </div>
+  </div>
+
   <div class="row g-3">
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">

@@ -64,12 +64,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
 
 ## Features
 
-- **Daily Dashboard** — due cadence reminders (pinned until logged or checked
-  off), due follow-ups with snooze buttons, stale-deal alerts, active-prospect
-  stats, and recent activity.
+- **Daily Dashboard** — a "16 of 24 done today" progress bar, due cadence
+  reminders (pinned until logged or checked off), due follow-ups with snooze
+  buttons, stale-deal alerts, active-prospect stats, and recent activity.
 - **Work the Queue** — one-task-at-a-time focus mode: each due cadence step or
   follow-up appears with the account's info and the personalized script on one
   screen; log it and the next task loads. Turns a call block into a flow.
+  Keyboard shortcuts (`L` log, `S` skip, `N`/`P` next and previous, `?` help)
+  keep a calling block moving without the mouse.
 - **Follow-Ups** — set a "next follow-up" date + note on any account (quick
   buttons: tomorrow / +3 days / +1 week). Due follow-ups pin to the dashboard
   and queue until done or snoozed — so warm prospects outside the cold cadence
@@ -88,21 +90,40 @@ computer's firewall (Windows will usually prompt you the first time — choose
 - **Accounts** — searchable list with filters for Prospecting Status,
   Pipeline Milestone and minimum matching buildings (🎯), sorted by
   opportunity size by default; tap-to-call / tap-to-text / tap-to-email
-  links on mobile.
+  links on mobile. Search covers the company name, **every contact on the
+  account**, titles, management level, notes and phone numbers in any
+  formatting — and says which person a result matched on.
+- **Bulk actions** — tick any number of accounts (or the whole filtered
+  list) and set a status or milestone, set/clear a follow-up, restart the
+  cadence, or archive them in one click. Restore and permanent delete on
+  the Archived view. Every bulk action is undoable.
+- **Undo** — deletes and bulk changes put an ↶ Undo bar at the top of the
+  page. Undoing an account delete brings back its contacts, history, bids,
+  projects, invoices **and photo files** (deleted photos wait in a trash
+  folder for 7 days). Logged interactions can also be edited — type, notes
+  and date — or deleted; correcting a date corrects the cadence with it.
 - **Priority** — the criteria-matching building count drives what you work
   first: the dashboard, the queue and the accounts list all lead with the
   biggest portfolios, and a 🎯 Priority / 📅 Due date toggle switches the
   ordering.
 - **Account Detail** — edit everything in place, log interactions, see a
   chronological history timeline and live cadence progress.
-- **Contacts** — each account holds a primary contact plus unlimited
-  additional people (from ZoomInfo research). Add them on the account detail
-  page, promote anyone to primary with ★, and use the 🔎 ZoomInfo / LinkedIn
-  buttons to jump straight to research for that company. You can also
-  bulk-upload a ZoomInfo contact export on the Import page — people are
-  matched to accounts by company name (LLC/Inc suffixes ignored), the first
-  person on an empty account becomes its primary contact, and duplicates are
-  skipped.
+- **Contacts & ZoomInfo** — each account holds a primary contact plus
+  unlimited additional people. Add them on the account detail page, promote
+  anyone to primary with ★, and use the 🔎 ZoomInfo / LinkedIn buttons to
+  jump straight to research for that company.
+  - **Paste a profile** — copy a ZoomInfo profile into the paste box and the
+    name, title, email, direct line, mobile and LinkedIn URL are read out of
+    it. Works with a plain copy, "Label: value" lines, or a spreadsheet row.
+  - **Bulk upload** a ZoomInfo export on the Import page. People are matched
+    to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings /
+    Group and punctuation ignored; the first person on an empty account
+    becomes its primary contact and duplicates are skipped. Tick *"Open a new
+    account for any company I don't have yet"* and unmatched companies become
+    new prospects instead of a list of misses.
+  - A stock ZoomInfo export maps with no editing, **LinkedIn Contact Profile
+    URL** and **Management Level** included; management level is guessed from
+    the job title when the file doesn't carry it.
 - **Outreach Templates & Scripts** — your cold call script, voicemail,
   text message, and three cadence emails live in the app (Templates page)
   and are fully editable, with placeholders like `{first_name}`, `{company}`,
@@ -133,6 +154,11 @@ computer's firewall (Windows will usually prompt you the first time — choose
 - **Import** — upload `.xlsx` or `.csv` prospecting lists (e.g.
   `HTX_Office_5kto10k.xlsx`). Column headers are matched automatically and
   duplicates (same company name) are skipped, so re-uploads are safe.
+  Company names are matched on their meaning, not their spelling — "Boxer
+  Property Corp" and "Boxer Property, Corp." are one company — so a re-pull
+  from CoStar can't create a second account or un-archive one you removed.
+  Duplicates created by older versions are listed at the bottom of the
+  Import page.
   Imported accounts default to **Prospecting / None / In Cadence** and enter
   the cadence immediately — or use the **pacing option** to stagger starts
   (e.g. 25 accounts per business day) so a big list becomes a steady daily
@@ -141,10 +167,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   in-cadence accounts after the fact.
 - **Archive** — remove a company from your working list without losing it:
   archived accounts keep all their history, disappear from every view, and
-  are **skipped by future imports**, so re-uploading the same CoStar list
-  can't resurrect them. Restore any time from Accounts → Archived.
+  are **skipped by future imports** — however the next list spells the name —
+  so re-uploading the same CoStar list can't resurrect them. Restore any time from Accounts → Archived.
   (Permanent delete also exists, but it forgets the company entirely, so a
   later import can add it back.)
+- **Insights** — conversion, pipeline and money, plus a **daily activity
+  chart**: the last 14 days against an editable daily goal, with the bars that
+  hit it in green. Tells you whether a slow month is an activity problem or a
+  conversion problem.
 - **Export Everything (Excel)** — one workbook with a summary tab plus
   accounts, contacts, full interaction history, roof reports (with computed
   application rates and suggested prices), projects, invoices and today's
@@ -185,8 +215,10 @@ can't take your data with it. A **Download Full Backup** button (also on the
 Import page) grabs a consistent snapshot from any device. Restore by copying
 a backup file back to `crm.db`. CSV exports are on the Import page too.
 
-Note: bid photos live in `uploads/` next to the app — include that folder
-when copying the app to a new machine.
+Note: bid photos live in `Documents/RoofCRM/uploads/` — include that folder
+when copying your data to a new machine. Deleted photos wait in
+`uploads/trash/` for 7 days so an Undo can put them back, then they're
+cleared automatically on startup.
 
 ## Tests
 
@@ -197,3 +229,5 @@ backups against a throwaway database (your `crm.db` is never touched):
 ```bash
 python3 tests/test_crm.py
 ```
+
+342 checks, about two seconds.

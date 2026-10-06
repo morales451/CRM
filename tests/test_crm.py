@@ -26,6 +26,14 @@ def check(name, cond, extra=""):
     if not cond:
         failures.append(name)
 
+def _raises(fn):
+    """True when fn() raises — used to assert a guard actually guards."""
+    try:
+        fn()
+    except Exception:
+        return True
+    return False
+
 # ---- 1. Build a fake HTX_Office_5kto10k.xlsx with realistic headers
 import openpyxl
 wb = openpyxl.Workbook()
@@ -760,7 +768,8 @@ conn.close()
 
 # ---- 22. Bid / roof report generator
 import app as app_mod
-app_mod.PHOTO_DIR = db.DB_PATH.parent / "bid_photos"
+db.UPLOAD_DIR = db.DB_PATH.parent / "bid_photos"
+db.TRASH_DIR = db.DB_PATH.parent / "trash"
 
 # warranty calculator must reproduce the template example: 3,900 - 300 sq ft,
 # Silicone on Capsheet, 10-year, +5% waste
@@ -920,7 +929,7 @@ check("bid photo: uploaded", b"Added 1 photo" in r.data, r.data[:300])
 conn = db.get_db()
 ph = conn.execute("SELECT * FROM bid_photos WHERE bid_id=?", (bid["id"],)).fetchone()
 conn.close()
-saved = _Img.open(app_mod.PHOTO_DIR / ph["filename"])
+saved = _Img.open(db.UPLOAD_DIR / ph["filename"])
 check("bid photo: auto-resized to fit", max(saved.size) == 1600 and saved.format == "JPEG",
       saved.size)
 r = client.post(f"/bids/photos/{ph['id']}/caption", data={"caption": "Ponding at NW corner"},
@@ -976,7 +985,7 @@ r = client.get(f"/uploads/bid_photos/{ph['filename']}")
 check("bid photo: served", r.status_code == 200 and r.data[:2] == b"\xff\xd8")
 # delete cleans up files
 r = client.post(f"/bids/{bid['id']}/delete", follow_redirects=True)
-check("bid: delete removes photo file", not (app_mod.PHOTO_DIR / ph["filename"]).exists())
+check("bid: delete removes photo file", not (db.UPLOAD_DIR / ph["filename"]).exists())
 
 # ---- 22b. Impossible combinations can't be saved or printed
 r = client.post(f"/accounts/{bid_acct}/bids/new", data={"roof_size_sqft": "10000",
@@ -1403,6 +1412,406 @@ check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data
       and b"The daily routine" in r.data and b"Roof reports / bids" in r.data
       and b"Data safety" in r.data)
 check("guide: nav link", b'href="/guide"' in client.get("/").data)
+
+# ---- 25. Company-name matching: one company, however it is spelled
+check("normalize: legal suffixes and punctuation collapse",
+      importer.normalize_company("Hartman Income REIT, Inc.")
+      == importer.normalize_company("HARTMAN INCOME REIT LP")
+      == importer.normalize_company("Hartman Income Reit"))
+check("normalize: entity-only names stay distinct",
+      importer.normalize_company("The Group") != importer.normalize_company("The Trust"))
+check("normalize: a short real name isn't eaten",
+      importer.normalize_company("IBM Inc") == importer.normalize_company("IBM Corporation"))
+
+def _sheet(rows, header, name="list.xlsx"):
+    """Build an uploadable xlsx in memory."""
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(header)
+    for r in rows:
+        ws.append(r)
+    b = io.BytesIO(); wb.save(b)
+    class _Up(io.BytesIO):
+        filename = name
+    return _Up(b.getvalue())
+
+HDR = ["Company Name", "First Name", "Last Name", "Job Title",
+       "# Properties (in search)", "Email Address", "Direct Phone Number",
+       "Mobile phone", "LinkedIn Contact Profile URL", "Management Level"]
+
+conn = db.get_db()
+res = importer.import_accounts(conn, _sheet(
+    [["Lone Star Realty Partners, LLC", "Pat", "Ng", "Owner", 4,
+      "pat@lonestar.com", "713-555-0001", "", "", ""]], HDR))
+check("dupe fix: first spelling imports", res["imported"] == 1, res)
+res = importer.import_accounts(conn, _sheet(
+    [["LONE STAR REALTY PARTNERS LP", "Pat", "Ng", "Owner", 4,
+      "pat@lonestar.com", "713-555-0001", "", "", ""]], HDR))
+check("dupe fix: a different spelling is the same company",
+      res["imported"] == 0 and res["skipped_duplicates"] == 1, res)
+check("dupe fix: only one account exists",
+      conn.execute("SELECT COUNT(*) c FROM accounts WHERE company_name LIKE "
+                   "'%Lone Star Realty%'").fetchone()["c"] == 1)
+
+# an archived company can't come back under a different spelling
+lone = conn.execute("SELECT id FROM accounts WHERE company_name LIKE "
+                    "'%Lone Star Realty%'").fetchone()["id"]
+client.post(f"/accounts/{lone}/archive", data={"archive_reason": "Not a fit"},
+            follow_redirects=True)
+res = importer.import_accounts(conn, _sheet(
+    [["Lone Star Realty Partners Inc.", "Pat", "Ng", "Owner", 4,
+      "pat@lonestar.com", "", "", "", ""]], HDR))
+check("dupe fix: archived stays archived across spellings",
+      res["imported"] == 0 and res["skipped_archived"] == 1, res)
+
+# the detector surfaces duplicates older versions already created
+conn.execute("INSERT INTO accounts (company_name, preferred_contact, "
+             "prospecting_status, pipeline_milestone, cadence_start, created_at, "
+             "updated_at) VALUES ('Gulf Coast Asset Co', 'Unknown', 'Prospecting', "
+             "'None / In Cadence', ?, ?, ?)",
+             (db.today_iso(), db.now_iso(), db.now_iso()))
+conn.execute("INSERT INTO accounts (company_name, preferred_contact, "
+             "prospecting_status, pipeline_milestone, cadence_start, created_at, "
+             "updated_at) VALUES ('Gulf Coast Asset Company, LLC', 'Unknown', "
+             "'Prospecting', 'None / In Cadence', ?, ?, ?)",
+             (db.today_iso(), db.now_iso(), db.now_iso()))
+conn.commit()
+groups = importer.find_duplicate_groups(conn)
+check("duplicates: pre-existing pairs are reported",
+      any(len(g["accounts"]) == 2 and "gulf coast asset" in g["key"] for g in groups),
+      [g["key"] for g in groups])
+check("duplicates: shown on the Import page",
+      b"Possible duplicate accounts" in client.get("/import").data)
+conn.execute("DELETE FROM accounts WHERE company_name LIKE 'Gulf Coast%'")
+conn.commit()
+
+# ---- 26. ZoomInfo: LinkedIn, management level, create-missing
+importer.import_accounts(conn, _sheet(
+    [["Triten Real Estate Partners", "", "", "", 6, "", "", "", "", ""]], HDR))
+res = importer.import_contacts(conn, _sheet(
+    [["Triten Real Estate Partners, LLC", "Maria", "Lopez", "VP of Operations", "",
+      "mlopez@triten.com", "281-555-0101", "281-555-0102",
+      "linkedin.com/in/mlopez", "VP-Level"]], HDR, "zoominfo.csv".replace(".csv", ".xlsx")))
+check("zoominfo: contact attached across a suffix difference", res["attached"] == 1, res)
+triten = conn.execute("SELECT * FROM accounts WHERE company_name="
+                      "'Triten Real Estate Partners'").fetchone()
+check("zoominfo: LinkedIn URL captured", triten["linkedin_url"] == "linkedin.com/in/mlopez")
+check("zoominfo: management level captured", triten["seniority"] == "VP-Level")
+check("zoominfo: columns mapped", {"linkedin_url", "seniority"}
+      <= set(res["mapped_columns"]), res["mapped_columns"])
+
+res = importer.import_contacts(conn, _sheet(
+    [["Brand New Owners Group", "Sam", "Reed", "Director of Facilities", "",
+      "sam@bnog.com", "", "", "", ""]], HDR))
+check("zoominfo: unknown company reported, not created",
+      res["accounts_created"] == 0 and "Brand New Owners Group" in res["unmatched"], res)
+res = importer.import_contacts(conn, _sheet(
+    [["Brand New Owners Group", "Sam", "Reed", "Director of Facilities", "",
+      "sam@bnog.com", "", "", "", ""]], HDR), create_missing=True)
+check("zoominfo: create-missing opens the account", res["accounts_created"] == 1, res)
+bnog = conn.execute("SELECT * FROM accounts WHERE company_name="
+                    "'Brand New Owners Group'").fetchone()
+check("zoominfo: new account is a normal prospect",
+      bnog["prospecting_status"] == "Prospecting"
+      and bnog["pipeline_milestone"] == "None / In Cadence"
+      and bnog["first_name"] == "Sam")
+res = importer.import_contacts(conn, _sheet(
+    [["Lone Star Realty Partners LLC", "Pat", "Ng", "Owner", "", "", "", "", "", ""]],
+    HDR), create_missing=True)
+check("zoominfo: create-missing never resurrects an archived company",
+      res["accounts_created"] == 0 and res["skipped_archived"] == 1, res)
+
+# ---- 27. Paste a ZoomInfo profile instead of retyping it
+parsed = importer.parse_contact_blob(
+    "Jane Doe\nVice President of Asset Management\nHartman Income REIT, Inc.\n"
+    "jane.doe@hartman.com\nDirect: (713) 555-0142\nMobile: (713) 555-9981\n"
+    "linkedin.com/in/janedoe")
+check("paste: plain profile block",
+      parsed["first_name"] == "Jane" and parsed["last_name"] == "Doe"
+      and parsed["title"] == "Vice President of Asset Management"
+      and parsed["email"] == "jane.doe@hartman.com"
+      and parsed["work_phone"] == "(713) 555-0142"
+      and parsed["mobile_phone"] == "(713) 555-9981"
+      and parsed["linkedin_url"] == "linkedin.com/in/janedoe"
+      and parsed["seniority"] == "VP-Level", parsed)
+parsed = importer.parse_contact_blob(
+    "Name: Robert Chen\nJob Title: Director of Facilities\n"
+    "Email Address: rchen@boxer.com\nDirect Phone: 713-555-0199")
+check("paste: label-and-value lines",
+      parsed["first_name"] == "Robert" and parsed["last_name"] == "Chen"
+      and parsed["title"] == "Director of Facilities"
+      and parsed["email"] == "rchen@boxer.com", parsed)
+parsed = importer.parse_contact_blob(
+    "Maria Soto\tProperty Manager\tmsoto@x.com\t(281) 555-0101")
+check("paste: a row copied from a spreadsheet",
+      parsed["first_name"] == "Maria" and parsed["title"] == "Property Manager"
+      and parsed["work_phone"] == "(281) 555-0101", parsed)
+check("paste: empty input is harmless",
+      not any(importer.parse_contact_blob("   ").values()))
+
+r = client.post(f"/accounts/{bnog['id']}/contacts/add", data={
+    "paste": "Dana Price\nChief Operating Officer\ndana@bnog.com\n(713) 555-7777"},
+    follow_redirects=True)
+dana = conn.execute("SELECT * FROM contacts WHERE email='dana@bnog.com'").fetchone()
+check("paste: Add Contact fills itself in from the paste",
+      dana is not None and dana["first_name"] == "Dana"
+      and dana["title"] == "Chief Operating Officer"
+      and dana["work_phone"] == "(713) 555-7777"
+      and dana["seniority"] == "C-Level")
+check("paste: the form says what it read", b"Read from the paste" in r.data)
+r = client.post(f"/accounts/{bnog['id']}/contacts/add",
+                data={"paste": "no person here, just words and words"},
+                follow_redirects=True)
+check("paste: unreadable paste is refused, not half-saved",
+      b"didn" in r.data and b"first or last name" in r.data)
+
+# ---- 28. Search reaches the whole account, not just the company name
+r = client.get("/accounts?q=Dana")
+check("search: finds a secondary contact by name",
+      b"Brand New Owners Group" in r.data)
+check("search: says which contact matched", b"matched contact: Dana Price" in r.data)
+r = client.get("/accounts?q=5557777")
+check("search: finds by phone digits, ignoring formatting",
+      b"Brand New Owners Group" in r.data)
+conn.execute("UPDATE accounts SET notes='roof visible from Beltway 8' WHERE id=?",
+             (bnog["id"],))
+conn.commit()
+check("search: finds by a word in the notes",
+      b"Brand New Owners Group" in client.get("/accounts?q=Beltway").data)
+check("search: no false positives",
+      b"Brand New Owners Group" not in client.get("/accounts?q=zzzznope").data)
+
+# ---- 29. Bulk actions on the accounts list
+ids = [r["id"] for r in conn.execute(
+    "SELECT id FROM accounts WHERE COALESCE(archived_at,'')='' LIMIT 3")]
+r = client.post("/accounts/bulk", data={
+    "action": "status", "value": "Might be Interested",
+    "account_ids": [str(i) for i in ids]}, follow_redirects=True)
+check("bulk: status applied to every ticked account",
+      all(conn.execute("SELECT prospecting_status s FROM accounts WHERE id=?",
+                       (i,)).fetchone()["s"] == "Might be Interested" for i in ids))
+check("bulk: offers an undo", b"Undo" in r.data)
+r = client.post("/undo/" + str(
+    conn.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]),
+    follow_redirects=True)
+check("bulk: undo puts the old statuses back",
+      not any(conn.execute("SELECT prospecting_status s FROM accounts WHERE id=?",
+                           (i,)).fetchone()["s"] == "Might be Interested" for i in ids))
+client.post("/accounts/bulk", data={
+    "action": "followup", "value": db.today_iso(), "follow_up_note": "call back",
+    "account_ids": [str(ids[0])]}, follow_redirects=True)
+check("bulk: follow-up date and note set",
+      conn.execute("SELECT next_follow_up n, follow_up_note t FROM accounts WHERE id=?",
+                   (ids[0],)).fetchone()["t"] == "call back")
+r = client.post("/accounts/bulk", data={
+    "action": "followup", "value": "not-a-date", "account_ids": [str(ids[0])]},
+    follow_redirects=True)
+check("bulk: an unreadable date changes nothing",
+      b"Couldn" in r.data and conn.execute(
+          "SELECT follow_up_note t FROM accounts WHERE id=?",
+          (ids[0],)).fetchone()["t"] == "call back")
+client.post("/accounts/bulk", data={
+    "action": "archive", "value": "Not a fit", "account_ids": [str(ids[0])]},
+    follow_redirects=True)
+check("bulk: archive hides the account",
+      conn.execute("SELECT archived_at a FROM accounts WHERE id=?",
+                   (ids[0],)).fetchone()["a"] != "")
+client.post("/accounts/bulk", data={
+    "action": "restore", "account_ids": [str(ids[0])]}, follow_redirects=True)
+check("bulk: restore brings it back",
+      conn.execute("SELECT archived_at a FROM accounts WHERE id=?",
+                   (ids[0],)).fetchone()["a"] == "")
+r = client.post("/accounts/bulk", data={"action": "status", "value": "Prospecting"},
+                follow_redirects=True)
+check("bulk: nothing ticked is a friendly no-op", b"Tick at least one" in r.data)
+r = client.post("/accounts/bulk", data={
+    "action": "status", "value": "Not A Real Status", "account_ids": [str(ids[0])]},
+    follow_redirects=True)
+check("bulk: a value outside the list is rejected",
+      conn.execute("SELECT prospecting_status s FROM accounts WHERE id=?",
+                   (ids[0],)).fetchone()["s"] != "Not A Real Status")
+
+# ---- 30. Fixing and removing a logged interaction
+target = ids[1]
+client.post(f"/accounts/{target}/log",
+            data={"interaction_type": "Call 2", "notes": "left voicemail"},
+            follow_redirects=True)
+entry = conn.execute("SELECT * FROM interactions WHERE account_id=? "
+                     "ORDER BY id DESC LIMIT 1", (target,)).fetchone()
+yesterday = (date.today() - timedelta(days=1)).isoformat()
+client.post(f"/interactions/{entry['id']}/edit", data={
+    "interaction_type": "Call & Text", "notes": "actually reached him",
+    "created_date": yesterday}, follow_redirects=True)
+fixed = conn.execute("SELECT * FROM interactions WHERE id=?", (entry["id"],)).fetchone()
+check("interaction: type, notes and date all corrected",
+      fixed["interaction_type"] == "Call & Text"
+      and fixed["notes"] == "actually reached him"
+      and fixed["created_at"][:10] == yesterday, dict(fixed))
+r = client.post(f"/interactions/{entry['id']}/edit",
+                data={"interaction_type": "Call & Text", "notes": "x",
+                      "created_date": "13/41/2026"}, follow_redirects=True)
+check("interaction: an unreadable date keeps the original",
+      b"kept the original" in r.data and conn.execute(
+          "SELECT created_at c FROM interactions WHERE id=?",
+          (entry["id"],)).fetchone()["c"][:10] == yesterday)
+client.post(f"/interactions/{entry['id']}/delete", follow_redirects=True)
+check("interaction: deleted",
+      conn.execute("SELECT 1 FROM interactions WHERE id=?",
+                   (entry["id"],)).fetchone() is None)
+client.post("/undo/" + str(conn.execute(
+    "SELECT MAX(id) m FROM undo_log").fetchone()["m"]), follow_redirects=True)
+back = conn.execute("SELECT * FROM interactions WHERE id=?", (entry["id"],)).fetchone()
+check("interaction: undo restores it exactly",
+      back is not None and back["notes"] == "x", dict(back) if back else None)
+r = client.post("/interactions/999999/delete", follow_redirects=True)
+check("interaction: deleting a missing entry is a friendly error",
+      r.status_code == 200 and b"no longer exists" in r.data)
+
+# ---- 31. Undo of a full account delete, photos and all
+import undo as undo_mod
+victim = conn.execute("SELECT * FROM accounts WHERE company_name="
+                      "'Brand New Owners Group'").fetchone()
+client.post(f"/accounts/{victim['id']}/log",
+            data={"interaction_type": "General Note", "notes": "walked the roof"},
+            follow_redirects=True)
+client.post(f"/accounts/{victim['id']}/bids/new",
+            data={"roof_address": "1 Test Way"}, follow_redirects=True)
+vbid = conn.execute("SELECT * FROM bids WHERE account_id=?", (victim["id"],)).fetchone()
+db.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+(db.UPLOAD_DIR / "undo_test.jpg").write_bytes(b"\xff\xd8photo")
+conn.execute("INSERT INTO bid_photos (bid_id, filename, caption, created_at) "
+             "VALUES (?,?,?,?)", (vbid["id"], "undo_test.jpg", "north slope",
+                                  db.now_iso()))
+conn.commit()
+client.post(f"/accounts/{victim['id']}/delete", follow_redirects=True)
+check("undo: the account really is gone first",
+      conn.execute("SELECT 1 FROM accounts WHERE id=?",
+                   (victim["id"],)).fetchone() is None
+      and not (db.UPLOAD_DIR / "undo_test.jpg").exists())
+undo_id = conn.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]
+client.post(f"/undo/{undo_id}", follow_redirects=True)
+check("undo: account restored",
+      conn.execute("SELECT company_name n FROM accounts WHERE id=?",
+                   (victim["id"],)).fetchone()["n"] == "Brand New Owners Group")
+check("undo: its contacts, history and bid came back too",
+      conn.execute("SELECT COUNT(*) c FROM contacts WHERE account_id=?",
+                   (victim["id"],)).fetchone()["c"] > 0
+      and conn.execute("SELECT COUNT(*) c FROM interactions WHERE account_id=?",
+                       (victim["id"],)).fetchone()["c"] > 0
+      and conn.execute("SELECT COUNT(*) c FROM bids WHERE account_id=?",
+                       (victim["id"],)).fetchone()["c"] == 1)
+check("undo: the photo file is back on disk",
+      (db.UPLOAD_DIR / "undo_test.jpg").read_bytes() == b"\xff\xd8photo")
+r = client.post(f"/undo/{undo_id}", follow_redirects=True)
+check("undo: the same record can't be replayed twice",
+      b"no longer be undone" in r.data)
+
+# an expired record is refused, and purge clears it out
+conn.execute("INSERT INTO undo_log (label, payload, created_at) VALUES "
+             "('old thing', '{\"ops\": []}', ?)",
+             ((datetime.now().astimezone() - timedelta(days=30)).isoformat(),))
+conn.commit()
+old_id = conn.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]
+check("undo: an expired record is refused", undo_mod.peek(conn, old_id) is None
+      and undo_mod.restore(conn, old_id) is None)
+db.TRASH_DIR.mkdir(parents=True, exist_ok=True)
+_stale = db.TRASH_DIR / "stale.jpg"
+_stale.write_bytes(b"x")
+import os as _os
+_old_time = (datetime.now() - timedelta(days=30)).timestamp()
+_os.utime(_stale, (_old_time, _old_time))
+undo_mod.purge(conn)
+check("undo: purge drops expired records",
+      conn.execute("SELECT 1 FROM undo_log WHERE id=?", (old_id,)).fetchone() is None)
+check("undo: purge empties the photo trash", not _stale.exists())
+check("undo: the allow-list blocks an unknown table",
+      _raises(lambda: undo_mod.capture(conn, "sqlite_master", "1=1")))
+
+# ---- 32. Daily progress and activity tracking
+# With work still outstanding the bar must count it, not declare victory.
+_rem = len(cadence.get_due_reminders(conn)) + len(
+    conn.execute("SELECT 1 FROM accounts WHERE COALESCE(archived_at,'')='' "
+                 "AND next_follow_up != '' AND next_follow_up <= ?",
+                 (db.today_iso(),)).fetchall())
+r = client.get("/")
+check("dashboard: progress counts what's left, not just what's done",
+      (b"done today" in r.data and b"list is clear" not in r.data) if _rem
+      else b"list is clear" in r.data, f"{_rem} outstanding")
+check("dashboard: progress states the remaining count",
+      (b" left" in r.data) if _rem else True)
+client.post("/settings", data={"daily_goal": "12"}, follow_redirects=True)
+check("activity: the daily goal saves",
+      conn.execute("SELECT value v FROM settings WHERE key='daily_goal'"
+                   ).fetchone()["v"] == "12")
+r = client.get("/insights")
+check("insights: daily activity chart with the goal",
+      b"Daily activity" in r.data and b"12/day" in r.data
+      and b"logged today" in r.data)
+r = client.post("/settings", data={"daily_goal": "many"}, follow_redirects=True)
+check("activity: a junk goal is rejected, not stored",
+      b"left unchanged" in r.data and conn.execute(
+          "SELECT value v FROM settings WHERE key='daily_goal'").fetchone()["v"] == "12")
+client.post("/settings", data={"daily_goal": "0"}, follow_redirects=True)
+check("activity: goal 0 turns the goal line off",
+      b"Set a daily goal" in client.get("/insights").data)
+
+# ---- 33. Queue keyboard shortcuts
+r = client.get("/queue")
+check("queue: shortcuts are wired and documented",
+      b"k-help" in r.data and b"addEventListener('keydown'" in r.data)
+# ---- 34. An older database upgrades in place, keeping its data
+import sqlite3 as _sq
+_mig_dir = Path(tempfile.mkdtemp(prefix="crm_mig_"))
+_mig_db = _mig_dir / "crm.db"
+_old = _sq.connect(_mig_db)
+_old.executescript("""
+CREATE TABLE accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT NOT NULL,
+    first_name TEXT DEFAULT '', last_name TEXT DEFAULT '', title TEXT DEFAULT '',
+    num_properties INTEGER, email TEXT DEFAULT '', work_phone TEXT DEFAULT '',
+    mobile_phone TEXT DEFAULT '', preferred_contact TEXT NOT NULL DEFAULT 'Unknown',
+    notes TEXT DEFAULT '', prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
+    pipeline_milestone TEXT NOT NULL DEFAULT 'None / In Cadence',
+    cadence_start TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    first_name TEXT DEFAULT '', last_name TEXT DEFAULT '', title TEXT DEFAULT '',
+    email TEXT DEFAULT '', work_phone TEXT DEFAULT '', mobile_phone TEXT DEFAULT '',
+    created_at TEXT NOT NULL);
+CREATE TABLE templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'email', steps TEXT DEFAULT '',
+    subject TEXT DEFAULT '', body TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER DEFAULT 0, updated_at TEXT NOT NULL);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '');
+""")
+_old.execute("INSERT INTO accounts (company_name, cadence_start, created_at, "
+             "updated_at) VALUES ('Legacy Holdings LLC','2026-01-01',"
+             "'2026-01-01T00:00:00-06:00','2026-01-01T00:00:00-06:00')")
+_old.execute("INSERT INTO contacts (account_id, first_name, last_name, created_at) "
+             "VALUES (1,'Old','Person','2026-01-01T00:00:00-06:00')")
+_old.commit(); _old.close()
+
+_keep = db.DB_PATH
+db.DB_PATH = _mig_db
+db.init_db()
+_m = db.get_db()
+_acc = {r[1] for r in _m.execute("PRAGMA table_info(accounts)")}
+_con = {r[1] for r in _m.execute("PRAGMA table_info(contacts)")}
+_tbl = {r[0] for r in _m.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+check("migrate: new account columns added to an old database",
+      {"linkedin_url", "seniority", "matching_properties", "archived_at"} <= _acc)
+check("migrate: new contact columns added", {"linkedin_url", "seniority"} <= _con)
+check("migrate: undo_log table created", "undo_log" in _tbl)
+check("migrate: existing rows survive untouched",
+      _m.execute("SELECT company_name FROM accounts").fetchone()[0] == "Legacy Holdings LLC"
+      and _m.execute("SELECT first_name FROM contacts").fetchone()[0] == "Old")
+check("migrate: the daily goal setting is seeded",
+      _m.execute("SELECT value FROM settings WHERE key='daily_goal'").fetchone()[0] == "20")
+_m.close()
+db.init_db()
+check("migrate: running again changes nothing", True)
+db.DB_PATH = _keep
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

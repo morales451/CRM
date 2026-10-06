@@ -29,6 +29,7 @@
     </div>
     <div class="col-6 col-md-4">
       <a href="#priority">6. Priority: biggest portfolios first</a><br>
+      <a href="#bulk">6c. Bulk actions &amp; search</a><br>
       <a href="#archive">6b. Archiving accounts</a><br>
       <a href="#cadence">7. The cold cadence</a><br>
       <a href="#contacts">8. Contacts &amp; ZoomInfo</a><br>
@@ -40,6 +41,7 @@
       <a href="#bids">12. Roof reports / bids</a><br>
       <a href="#projects">13. Projects &amp; invoicing</a><br>
       <a href="#insights">14. Insights</a><br>
+      <a href="#undo">14b. Undo &amp; fixing mistakes</a><br>
       <a href="#backup">15. Data safety</a><br>
       <a href="#updating">15b. Updating safely</a><br>
       <a href="#trouble">16. Troubleshooting</a>
@@ -82,8 +84,12 @@
 <ul>
   <li><kbd>✓ Log … &amp; Next</kbd> — records the step and advances.</li>
   <li><kbd>✕ Skip this step</kbd> — clears the step without logging it.</li>
-  <li><kbd>Skip for now →</kbd> — leaves the task in place and shows the next one.</li>
+  <li><kbd>Skip for now →</kbd> — leaves the task in place and shows the next one; <kbd>← Back</kbd> steps back.</li>
 </ul>
+<p><strong>Keyboard shortcuts</strong> for calling blocks: <kbd>L</kbd> log &amp; next,
+<kbd>S</kbd> skip the step, <kbd>N</kbd> or <kbd>→</kbd> next task, <kbd>P</kbd> or
+<kbd>←</kbd> previous, <kbd>E</kbd> exit, <kbd>?</kbd> for the list. They're ignored
+while you're typing in a box.</p>
 <p>Follow-up tasks show your note, a quick log form, snooze buttons, and ✓ Done.</p>
 
 <h2 id="import">5. Importing lists (CoStar etc.)</h2>
@@ -125,6 +131,13 @@ it remembers the company so it can't sneak back in on the next import. <kbd>🗑
 erases the account and its history completely, which also means the CRM forgets it ever existed, so a
 future import <em>can</em> add that company again.</div>
 
+<h2 id="bulk">6c. Bulk actions &amp; search</h2>
+<ul>
+  <li><strong>Tick and apply.</strong> Every row on the Accounts page has a checkbox, and the header box selects the whole filtered list. Once anything is ticked an action bar appears: set Prospecting Status, set Pipeline Milestone, set or clear a follow-up date, restart the cadence from today, or archive — all in one click. On the Archived view the actions become Restore and Delete permanently.</li>
+  <li>Every bulk action is <strong>undoable</strong> — see section 14b.</li>
+  <li><strong>Search looks everywhere.</strong> The search box matches the company name, the primary contact, <em>every other contact on the account</em>, job titles, management level, the notes, and phone numbers typed in any format (search 5557777 and it finds “(713) 555-7777”). When a row matched because of someone in its contact list, the list says which person.</li>
+</ul>
+
 <h2 id="cadence">7. The cold cadence</h2>
 <table class="table table-sm w-auto">
   <thead class="table-light"><tr><th>Day</th><th>Step</th></tr></thead>
@@ -146,7 +159,11 @@ future import <em>can</em> add that company again.</div>
 <ul>
   <li>Each account has a <strong>primary contact</strong> (fills scripts, emails, invoices) plus unlimited additional people.</li>
   <li>On an account page: 🔎 ZoomInfo / in LinkedIn buttons jump to research for that company; the <em>+ Add Contact</em> form is right below. The first person you add becomes primary automatically; ★ promotes anyone else to primary (the old primary moves down, nothing is lost).</li>
-  <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name (LLC/Inc/punctuation ignored). First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped; unmatched companies reported.</li>
+  <li><strong>Paste a profile instead of typing it.</strong> Open <em>+ Add Contact</em>, copy a ZoomInfo profile and drop it into the paste box. Name, title, email, direct line, mobile and LinkedIn are read out of it and fill any field you left blank; the flash message says exactly what it picked up. It copes with a plain stack of lines, “Label: value” lines, or a row copied out of a spreadsheet.</li>
+  <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings / Group and punctuation ignored, so “Hartman Income REIT, Inc.” finds your “Hartman Income REIT LP”. First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped.</li>
+  <li><strong>Companies you don't have yet:</strong> tick <em>“Open a new account for any company I don't have yet”</em> on the upload and those rows become new prospecting accounts instead of being listed back as unmatched. Archived companies are never re-created.</li>
+  <li><strong>Columns read automatically</strong> from a stock ZoomInfo export: Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number, Mobile phone, LinkedIn Contact Profile URL and Management Level. The import summary lists exactly which column it read for each field.</li>
+  <li>LinkedIn URLs become a clickable link on the contact; Management Level shows as a badge (C-Level, VP-Level, Director, Manager) and is guessed from the job title when the file doesn't have it. Both are searchable and both go into the Excel export.</li>
 </ul>
 
 <h2 id="scripts">9. Scripts &amp; templates</h2>
@@ -191,8 +208,17 @@ future import <em>can</em> add that company again.</div>
 <h2 id="insights">14. Insights</h2>
 <ul>
   <li><strong>Tiles:</strong> tasks due, touches this week (with vs-last-week arrow — your effort meter), active prospects, in-cadence pool, closed won, win rate — plus a money row once projects exist.</li>
-  <li><strong>Weekly activity:</strong> interactions logged per week, last 8 weeks. The one chart to watch — activity is the number you control.</li>
+  <li><strong>Daily activity:</strong> interactions logged per day for the last 14 days against your daily goal (set it on the <a href="{{ url_for('templates_page') }}">Templates</a> page; 0 hides the goal line). Bars that reach the goal turn green, weekends are faded, and the heading says how many weekdays you hit and your weekday average. This is the chart that tells you whether a slow month is an activity problem or a conversion problem — while there's still time to fix it.</li>
+  <li><strong>Weekly activity:</strong> interactions logged per week, last 8 weeks — the longer trend behind the daily chart.</li>
   <li><strong>Pipeline:</strong> where deals pile up. <strong>Cadence reach:</strong> how many accounts got each step — a steep drop from emails to calls means calls are being skipped. <strong>Status breakdown</strong> and <strong>activity mix</strong> round it out.</li>
+</ul>
+
+<h2 id="undo">14b. Undo &amp; fixing mistakes</h2>
+<ul>
+  <li><strong>Undo bar.</strong> Delete an account, contact, roof report, photo, project, task or invoice — or apply any bulk action — and a bar appears at the top of the page saying what just happened, with an <em>↶ Undo</em> button. Undo puts everything back: the account <em>and</em> its contacts, history, bids, projects, invoices and photo files. It works until you do the next undoable thing, and each record can only be replayed once.</li>
+  <li>Deleted bid photos wait in a trash folder for 7 days so an undo can restore the images themselves, not just their database rows. After that they're cleared automatically on startup.</li>
+  <li><strong>Fixing a logged interaction.</strong> On the account timeline, the ✎ next to any entry opens an editor: change the type, the notes, or the <strong>date</strong>, or delete the entry. The date matters — reminders are worked out from what's logged, so correcting the date corrects the cadence. Deleting a logged cadence step brings its reminder back.</li>
+  <li><strong>Duplicate accounts.</strong> Imports now treat “Boxer Property Corp” and “Boxer Property, Corp.” as the same company, so a re-pull from CoStar can't create a second account or un-archive one you removed. Any duplicates created before that are listed at the bottom of the Import page with links to each — move anything worth keeping onto the one you want and archive the other.</li>
 </ul>
 
 <h2 id="backup">15. Data safety</h2>

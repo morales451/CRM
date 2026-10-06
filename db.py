@@ -37,6 +37,11 @@ DATA_DIR = _resolve_data_dir()
 DB_PATH = DATA_DIR / "crm.db"
 BACKUP_DIR = DATA_DIR / "backups"
 UPLOAD_DIR = DATA_DIR / "uploads" / "bid_photos"
+# Deleted bid photos wait here so an undo can put them back.
+TRASH_DIR = DATA_DIR / "uploads" / "trash"
+
+# How long an undone-able action (and its trashed photos) stays recoverable.
+UNDO_RETENTION_DAYS = 7
 
 
 def migrate_legacy_data():
@@ -153,6 +158,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     email TEXT DEFAULT '',
     work_phone TEXT DEFAULT '',
     mobile_phone TEXT DEFAULT '',
+    linkedin_url TEXT DEFAULT '',          -- ZoomInfo/LinkedIn profile of the primary contact
+    seniority TEXT DEFAULT '',             -- ZoomInfo "Management Level" (C-Level, VP-Level, ...)
     preferred_contact TEXT NOT NULL DEFAULT 'Unknown',
     notes TEXT DEFAULT '',
     prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
@@ -177,6 +184,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     email TEXT DEFAULT '',
     work_phone TEXT DEFAULT '',
     mobile_phone TEXT DEFAULT '',
+    linkedin_url TEXT DEFAULT '',
+    seniority TEXT DEFAULT '',
     created_at TEXT NOT NULL              -- ISO timestamp
 );
 
@@ -298,6 +307,17 @@ CREATE TABLE IF NOT EXISTS cadence_dismissals (
     UNIQUE (account_id, step_type)
 );
 
+-- Short-lived record of a destructive action so it can be taken back.
+-- payload is JSON: {"ops": [{"op": "insert"|"update", "table": ..., "rows": [...]}]}
+-- Entries older than UNDO_RETENTION_DAYS are purged on startup.
+CREATE TABLE IF NOT EXISTS undo_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL,                  -- what to show on the Undo button
+    payload TEXT NOT NULL,                -- JSON ops to replay
+    created_at TEXT NOT NULL,             -- ISO timestamp
+    used_at TEXT DEFAULT ''               -- set once undone, so it can't replay twice
+);
+
 CREATE INDEX IF NOT EXISTS idx_interactions_account ON interactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_account ON contacts(account_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(prospecting_status, pipeline_milestone);
@@ -334,6 +354,8 @@ DEFAULT_SETTINGS = {
     "my_email": "sales@siliconeroofpros.com",
     "my_website": "siliconeroofpros.com",
     "my_address": "",
+    # Logged touches that count as a full day's outreach (0 hides the goal).
+    "daily_goal": "20",
     # Sell price per sq ft of coated roof (see warranty_calc.DEFAULT_PRICING)
     "price_capsheet_base": "4.50",
     "price_other_base": "4.00",
@@ -481,6 +503,15 @@ def _migrate(conn) -> None:
     # Created here rather than in SCHEMA: the column may have just been added.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_accounts_archived "
                  "ON accounts(archived_at)")
+
+    for name in ("linkedin_url", "seniority"):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} TEXT DEFAULT ''")
+    contact_cols = {row[1] for row in conn.execute("PRAGMA table_info(contacts)")}
+    if contact_cols:
+        for name in ("linkedin_url", "seniority"):
+            if name not in contact_cols:
+                conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} TEXT DEFAULT ''")
 
     if "matching_properties" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN matching_properties INTEGER")

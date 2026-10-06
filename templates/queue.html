@@ -10,12 +10,28 @@
 {% else %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <h1 class="mb-0">Task {{ pos + 1 }} of {{ total }}</h1>
-  <div>
-    {% if pos + 1 < total %}
-    <a href="{{ url_for('queue', pos=pos + 1) }}" class="btn btn-outline-secondary">Skip for now →</a>
+  <div class="d-flex gap-1 align-items-center flex-wrap">
+    {% if pos > 0 %}
+    <a href="{{ url_for('queue', pos=pos - 1) }}" id="k-prev" class="btn btn-outline-secondary">← Back</a>
     {% endif %}
-    <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Exit</a>
+    {% if pos + 1 < total %}
+    <a href="{{ url_for('queue', pos=pos + 1) }}" id="k-next" class="btn btn-outline-secondary">Skip for now →</a>
+    {% endif %}
+    <a href="{{ url_for('dashboard') }}" id="k-exit" class="btn btn-outline-secondary">Exit</a>
+    <button type="button" class="btn btn-outline-secondary" id="k-help-btn" title="Keyboard shortcuts">⌨</button>
   </div>
+</div>
+
+<!-- Calling blocks go faster without the mouse; hidden until ? or the ⌨ button. -->
+<div class="alert alert-secondary py-2 small d-none" id="k-help">
+  <strong>Keyboard:</strong>
+  <kbd>L</kbd> log &amp; next ·
+  <kbd>S</kbd> skip step ·
+  <kbd>N</kbd>/<kbd>→</kbd> next task ·
+  <kbd>P</kbd>/<kbd>←</kbd> previous ·
+  <kbd>E</kbd> exit ·
+  <kbd>?</kbd> this help.
+  Shortcuts are off while you're typing in a box.
 </div>
 
 <div class="card p-3 mb-3">
@@ -91,13 +107,13 @@
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-success">✓ Log “{{ task.reminder.step_type }}” & Next</button>
+        <button class="btn btn-success" id="k-log">✓ Log “{{ task.reminder.step_type }}” & Next <kbd class="ms-1">L</kbd></button>
       </form>
       <form method="post" action="{{ url_for('dismiss_reminder') }}" class="d-inline">
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-outline-secondary">✕ Skip this step & Next</button>
+        <button class="btn btn-outline-secondary" id="k-skip">✕ Skip this step & Next <kbd class="ms-1">S</kbd></button>
       </form>
     </div>
   </div>
@@ -122,7 +138,7 @@
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
         <input type="hidden" name="clear" value="1">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-success">✓ Done & Next</button>
+        <button class="btn btn-success" id="k-log">✓ Done & Next <kbd class="ms-1">L</kbd></button>
       </form>
       {% for label, d in [('Snooze +1d', 1), ('+3d', 3), ('+1w', 7)] %}
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
@@ -136,6 +152,28 @@
 {% endif %}
 
 <script>
+(function () {
+  const help = document.getElementById('k-help');
+  const btn = document.getElementById('k-help-btn');
+  if (btn) btn.addEventListener('click', () => help.classList.toggle('d-none'));
+  // Map a key to the element it should activate.
+  const KEYS = {
+    l: 'k-log', s: 'k-skip', n: 'k-next', p: 'k-prev', e: 'k-exit',
+    arrowright: 'k-next', arrowleft: 'k-prev'
+  };
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // Never steal a keystroke meant for a field the user is filling in.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+              || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    const key = e.key.toLowerCase();
+    if (key === '?') { help.classList.toggle('d-none'); e.preventDefault(); return; }
+    const el = document.getElementById(KEYS[key] || '');
+    if (el) { e.preventDefault(); el.click(); }
+  });
+})();
+
 function copyField(id, btn) {
   const el = document.getElementById(id);
   el.focus(); el.select();

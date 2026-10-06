@@ -14,12 +14,13 @@ from pathlib import Path
 from urllib.parse import quote
 
 from flask import (Flask, flash, redirect, render_template, request,
-                   send_file, url_for)
+                   send_file, session, url_for)
 
 import cadence
 import db as db_module
 import excel_export
 import importer
+import undo as undo_module
 import warranty_calc
 from db import (ARCHIVE_REASONS, DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
                 INVOICE_STATUSES,
@@ -28,10 +29,18 @@ from db import (ARCHIVE_REASONS, DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
                 backup_db, get_db, init_db, now_iso, today_iso)
 
 app = Flask(__name__)
-app.secret_key = "local-crm-flash-messages"  # local single-user app; used only for flash()
+# Local single-user app: the session cookie only carries flash messages and
+# the id of the last undoable action, never credentials.
+app.secret_key = "local-crm-flash-messages"
 PORT = 8000
-PHOTO_DIR = db_module.UPLOAD_DIR
 PHOTO_MAX_DIM = 1600  # uploaded photos are resized to fit the report/PDF
+
+
+def photo_dir():
+    """Where bid photos live. Read through db_module every time rather than
+    copied into a constant, so this and undo.py can never disagree about
+    which folder holds the images."""
+    return db_module.UPLOAD_DIR
 
 
 @app.template_filter("dt")
@@ -104,6 +113,59 @@ def format_money(value):
     return f"${value:,.0f}" if value == int(value) else f"${value:,.2f}"
 
 
+# ---------------------------------------------------------------------- Undo
+#
+# Every destructive action snapshots what it changed into the undo_log table,
+# then drops the record's id into the session. base.html renders an Undo bar
+# for as long as that record is unused, so a mis-tap is a click away from
+# being put back instead of a restore-from-backup.
+
+UNDO_SESSION_KEY = "undo_id"
+
+
+def _offer_undo(conn, label: str, ops: list[dict]) -> None:
+    """Record an undo for the action about to be committed.
+
+    Call BEFORE conn.commit() so the snapshot and the change land together —
+    a crash between them would otherwise leave an undo pointing at nothing.
+    """
+    undo_id = undo_module.record(conn, label, ops)
+    if undo_id is not None:
+        session[UNDO_SESSION_KEY] = undo_id
+
+
+@app.context_processor
+def inject_undo():
+    """The pending undo, if the last action left one and it's still good."""
+    undo_id = session.get(UNDO_SESSION_KEY)
+    if not undo_id:
+        return {"pending_undo": None}
+    conn = get_db()
+    try:
+        label = undo_module.peek(conn, undo_id)
+    finally:
+        conn.close()
+    if label is None:
+        session.pop(UNDO_SESSION_KEY, None)
+        return {"pending_undo": None}
+    return {"pending_undo": {"id": undo_id, "label": label}}
+
+
+@app.route("/undo/<int:undo_id>", methods=["POST"])
+def undo_action(undo_id):
+    conn = get_db()
+    try:
+        label = undo_module.restore(conn, undo_id)
+    finally:
+        conn.close()
+    session.pop(UNDO_SESSION_KEY, None)
+    if label:
+        flash(f"Undone: {label}.", "success")
+    else:
+        flash("That action can no longer be undone.", "warning")
+    return redirect(request.form.get("next") or url_for("dashboard"))
+
+
 def _account_or_404(conn, account_id):
     acct = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
     if acct is None:
@@ -130,6 +192,8 @@ def _account_fields_from_form(form, previous=None):
         "email": form.get("email", "").strip(),
         "work_phone": form.get("work_phone", "").strip(),
         "mobile_phone": form.get("mobile_phone", "").strip(),
+        "linkedin_url": form.get("linkedin_url", "").strip(),
+        "seniority": form.get("seniority", "").strip(),
         "preferred_contact": form.get("preferred_contact", "Unknown"),
         "notes": form.get("notes", "").strip(),
         "prospecting_status": form.get("prospecting_status", "Prospecting"),
@@ -217,6 +281,28 @@ def _stale_deals(conn):
     return [r for r in rows if (r["last_touch"] or "")[:10] <= cutoff]
 
 
+def _today_progress(conn, remaining: int) -> dict:
+    """"9 of 14 done today" — the single number that says whether the day's
+    outreach actually happened. Done = anything logged or checked off today;
+    remaining = reminders and follow-ups still sitting on the dashboard."""
+    t = today_iso()
+    done = conn.execute(
+        "SELECT COUNT(*) c FROM interactions i JOIN accounts a ON a.id = i.account_id "
+        "WHERE COALESCE(a.archived_at, '') = '' AND i.created_at LIKE ?",
+        (t + "%",)).fetchone()["c"]
+    done += conn.execute(
+        "SELECT COUNT(*) c FROM cadence_dismissals d "
+        "JOIN accounts a ON a.id = d.account_id "
+        "WHERE COALESCE(a.archived_at, '') = '' AND d.dismissed_at LIKE ?",
+        (t + "%",)).fetchone()["c"]
+    total = done + remaining
+    return {"done": done, "remaining": remaining, "total": total,
+            "pct": round(100 * done / total) if total else 0,
+            # NOT "clear": Jinja would resolve progress.clear to dict.clear,
+            # a bound method that is always truthy.
+            "all_done": total > 0 and remaining == 0}
+
+
 @app.route("/")
 def dashboard():
     conn = get_db()
@@ -248,10 +334,12 @@ def dashboard():
                JOIN accounts a ON a.id = i.account_id
                WHERE COALESCE(a.archived_at, '') = ''
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
+        progress = _today_progress(conn, len(reminders) + len(followups))
         return render_template("dashboard.html", reminders=reminders,
                                followups=followups, stale=stale, owed=owed,
                                stats=stats, recent=recent, today=today_iso(),
-                               order=order, top_priority=top_priority)
+                               order=order, top_priority=top_priority,
+                               progress=progress)
     finally:
         conn.close()
 
@@ -401,6 +489,20 @@ def _bar_items(pairs, total=None):
             for l, c in pairs]
 
 
+DEFAULT_DAILY_GOAL = 20
+
+
+def _daily_goal(conn) -> int:
+    """How many logged touches count as a full day's outreach. 0 turns the
+    goal line off."""
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key='daily_goal'").fetchone()
+    try:
+        return max(0, int((row["value"] if row else "").strip()))
+    except (TypeError, ValueError, AttributeError):
+        return DEFAULT_DAILY_GOAL
+
+
 @app.route("/insights")
 def insights():
     """Critical numbers: activity trend, funnel, cadence completion, breakdowns."""
@@ -452,6 +554,38 @@ def insights():
         tiles["this_week"] = weekly_counts[-1]
         tiles["week_delta"] = weekly_counts[-1] - weekly_counts[-2]
 
+        # Interactions per DAY, last 14 days, against your daily goal. The
+        # weekly chart shows the trend; this one answers "am I actually
+        # making the calls?" while there's still time to fix it.
+        goal = _daily_goal(conn)
+        days = [today - timedelta(days=i) for i in range(13, -1, -1)]
+        day_counts = {d.isoformat(): 0 for d in days}
+        for (created,) in conn.execute(
+                "SELECT i.created_at FROM interactions i JOIN accounts a "
+                "ON a.id = i.account_id WHERE COALESCE(a.archived_at, '') = '' "
+                "AND i.created_at >= ?", (days[0].isoformat(),)):
+            key = created[:10]
+            if key in day_counts:
+                day_counts[key] += 1
+        day_peak = max(max(day_counts.values()), goal, 1)
+        daily = [{"label": d.strftime("%a"), "date": d.isoformat(),
+                  "day": d.day, "count": day_counts[d.isoformat()],
+                  "pct": round(100 * day_counts[d.isoformat()] / day_peak),
+                  "hit": goal > 0 and day_counts[d.isoformat()] >= goal,
+                  "weekend": d.weekday() >= 5, "is_today": d == today}
+                 for d in days]
+        workdays = [d for d in daily if not d["weekend"]]
+        activity = {
+            "goal": goal,
+            "days": daily,
+            "goal_pct": round(100 * goal / day_peak) if goal else 0,
+            "today_count": daily[-1]["count"],
+            "hit_days": sum(1 for d in workdays if d["hit"]),
+            "workdays": len(workdays),
+            "avg": round(sum(d["count"] for d in workdays) / len(workdays), 1)
+                   if workdays else 0,
+        }
+
         # Pipeline funnel (the cadence pool would dwarf it, so it's a tile instead)
         pipeline_bars = _bar_items([
             (m, count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
@@ -497,6 +631,7 @@ def insights():
     finally:
         conn.close()
     return render_template("insights.html", tiles=tiles, weekly=weekly,
+                           activity=activity,
                            pipeline_bars=pipeline_bars, cadence_bars=cadence_bars,
                            status_bars=status_bars, type_bars=type_bars,
                            money=money)
@@ -821,10 +956,15 @@ def delete_bid(bid_id):
     conn = get_db()
     try:
         bid = _bid_or_404(conn, bid_id)
-        for row in conn.execute("SELECT filename FROM bid_photos WHERE bid_id=?",
-                                (bid_id,)):
-            (PHOTO_DIR / row["filename"]).unlink(missing_ok=True)
+        ops = [undo_module.insert_op("bids", [dict(bid)]),
+               undo_module.insert_op("bid_photos", undo_module.capture(
+                   conn, "bid_photos", "bid_id=?", (bid_id,)))]
+        trashed = [row["filename"] for row in conn.execute(
+            "SELECT filename FROM bid_photos WHERE bid_id=?", (bid_id,))
+            if undo_module.trash_photo(row["filename"])]
+        ops.append(undo_module.files_op(trashed))
         conn.execute("DELETE FROM bids WHERE id=?", (bid_id,))
+        _offer_undo(conn, "the deleted roof report", ops)
         conn.commit()
     finally:
         conn.close()
@@ -841,7 +981,7 @@ def add_bid_photos(bid_id):
     conn = get_db()
     try:
         _bid_or_404(conn, bid_id)
-        PHOTO_DIR.mkdir(parents=True, exist_ok=True)
+        photo_dir().mkdir(parents=True, exist_ok=True)
         last = conn.execute(
             "SELECT COALESCE(MAX(sort_order), -1) FROM bid_photos WHERE bid_id=?",
             (bid_id,)).fetchone()[0]
@@ -855,7 +995,7 @@ def add_bid_photos(bid_id):
                 if img.mode not in ("RGB", "L"):
                     img = img.convert("RGB")
                 name = f"bid{bid_id}_{uuid.uuid4().hex[:10]}.jpg"
-                img.save(PHOTO_DIR / name, "JPEG", quality=85, optimize=True)
+                img.save(photo_dir() / name, "JPEG", quality=85, optimize=True)
             except Exception:
                 failed += 1
                 continue
@@ -899,8 +1039,11 @@ def delete_bid_photo(photo_id):
         row = conn.execute("SELECT * FROM bid_photos WHERE id=?",
                            (photo_id,)).fetchone()
         if row:
-            (PHOTO_DIR / row["filename"]).unlink(missing_ok=True)
+            trashed = [row["filename"]] if undo_module.trash_photo(row["filename"]) else []
             conn.execute("DELETE FROM bid_photos WHERE id=?", (photo_id,))
+            _offer_undo(conn, "the removed photo",
+                        [undo_module.insert_op("bid_photos", [dict(row)]),
+                         undo_module.files_op(trashed)])
             conn.commit()
     finally:
         conn.close()
@@ -911,7 +1054,7 @@ def delete_bid_photo(photo_id):
 @app.route("/uploads/bid_photos/<path:filename>")
 def bid_photo_file(filename):
     from flask import send_from_directory
-    return send_from_directory(PHOTO_DIR, filename)
+    return send_from_directory(photo_dir(), filename)
 
 
 @app.route("/bids/<int:bid_id>/report")
@@ -1097,7 +1240,12 @@ def delete_project(project_id):
     conn = get_db()
     try:
         proj = _project_or_404(conn, project_id)
+        ops = [undo_module.insert_op("projects", [dict(proj)])]
+        for table in ("project_tasks", "invoices"):
+            ops.append(undo_module.insert_op(table, undo_module.capture(
+                conn, table, "project_id=?", (project_id,))))
         conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
+        _offer_undo(conn, f"delete of project “{proj['name']}”", ops)
         conn.commit()
     finally:
         conn.close()
@@ -1144,8 +1292,13 @@ def toggle_project_task(project_id, task_id):
 def delete_project_task(project_id, task_id):
     conn = get_db()
     try:
+        rows = undo_module.capture(conn, "project_tasks", "id=? AND project_id=?",
+                                   (task_id, project_id))
         conn.execute("DELETE FROM project_tasks WHERE id=? AND project_id=?",
                      (task_id, project_id))
+        if rows:
+            _offer_undo(conn, f"removal of “{rows[0]['title']}”",
+                        [undo_module.insert_op("project_tasks", rows)])
         conn.commit()
     finally:
         conn.close()
@@ -1245,9 +1398,12 @@ def print_invoice(invoice_id):
 def delete_invoice(invoice_id):
     conn = get_db()
     try:
-        inv = conn.execute("SELECT project_id FROM invoices WHERE id=?",
-                           (invoice_id,)).fetchone()
+        rows = undo_module.capture(conn, "invoices", "id=?", (invoice_id,))
+        inv = rows[0] if rows else None
         conn.execute("DELETE FROM invoices WHERE id=?", (invoice_id,))
+        if rows:
+            _offer_undo(conn, "the deleted invoice",
+                        [undo_module.insert_op("invoices", rows)])
         conn.commit()
     finally:
         conn.close()
@@ -1362,6 +1518,76 @@ ACCOUNT_SORTS = {
 }
 
 
+# Phone numbers get typed with every punctuation style there is, so a digit
+# search compares against the number with its formatting stripped out.
+_PHONE_SQL = ("REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE({c},"
+              "'-',''),' ',''),'(',''),')',''),'.',''),'+','')")
+
+
+def _search_clause(q: str):
+    """SQL for the accounts search box.
+
+    Looks at everything you might remember about a company: its name, the
+    primary contact, the notes, AND the other people on the account — so a
+    name you only ever added as a second contact is still findable.
+    """
+    like = f"%{q}%"
+    cols = ["a.company_name", "a.first_name", "a.last_name", "a.email",
+            "a.title", "a.notes", "a.seniority"]
+    parts = [f"{c} LIKE ?" for c in cols]
+    params = [like] * len(cols)
+
+    digits = re.sub(r"\D", "", q)
+    if len(digits) >= 4:
+        for col in ("a.work_phone", "a.mobile_phone"):
+            parts.append(f"{_PHONE_SQL.format(c=col)} LIKE ?")
+            params.append(f"%{digits}%")
+
+    contact_cols = ["c.first_name", "c.last_name", "c.email", "c.title",
+                    "c.seniority"]
+    contact_parts = [f"{c} LIKE ?" for c in contact_cols]
+    contact_params = [like] * len(contact_cols)
+    if len(digits) >= 4:
+        for col in ("c.work_phone", "c.mobile_phone"):
+            contact_parts.append(f"{_PHONE_SQL.format(c=col)} LIKE ?")
+            contact_params.append(f"%{digits}%")
+    parts.append("EXISTS (SELECT 1 FROM contacts c WHERE c.account_id = a.id "
+                 "AND (" + " OR ".join(contact_parts) + "))")
+    params += contact_params
+    return "(" + " OR ".join(parts) + ")", params
+
+
+def _contact_match_hints(conn, q: str, rows) -> dict:
+    """{account_id: "Jane Doe (VP)"} for rows whose match came from a contact
+    rather than from the account's own fields."""
+    if not rows:
+        return {}
+    like = f"%{q}%"
+    ids = [r["id"] for r in rows]
+    ph = ",".join("?" * len(ids))
+    hits = conn.execute(
+        f"""SELECT account_id, first_name, last_name, title FROM contacts
+            WHERE account_id IN ({ph})
+              AND (first_name LIKE ? OR last_name LIKE ? OR email LIKE ?
+                   OR title LIKE ? OR seniority LIKE ?)
+            ORDER BY id""",
+        ids + [like] * 5).fetchall()
+    hints = {}
+    for h in hits:
+        if h["account_id"] in hints:
+            continue
+        name = f"{h['first_name']} {h['last_name']}".strip()
+        hints[h["account_id"]] = f"{name} — {h['title']}" if h["title"] else name
+    low = q.lower()
+    # Drop the hint when the account itself matched; it would just be noise.
+    for r in rows:
+        if r["id"] in hints and any(
+                low in (r[c] or "").lower()
+                for c in ("company_name", "first_name", "last_name", "email")):
+            hints.pop(r["id"])
+    return hints
+
+
 @app.route("/accounts")
 def accounts():
     status = request.args.get("status", "")
@@ -1391,9 +1617,9 @@ def accounts():
         sql += " AND COALESCE(a.matching_properties, 0) >= ?"
         params.append(min_matching)
     if q:
-        sql += (" AND (a.company_name LIKE ? OR a.first_name LIKE ? "
-                "OR a.last_name LIKE ? OR a.email LIKE ?)")
-        params += [f"%{q}%"] * 4
+        clause, search_params = _search_clause(q)
+        sql += " AND " + clause
+        params += search_params
     sql += " ORDER BY " + ACCOUNT_SORTS[sort]
 
     conn = get_db()
@@ -1403,13 +1629,17 @@ def accounts():
         archived_count = conn.execute(
             "SELECT COUNT(*) c FROM accounts "
             "WHERE COALESCE(archived_at, '') != ''").fetchone()["c"]
+        # When a row only matched because of someone in its contact list, say
+        # who — otherwise the result looks like a mystery.
+        match_hints = _contact_match_hints(conn, q, rows) if q else {}
     finally:
         conn.close()
     return render_template("accounts.html", accounts=rows,
                            status=status, milestone=milestone, q=q,
                            min_matching=min_matching_raw, sort=sort,
                            total_matching=total_matching, view=view,
-                           archived_count=archived_count)
+                           archived_count=archived_count,
+                           match_hints=match_hints)
 
 
 @app.route("/accounts/new", methods=["GET", "POST"])
@@ -1422,13 +1652,10 @@ def new_account():
         ts = now_iso()
         conn = get_db()
         try:
+            cols = list(fields) + ["cadence_start", "created_at", "updated_at"]
             cur = conn.execute(
-                """INSERT INTO accounts
-                   (company_name, first_name, last_name, title, num_properties,
-                    matching_properties, email, work_phone, mobile_phone,
-                    preferred_contact, notes, prospecting_status,
-                    pipeline_milestone, cadence_start, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                f"INSERT INTO accounts ({','.join(cols)}) "
+                f"VALUES ({','.join('?' * len(cols))})",
                 (*fields.values(), today_iso(), ts, ts))
             conn.commit()
             new_id = cur.lastrowid
@@ -1477,11 +1704,8 @@ def edit_account(account_id):
             flash("Company name is required.", "danger")
             return redirect(url_for("account_detail", account_id=account_id))
         conn.execute(
-            """UPDATE accounts SET company_name=?, first_name=?, last_name=?,
-               title=?, num_properties=?, matching_properties=?, email=?,
-               work_phone=?, mobile_phone=?, preferred_contact=?, notes=?,
-               prospecting_status=?, pipeline_milestone=?, updated_at=?
-               WHERE id=?""",
+            f"UPDATE accounts SET {','.join(c + '=?' for c in fields)}, "
+            f"updated_at=? WHERE id=?",
             (*fields.values(), now_iso(), account_id))
         conn.commit()
     finally:
@@ -1553,6 +1777,152 @@ def restore_account(account_id):
                     or url_for("account_detail", account_id=account_id))
 
 
+# ------------------------------------------------------------ Bulk actions
+
+# Columns a bulk action may write, and the form field each reads from.
+BULK_FIELD_ACTIONS = {
+    "status": ("prospecting_status", PROSPECTING_STATUSES),
+    "milestone": ("pipeline_milestone", PIPELINE_MILESTONES),
+}
+
+
+@app.route("/accounts/bulk", methods=["POST"])
+def bulk_accounts():
+    """Apply one change to every ticked account.
+
+    Cleaning up a 400-row import one account at a time is the kind of chore
+    that stops people using a CRM, so every bulk action is undoable: the
+    previous values are snapshotted before anything is written.
+    """
+    action = request.form.get("action", "")
+    ids = [int(i) for i in request.form.getlist("account_ids") if i.isdigit()]
+    back = request.form.get("next") or url_for("accounts")
+    if not ids:
+        flash("Tick at least one account first.", "warning")
+        return redirect(back)
+
+    ph = ",".join("?" * len(ids))
+    ts = now_iso()
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            f"SELECT * FROM accounts WHERE id IN ({ph})", ids).fetchall()
+        ids = [r["id"] for r in rows]          # drop ids that no longer exist
+        if not ids:
+            flash("Those accounts no longer exist.", "danger")
+            return redirect(back)
+        ph = ",".join("?" * len(ids))
+        n = len(ids)
+
+        def snapshot(*cols):
+            return [undo_module.update_op("accounts", [
+                {"id": r["id"], **{c: r[c] for c in cols}} for r in rows])]
+
+        if action in BULK_FIELD_ACTIONS:
+            column, allowed = BULK_FIELD_ACTIONS[action]
+            value = request.form.get("value", "")
+            if value not in allowed:
+                flash("Pick a value to set first.", "warning")
+                return redirect(back)
+            _offer_undo(conn, f"the change to {n} account(s)", snapshot(column))
+            conn.execute(
+                f"UPDATE accounts SET {column}=?, updated_at=? WHERE id IN ({ph})",
+                [value, ts] + ids)
+            flash(f"Set {column.replace('_', ' ')} to “{value}” on {n} account(s).",
+                  "success")
+
+        elif action == "archive":
+            reason = request.form.get("value", "").strip()
+            _offer_undo(conn, f"archiving {n} account(s)",
+                        snapshot("archived_at", "archive_reason",
+                                 "next_follow_up", "follow_up_note"))
+            conn.execute(
+                f"UPDATE accounts SET archived_at=?, archive_reason=?, "
+                f"next_follow_up='', follow_up_note='', updated_at=? "
+                f"WHERE id IN ({ph}) AND COALESCE(archived_at,'') = ''",
+                [ts, reason, ts] + ids)
+            flash(f"Archived {n} account(s). Future imports will skip them.",
+                  "warning")
+
+        elif action == "restore":
+            _offer_undo(conn, f"restoring {n} account(s)",
+                        snapshot("archived_at", "archive_reason"))
+            conn.execute(
+                f"UPDATE accounts SET archived_at='', archive_reason='', "
+                f"updated_at=? WHERE id IN ({ph})", [ts] + ids)
+            flash(f"Restored {n} account(s) to your working list.", "success")
+
+        elif action == "followup":
+            when = request.form.get("value", "").strip()
+            note = request.form.get("follow_up_note", "").strip()
+            if when:
+                try:
+                    datetime.fromisoformat(when)
+                except ValueError:
+                    flash(f"Couldn't read the date “{when}”.", "danger")
+                    return redirect(back)
+            _offer_undo(conn, f"the follow-up change on {n} account(s)",
+                        snapshot("next_follow_up", "follow_up_note"))
+            conn.execute(
+                f"UPDATE accounts SET next_follow_up=?, follow_up_note=?, "
+                f"updated_at=? WHERE id IN ({ph})", [when, note, ts] + ids)
+            flash((f"Follow-up set for {when} on {n} account(s)." if when
+                   else f"Cleared the follow-up on {n} account(s)."), "success")
+
+        elif action == "restart_cadence":
+            _offer_undo(conn, f"restarting the cadence on {n} account(s)",
+                        snapshot("cadence_start", "prospecting_status",
+                                 "pipeline_milestone"))
+            conn.execute(
+                f"UPDATE accounts SET cadence_start=?, prospecting_status=?, "
+                f"pipeline_milestone=?, updated_at=? WHERE id IN ({ph})",
+                [today_iso(), cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE,
+                 ts] + ids)
+            conn.execute(
+                f"DELETE FROM cadence_dismissals WHERE account_id IN ({ph})", ids)
+            flash(f"Restarted the cadence on {n} account(s) from today.", "success")
+
+        elif action == "delete":
+            # Only offered on the Archived view — you have to archive a
+            # company before you can erase it, which makes this hard to do
+            # by accident. Still undoable, photos included.
+            ops = [undo_module.insert_op("accounts", [dict(r) for r in rows])]
+            for table in ("contacts", "interactions", "cadence_dismissals",
+                          "bids", "projects"):
+                ops.append(undo_module.insert_op(table, undo_module.capture(
+                    conn, table, f"account_id IN ({ph})", ids)))
+            bid_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM bids WHERE account_id IN ({ph})", ids)]
+            project_ids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM projects WHERE account_id IN ({ph})", ids)]
+            trashed = []
+            if bid_ids:
+                bph = ",".join("?" * len(bid_ids))
+                ops.append(undo_module.insert_op("bid_photos", undo_module.capture(
+                    conn, "bid_photos", f"bid_id IN ({bph})", bid_ids)))
+                trashed = [r["filename"] for r in conn.execute(
+                    f"SELECT filename FROM bid_photos WHERE bid_id IN ({bph})",
+                    bid_ids) if undo_module.trash_photo(r["filename"])]
+            if project_ids:
+                pph = ",".join("?" * len(project_ids))
+                for table in ("project_tasks", "invoices"):
+                    ops.append(undo_module.insert_op(table, undo_module.capture(
+                        conn, table, f"project_id IN ({pph})", project_ids)))
+            ops.append(undo_module.files_op(trashed))
+            conn.execute(f"DELETE FROM accounts WHERE id IN ({ph})", ids)
+            _offer_undo(conn, f"deletion of {n} account(s)", ops)
+            flash(f"Permanently deleted {n} account(s). A future import can "
+                  f"add these companies again.", "warning")
+
+        else:
+            flash("Pick an action first.", "warning")
+            return redirect(back)
+        conn.commit()
+    finally:
+        conn.close()
+    return redirect(back)
+
+
 @app.route("/accounts/<int:account_id>/delete", methods=["POST"])
 def delete_account(account_id):
     """Erase an account for good. Unlike archiving, this forgets the company
@@ -1560,11 +1930,37 @@ def delete_account(account_id):
     conn = get_db()
     try:
         acct = _account_or_404(conn, account_id)
-        for row in conn.execute(
-                "SELECT p.filename FROM bid_photos p JOIN bids b ON b.id = p.bid_id "
-                "WHERE b.account_id = ?", (account_id,)):
-            (PHOTO_DIR / row["filename"]).unlink(missing_ok=True)
+        # Snapshot the whole subtree, parents first, so Undo can rebuild it.
+        bid_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM bids WHERE account_id=?", (account_id,))]
+        project_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM projects WHERE account_id=?", (account_id,))]
+        ops = [undo_module.insert_op("accounts", [dict(acct)])]
+        for table in ("contacts", "interactions", "cadence_dismissals"):
+            ops.append(undo_module.insert_op(
+                table, undo_module.capture(conn, table, "account_id=?", (account_id,))))
+        ops.append(undo_module.insert_op(
+            "bids", undo_module.capture(conn, "bids", "account_id=?", (account_id,))))
+        ops.append(undo_module.insert_op(
+            "projects", undo_module.capture(conn, "projects", "account_id=?", (account_id,))))
+        if bid_ids:
+            ph = ",".join("?" * len(bid_ids))
+            ops.append(undo_module.insert_op("bid_photos", undo_module.capture(
+                conn, "bid_photos", f"bid_id IN ({ph})", bid_ids)))
+        if project_ids:
+            ph = ",".join("?" * len(project_ids))
+            for table in ("project_tasks", "invoices"):
+                ops.append(undo_module.insert_op(table, undo_module.capture(
+                    conn, table, f"project_id IN ({ph})", project_ids)))
+        # Photos go to the trash rather than straight to the bin, so Undo can
+        # bring the images back and not just their database rows.
+        trashed = [row["filename"] for row in conn.execute(
+            "SELECT p.filename FROM bid_photos p JOIN bids b ON b.id = p.bid_id "
+            "WHERE b.account_id = ?", (account_id,))
+            if undo_module.trash_photo(row["filename"])]
+        ops.append(undo_module.files_op(trashed))
         conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+        _offer_undo(conn, f"delete of “{acct['company_name']}”", ops)
         conn.commit()
     finally:
         conn.close()
@@ -1591,9 +1987,72 @@ def log_interaction(account_id):
                     or url_for("account_detail", account_id=account_id))
 
 
+@app.route("/interactions/<int:interaction_id>/edit", methods=["POST"])
+def edit_interaction(interaction_id):
+    """Fix a logged interaction — wrong type, typo in the notes, or a call
+    logged on the wrong day. The date matters: cadence reminders are computed
+    from what's logged, so correcting it corrects the reminders too."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM interactions WHERE id=?",
+                           (interaction_id,)).fetchone()
+        if row is None:
+            flash("That entry no longer exists.", "danger")
+            return redirect(request.form.get("next") or url_for("dashboard"))
+        itype = request.form.get("interaction_type", row["interaction_type"])
+        if itype not in INTERACTION_TYPES:
+            itype = row["interaction_type"]
+        notes = request.form.get("notes", "").strip()
+        created_at = row["created_at"]
+        new_date = request.form.get("created_date", "").strip()
+        if new_date and new_date != created_at[:10]:
+            try:
+                datetime.fromisoformat(new_date)
+                created_at = new_date + created_at[10:]
+            except ValueError:
+                flash(f"Couldn't read the date “{new_date}” — kept the original.",
+                      "warning")
+        conn.execute(
+            "UPDATE interactions SET interaction_type=?, notes=?, created_at=? "
+            "WHERE id=?", (itype, notes, created_at, interaction_id))
+        _offer_undo(conn, "that edit", [undo_module.update_op("interactions", [
+            {"id": row["id"], "interaction_type": row["interaction_type"],
+             "notes": row["notes"], "created_at": row["created_at"]}])])
+        conn.commit()
+        account_id = row["account_id"]
+    finally:
+        conn.close()
+    flash("Entry updated.", "success")
+    return redirect(request.form.get("next")
+                    or url_for("account_detail", account_id=account_id))
+
+
+@app.route("/interactions/<int:interaction_id>/delete", methods=["POST"])
+def delete_interaction(interaction_id):
+    """Remove a logged interaction. If it was a cadence step, its reminder
+    comes back — the reminders are derived from what's logged."""
+    conn = get_db()
+    try:
+        rows = undo_module.capture(conn, "interactions", "id=?", (interaction_id,))
+        if not rows:
+            flash("That entry no longer exists.", "danger")
+            return redirect(request.form.get("next") or url_for("dashboard"))
+        conn.execute("DELETE FROM interactions WHERE id=?", (interaction_id,))
+        _offer_undo(conn, f"deletion of “{rows[0]['interaction_type']}”",
+                    [undo_module.insert_op("interactions", rows)])
+        conn.commit()
+        account_id = rows[0]["account_id"]
+    finally:
+        conn.close()
+    flash("Entry deleted.", "warning")
+    return redirect(request.form.get("next")
+                    or url_for("account_detail", account_id=account_id))
+
+
 # ----------------------------------------------------------------- Contacts
 
-CONTACT_COLS = ("first_name", "last_name", "title", "email", "work_phone", "mobile_phone")
+CONTACT_COLS = ("first_name", "last_name", "title", "email", "work_phone",
+                "mobile_phone", "linkedin_url", "seniority")
 
 
 def _has_primary_contact(acct) -> bool:
@@ -1604,26 +2063,39 @@ def _demote_primary_to_contact(conn, acct):
     """Move the account's current primary-contact fields into a contacts row."""
     if _has_primary_contact(acct):
         conn.execute(
-            "INSERT INTO contacts (account_id, first_name, last_name, title, "
-            "email, work_phone, mobile_phone, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (acct["id"], acct["first_name"], acct["last_name"], acct["title"],
-             acct["email"], acct["work_phone"], acct["mobile_phone"], now_iso()))
+            f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
+            f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
+            (acct["id"], *(acct[c] for c in CONTACT_COLS), now_iso()))
 
 
 def _set_primary_contact(conn, account_id, person: dict):
     conn.execute(
-        "UPDATE accounts SET first_name=?, last_name=?, title=?, email=?, "
-        "work_phone=?, mobile_phone=?, updated_at=? WHERE id=?",
-        (person["first_name"], person["last_name"], person["title"],
-         person["email"], person["work_phone"], person["mobile_phone"],
-         now_iso(), account_id))
+        f"UPDATE accounts SET {','.join(c + '=?' for c in CONTACT_COLS)}, "
+        f"updated_at=? WHERE id=?",
+        (*(person.get(c, "") for c in CONTACT_COLS), now_iso(), account_id))
 
 
 @app.route("/accounts/<int:account_id>/contacts/add", methods=["POST"])
 def add_contact(account_id):
     person = {c: request.form.get(c, "").strip() for c in CONTACT_COLS}
+    parsed_note = ""
+    paste = request.form.get("paste", "").strip()
+    if paste:
+        # "Paste from ZoomInfo": the blob fills whatever the form left blank,
+        # so a copied profile becomes a contact without retyping six fields.
+        parsed = importer.parse_contact_blob(paste)
+        filled = [c for c in CONTACT_COLS if not person[c] and parsed.get(c)]
+        for c in filled:
+            person[c] = parsed[c]
+        if filled:
+            parsed_note = " Read from the paste: " + ", ".join(
+                c.replace("_", " ") for c in filled) + "."
+    if not person["seniority"] and person["title"]:
+        person["seniority"] = importer.seniority_from_title(person["title"])
     if not (person["first_name"] or person["last_name"]):
-        flash("Contact needs at least a first or last name.", "danger")
+        flash("Contact needs at least a first or last name — the paste didn't "
+              "contain one, so nothing was added." if paste else
+              "Contact needs at least a first or last name.", "danger")
         return redirect(url_for("account_detail", account_id=account_id))
     conn = get_db()
     try:
@@ -1634,14 +2106,14 @@ def add_contact(account_id):
             _set_primary_contact(conn, account_id, person)
         else:
             conn.execute(
-                "INSERT INTO contacts (account_id, first_name, last_name, title, "
-                "email, work_phone, mobile_phone, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (account_id, *person.values(), now_iso()))
+                f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
+                f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
+                (account_id, *(person[c] for c in CONTACT_COLS), now_iso()))
         conn.commit()
     finally:
         conn.close()
     flash(f"Contact {person['first_name']} {person['last_name']} added"
-          + (" as primary." if make_primary else "."), "success")
+          + (" as primary." if make_primary else ".") + parsed_note, "success")
     return redirect(url_for("account_detail", account_id=account_id))
 
 
@@ -1669,8 +2141,14 @@ def promote_contact(account_id, contact_id):
 def delete_contact(account_id, contact_id):
     conn = get_db()
     try:
+        rows = undo_module.capture(conn, "contacts", "id=? AND account_id=?",
+                                   (contact_id, account_id))
         conn.execute("DELETE FROM contacts WHERE id=? AND account_id=?",
                      (contact_id, account_id))
+        if rows:
+            who = f"{rows[0]['first_name']} {rows[0]['last_name']}".strip() or "contact"
+            _offer_undo(conn, f"removal of {who}",
+                        [undo_module.insert_op("contacts", rows)])
         conn.commit()
     finally:
         conn.close()
@@ -1774,11 +2252,17 @@ def save_settings():
         for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
                     "my_website", "my_address", "invoice_terms", "backup_dir",
                     "price_capsheet_base", "price_other_base", "price_add_15",
-                    "price_add_20"):
+                    "price_add_20", "daily_goal"):
             if key not in request.form:  # only touch submitted fields
                 continue
             value = request.form.get(key, "").strip()
-            if key.startswith("price_"):
+            if key == "daily_goal":
+                count = _parse_int(value, on_error=_MISSING)
+                if count is _MISSING or count is None or count < 0:
+                    bad_prices.append("daily activity goal")
+                    continue
+                value = str(count)
+            elif key.startswith("price_"):
                 amount = _parse_amount(value, on_error=_MISSING)
                 if amount is _MISSING or amount is None:
                     bad_prices.append(key.replace("price_", "").replace("_", " "))
@@ -1792,7 +2276,7 @@ def save_settings():
     finally:
         conn.close()
     if bad_prices:
-        flash("Saved, but these prices weren't numbers and were left unchanged: "
+        flash("Saved, but these weren't numbers and were left unchanged: "
               + ", ".join(bad_prices) + ".", "warning")
     else:
         flash("Settings saved.", "success")
@@ -1875,7 +2359,12 @@ def import_page():
                 flash(f"Import failed: {e}", "danger")
             finally:
                 conn.close()
-    return render_template("import.html", result=result,
+    conn = get_db()
+    try:
+        duplicates = importer.find_duplicate_groups(conn)
+    finally:
+        conn.close()
+    return render_template("import.html", result=result, duplicates=duplicates,
                            backup_dir=_backup_dir_setting())
 
 
@@ -1924,32 +2413,40 @@ def repace():
 def import_contacts_route():
     """Bulk-attach a ZoomInfo (or similar) contact export to existing accounts."""
     file = request.files.get("file")
-    if not file or not file.filename:
-        flash("Choose a .xlsx or .csv contact file first.", "danger")
-        return render_template("import.html", result=None,
-                               backup_dir=_backup_dir_setting())
+    create_missing = bool(request.form.get("create_missing"))
+    contact_result = None
+    duplicates = []
     conn = get_db()
     try:
-        contact_result = importer.import_contacts(conn, file)
-        flash(f"Attached {contact_result['attached']} contact(s) to "
-              f"{contact_result['companies_matched']} account(s).", "success")
-    except ValueError as e:
-        flash(str(e), "danger")
-        contact_result = None
-    except Exception as e:
-        flash(f"Contact import failed: {e}", "danger")
-        contact_result = None
+        if not file or not file.filename:
+            flash("Choose a .xlsx or .csv contact file first.", "danger")
+        else:
+            try:
+                contact_result = importer.import_contacts(
+                    conn, file, create_missing=create_missing)
+                msg = (f"Attached {contact_result['attached']} contact(s) to "
+                       f"{contact_result['companies_matched']} account(s).")
+                if contact_result["accounts_created"]:
+                    msg += (f" Opened {contact_result['accounts_created']} new "
+                            f"account(s) for companies you didn't have.")
+                flash(msg, "success")
+            except ValueError as e:
+                flash(str(e), "danger")
+            except Exception as e:
+                flash(f"Contact import failed: {e}", "danger")
+        duplicates = importer.find_duplicate_groups(conn)
     finally:
         conn.close()
-    return render_template("import.html", result=None,
+    return render_template("import.html", result=None, duplicates=duplicates,
                            contact_result=contact_result,
                            backup_dir=_backup_dir_setting())
 
 
 @app.route("/import/template")
 def import_template():
-    csv = ("Company Name,First Name,Last Name,Title,Number of Properties,"
-           "Email,Work Phone,Mobile Phone,Notes\r\n")
+    csv = ("Company Name,First Name,Last Name,Job Title,Number of Properties,"
+           "# Properties (in search),Email Address,Direct Phone Number,"
+           "Mobile phone,LinkedIn Contact Profile URL,Management Level,Notes\r\n")
     return send_file(io.BytesIO(csv.encode()), mimetype="text/csv",
                      as_attachment=True, download_name="crm_import_template.csv")
 
@@ -2010,6 +2507,12 @@ if __name__ == "__main__":
     backup = backup_db()
     if backup:
         print(f"  Daily backup saved: {backup}")
+    # Drop undo records (and the photos they were holding) past their shelf life.
+    conn = get_db()
+    try:
+        undo_module.purge(conn)
+    finally:
+        conn.close()
     print_network_instructions()
     try:
         from waitress import serve

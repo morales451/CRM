@@ -34,13 +34,24 @@
   <h5>Import Contacts <span class="text-muted fs-6">(ZoomInfo export)</span></h5>
   <p class="mb-2 small">Export contacts from ZoomInfo (or any list with <strong>Company Name</strong> +
     <strong>First/Last Name</strong> columns) and upload it here. Each person is matched to your existing
-    accounts by company name — legal suffixes like LLC/Inc are ignored when matching.
+    accounts by company name — legal suffixes like LLC/Inc/LP/REIT are ignored when matching.
     The first person added to an account becomes its primary contact; more people stack under
-    the account's Contacts list. Duplicate people are skipped, so re-uploads are safe.</p>
-  <form method="post" action="{{ url_for('import_contacts_route') }}" enctype="multipart/form-data"
-        class="d-flex gap-2 flex-wrap align-items-center">
-    <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
-    <button class="btn btn-primary">Upload Contacts</button>
+    the account's Contacts list. Duplicate people are skipped, so re-uploads are safe.
+    Archived companies are never touched.</p>
+  <p class="mb-2 small text-muted">Picked up automatically from a stock ZoomInfo export:
+    Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number,
+    Mobile phone, <strong>LinkedIn Contact Profile URL</strong> and
+    <strong>Management Level</strong>.</p>
+  <form method="post" action="{{ url_for('import_contacts_route') }}" enctype="multipart/form-data">
+    <div class="d-flex gap-2 flex-wrap align-items-center">
+      <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
+      <button class="btn btn-primary">Upload Contacts</button>
+    </div>
+    <label class="small mt-2 d-block">
+      <input type="checkbox" name="create_missing" value="1">
+      Open a new account for any company I don't have yet
+      <span class="text-muted">— otherwise those rows are just listed back to you as unmatched.</span>
+    </label>
   </form>
 </div>
 
@@ -91,14 +102,31 @@
   <h5>Contact Import Summary</h5>
   <ul class="mb-2">
     <li><strong>{{ contact_result.attached }}</strong> contact(s) attached to {{ contact_result.companies_matched }} account(s)</li>
+    {% if contact_result.accounts_created %}
+    <li><strong>{{ contact_result.accounts_created }}</strong> new account(s) opened for companies you didn't have</li>
+    {% endif %}
     <li>{{ contact_result.skipped_duplicates }} skipped (person already on the account)</li>
     <li>{{ contact_result.skipped_blank }} skipped (no name or company)</li>
+    {% if contact_result.skipped_archived %}
+    <li><strong>{{ contact_result.skipped_archived }}</strong> skipped because you archived the company
+      ({{ contact_result.archived_names|join(', ') }})</li>
+    {% endif %}
     <li>{{ contact_result.total_rows }} row(s) in file</li>
   </ul>
+  {% if contact_result.mapped_columns %}
+  <details class="small mb-2">
+    <summary class="text-muted" style="cursor:pointer">Columns it read</summary>
+    <ul class="mt-1">
+      {% for field, col in contact_result.mapped_columns.items() %}
+      <li>{{ field.replace('_', ' ') }} ← <code>{{ col }}</code></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}
   {% if contact_result.unmatched %}
   <h6>⚠️ Companies not found in your accounts ({{ contact_result.unmatched|length }})</h6>
   <p class="small text-muted mb-1">These rows were skipped — the company name didn't match any account.
-    Check for spelling differences, or add the account first.</p>
+    Re-upload with “Open a new account for any company I don't have yet” ticked to bring them in.</p>
   <ul class="small">
     {% for name, count in contact_result.unmatched.items() %}
     <li>{{ name }}{% if count > 1 %} ({{ count }} contacts){% endif %}</li>
@@ -140,6 +168,33 @@
     {% endif %}
   </ul>
   <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-primary mt-3" style="max-width: 180px;">View Accounts →</a>
+</div>
+{% endif %}
+
+{% if duplicates %}
+<div class="card p-3 mt-3 border border-warning">
+  <h5>⚠️ Possible duplicate accounts ({{ duplicates|length }})</h5>
+  <p class="small text-muted mb-2">These accounts resolve to the same company once
+    LLC/Inc/LP-style suffixes and punctuation are ignored. Imports now treat them as one
+    company, but these were created before that — open each pair, move anything worth
+    keeping onto the one you want, and archive the other.</p>
+  {% for group in duplicates %}
+  <div class="mb-2">
+    <div class="small text-muted">matched as “{{ group.key }}”</div>
+    <ul class="mb-0">
+      {% for a in group.accounts %}
+      <li>
+        <a href="{{ url_for('account_detail', account_id=a.id) }}">{{ a.company_name }}</a>
+        <span class="small text-muted">
+          — {{ a.prospecting_status }} / {{ a.pipeline_milestone }}
+          {% if a.matching_properties %} · 🎯 {{ a.matching_properties }}{% endif %}
+          · added {{ a.created_at|d }}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
 </div>
 {% endif %}
 {% endblock %}

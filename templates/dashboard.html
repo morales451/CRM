@@ -17,6 +17,26 @@
   </div>
 </div>
 
+{% if progress.total %}
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2">
+    <strong>
+      {% if progress.all_done %}✅ Today's list is clear — {{ progress.done }} logged.
+      {% else %}{{ progress.done }} of {{ progress.total }} done today{% endif %}
+    </strong>
+    <span class="text-muted small">
+      {% if progress.remaining %}{{ progress.remaining }} left{% else %}nice work{% endif %}
+    </span>
+  </div>
+  <div class="progress mt-2" style="height:.6rem" role="progressbar"
+       aria-valuenow="{{ progress.pct }}" aria-valuemin="0" aria-valuemax="100"
+       aria-label="Today's tasks completed">
+    <div class="progress-bar {{ 'bg-success' if progress.all_done else '' }}"
+         style="width: {{ progress.pct }}%"></div>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-2 mb-4">
   <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ reminders|length + followups|length }}</div><div class="text-muted small">Tasks Due</div>

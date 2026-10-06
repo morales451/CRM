@@ -23,6 +23,22 @@
 </div>
 
 <div class="card p-3 mb-3">
+  <h5>🎯 Daily activity goal</h5>
+  <p class="small text-muted mb-2">How many logged touches make a full day of outreach. Insights
+    charts your last 14 days against it so you can see whether a slow month is an activity
+    problem or a conversion problem. Set it to 0 to hide the goal line.</p>
+  <form method="post" action="{{ url_for('save_settings') }}" class="row g-2 align-items-end">
+    <input type="hidden" name="next" value="{{ url_for('templates_page') }}">
+    <div class="col-6 col-md-3">
+      <label class="form-label small mb-0">Interactions per day</label>
+      <input name="daily_goal" type="number" min="0" class="form-control form-control-sm"
+             value="{{ settings.get('daily_goal', '20') }}">
+    </div>
+    <div class="col-12 col-md-3"><button class="btn btn-sm btn-primary">Save</button></div>
+  </form>
+</div>
+
+<div class="card p-3 mb-3">
   <h5>💵 Pricing</h5>
   <p class="small text-muted mb-2">Sell price per square foot of coated roof. The CRM suggests a price on every roof report
     from these numbers; you can always override the quote.</p>
