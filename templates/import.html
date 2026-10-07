@@ -11,7 +11,7 @@
     <div class="input-group input-group-sm" style="max-width: 260px;">
       <span class="input-group-text">Start</span>
       <input type="number" name="per_day" min="1" class="form-control" placeholder="all at once"
-             title="Leave empty to start every account today. For a big list, use about a quarter of the touches you can do in a day.">
+             title="Leave empty to start every account today. For a big list, use about a fifth of the touches you can do in a day.">
       <span class="input-group-text">/business day</span>
     </div>
     <button class="btn btn-primary">Upload & Import</button>
@@ -63,9 +63,9 @@
     (no interactions logged, no steps checked off) at N per business day starting tomorrow.
     Accounts you've already contacted keep their dates.</p>
   <p class="small mb-2"><strong>Pick N from the number of touches you can do in a day, divided by
-    four.</strong> Each account brings five touches over ten days, so new starts stack up: at
-    25 a day you'd settle at around 100 tasks a day, more on Mondays. If you can manage 40 a
-    day, start 10.</p>
+    five.</strong> Each account brings five touches over ten business days, so new starts stack
+    up: at 10 a day you settle at exactly 50 tasks a day, every working day. If you can manage
+    50 a day, start 10.</p>
   <form method="post" action="{{ url_for('repace') }}" class="d-flex gap-2 flex-wrap align-items-center"
         onsubmit="return confirm('Re-stagger cadence start dates for all untouched in-cadence accounts?')">
     <div class="input-group input-group-sm" style="max-width: 260px;">
@@ -83,7 +83,7 @@
     const hint = document.getElementById('repace-hint');
     n.addEventListener('input', () => {
       const v = parseInt(n.value, 10);
-      hint.textContent = v > 0 ? '≈ ' + (v * 4) + ' tasks a day once it settles' : '';
+      hint.textContent = v > 0 ? '≈ ' + (v * 5) + ' tasks a day once it settles' : '';
     });
   })();
   </script>
@@ -119,6 +119,9 @@
   <h5>Contact Import Summary</h5>
   <ul class="mb-2">
     <li><strong>{{ contact_result.attached }}</strong> contact(s) attached to {{ contact_result.companies_matched }} account(s)</li>
+    {% if contact_result.cadence_started %}
+    <li><strong>{{ contact_result.cadence_started }}</strong> account(s) left Research — they have someone to contact now, so their cadence starts today</li>
+    {% endif %}
     {% if contact_result.accounts_created %}
     <li><strong>{{ contact_result.accounts_created }}</strong> new account(s) opened for companies you didn't have</li>
     {% endif %}
@@ -158,7 +161,14 @@
 <div class="card p-3">
   <h5>Import Summary</h5>
   <ul class="mb-2">
-    <li><strong>{{ result.imported }}</strong> account(s) imported</li>
+    <li><strong>{{ result.imported }}</strong> account(s) imported
+      {% if result.to_research %}
+      — <strong>{{ result.started }}</strong> into the cadence,
+      <strong>{{ result.to_research }}</strong> into
+      <a href="{{ url_for('accounts', view='research') }}">Research</a>
+      (no contact name with an email or phone yet; their cadence starts when you add one)
+      {% endif %}
+    </li>
     {% if result.backfilled %}<li><strong>{{ result.backfilled }}</strong> existing account(s) backfilled with property counts</li>{% endif %}
     <li>{{ result.skipped_duplicates }} skipped (company already exists)</li>
     {% if result.matched_names %}
@@ -205,27 +215,38 @@
 
 {% if duplicates %}
 <div class="card p-3 mt-3 border border-warning">
-  <h5>⚠️ Possible duplicate accounts ({{ duplicates|length }})</h5>
-  <p class="small text-muted mb-2">These accounts resolve to the same company once
-    LLC/Inc/LP-style suffixes and punctuation are ignored. Imports now treat them as one
-    company, but these were created before that — open each pair, move anything worth
-    keeping onto the one you want, and archive the other.</p>
+  <h5 id="duplicates">⚠️ Possible duplicate accounts ({{ duplicates|length }})</h5>
+  <p class="small text-muted mb-2">These accounts are the same company once legal suffixes
+    (LLC, Inc, LP, Corp, P.C.) and punctuation are ignored. Pick the one to keep and press
+    <strong>Merge</strong>: everything on the others — people, history, roof reports,
+    projects — moves onto it, any gaps in its details are filled in, and the duplicates
+    are removed. The one that's been worked most is pre-selected. Undo is available
+    straight after.</p>
   {% for group in duplicates %}
-  <div class="mb-2">
-    <div class="small text-muted">matched as “{{ group.key }}”</div>
-    <ul class="mb-0">
-      {% for a in group.accounts %}
-      <li>
+  <form method="post" action="{{ url_for('merge_duplicates') }}" class="border rounded p-2 mb-2"
+        onsubmit="return confirm('Merge these into the account you picked? Everything moves onto it and the others are removed. You can undo straight after.')">
+    <div class="small text-muted mb-1">matched as “{{ group.key }}”</div>
+    {% for a in group.accounts %}
+    <input type="hidden" name="account_ids" value="{{ a.id }}">
+    <label class="d-flex gap-2 align-items-start mb-1" style="cursor:pointer">
+      <input type="radio" name="keep" value="{{ a.id }}" class="form-check-input mt-1"
+             {{ 'checked' if a.suggested }}>
+      <span>
         <a href="{{ url_for('account_detail', account_id=a.id) }}">{{ a.company_name }}</a>
+        {% if a.suggested %}<span class="badge text-bg-light border">suggested</span>{% endif %}
         <span class="small text-muted">
           — {{ a.prospecting_status }} / {{ a.pipeline_milestone }}
           {% if a.matching_properties %} · 🎯 {{ a.matching_properties }}{% endif %}
+          · {{ a.touches }} touch{{ 'es' if a.touches != 1 }}
+          · {{ a.people }} {{ 'person' if a.people == 1 else 'people' }}
+          {% if a.first_name or a.last_name %}({{ a.first_name }} {{ a.last_name }}){% endif %}
           · added {{ a.created_at|d }}
         </span>
-      </li>
-      {% endfor %}
-    </ul>
-  </div>
+      </span>
+    </label>
+    {% endfor %}
+    <button class="btn btn-sm btn-outline-primary mt-1">⇢ Merge into the selected account</button>
+  </form>
   {% endfor %}
 </div>
 {% endif %}

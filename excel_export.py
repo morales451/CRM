@@ -205,10 +205,10 @@ def build_workbook(conn) -> io.BytesIO:
            JOIN accounts a ON a.id = i.account_id
            ORDER BY i.created_at DESC, i.id DESC""").fetchall()
     _add_sheet(wb, "Interactions",
-               ["Date", "Company", "Type", "Notes"],
+               ["Date", "Company", "Type", "Outcome", "Notes"],
                [[r["created_at"], r["company_name"], r["interaction_type"],
-                 r["notes"]] for r in rows],
-               widths=[12, 34, 16, 70])
+                 r["outcome"] or "", r["notes"]] for r in rows],
+               widths=[12, 34, 16, 16, 70])
 
     # --- Roof reports / bids -----------------------------------------
     rows = conn.execute(

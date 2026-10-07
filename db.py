@@ -123,6 +123,25 @@ PROJECT_STATUSES = [
 
 INVOICE_STATUSES = ["Draft", "Sent", "Paid"]
 
+# What happened on a call, one tap each. Some outcomes also move the account:
+#   Meeting booked -> milestone "Accepted Meeting" (which ends the cadence)
+#   Not interested -> status "Not Interested"      (which ends the cadence)
+#   Bad number     -> back to Research, and the step stays outstanding so the
+#                     call comes round again once the number is fixed
+CALL_OUTCOMES = [
+    "No answer",
+    "Voicemail",
+    "Gatekeeper",
+    "Spoke",
+    "Meeting booked",
+    "Not interested",
+    "Bad number",
+]
+# Outcomes where you actually reached the decision-maker.
+CONNECT_OUTCOMES = ("Spoke", "Meeting booked", "Not interested")
+# Cadence steps that are phone calls, and so get outcome buttons.
+CALL_STEPS = ("Call & Text", "Call 2")
+
 # Why an account was taken off the working list. Archived accounts keep all
 # their history and are skipped by future imports.
 ARCHIVE_REASONS = [
@@ -198,6 +217,7 @@ CREATE TABLE IF NOT EXISTS interactions (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
     interaction_type TEXT NOT NULL,
     notes TEXT DEFAULT '',
+    outcome TEXT DEFAULT '',              -- one of CALL_OUTCOMES, or blank
     created_at TEXT NOT NULL              -- ISO timestamp
 );
 
@@ -514,6 +534,9 @@ def _migrate(conn) -> None:
     for name in ("linkedin_url", "seniority"):
         if name not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} TEXT DEFAULT ''")
+    interaction_cols = {row[1] for row in conn.execute("PRAGMA table_info(interactions)")}
+    if interaction_cols and "outcome" not in interaction_cols:
+        conn.execute("ALTER TABLE interactions ADD COLUMN outcome TEXT DEFAULT ''")
     contact_cols = {row[1] for row in conn.execute("PRAGMA table_info(contacts)")}
     if contact_cols:
         for name in ("linkedin_url", "seniority"):
@@ -575,11 +598,61 @@ def backup_db(keep: int = 14):
     return made
 
 
-def init_db() -> None:
+def _move_unreachable_to_research(conn) -> int:
+    """One-time: take accounts with nobody to contact out of the cadence.
+
+    Before Research existed, every imported account started its clock on
+    import — including the ones with no name, no email or no phone, whose
+    steps could never be done and simply piled up as overdue. This moves
+    those accounts into Research (no clock) so the cadence only holds work
+    that can actually be done.
+
+    Deliberately narrow: only accounts still in the cadence that have never
+    been touched — nothing logged, nothing checked off. Anything that has
+    been worked keeps its dates. Runs once; a settings flag records it.
+    """
+    done = conn.execute(
+        "SELECT value FROM settings WHERE key='migration_research_v1'").fetchone()
+    if done:
+        return 0
+    # Written against whatever columns this database actually has: a column
+    # it lacks counts as empty. This runs at startup, and a startup that
+    # crashes on an unexpected schema is the one failure with no way round it.
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(accounts)")}
+
+    def filled(name):
+        return f"TRIM(COALESCE({name}, '')) != ''" if name in cols else "0"
+
+    named = f"({filled('first_name')} OR {filled('last_name')})"
+    reachable = f"({filled('email')} OR {filled('work_phone')} OR {filled('mobile_phone')})"
+    archived = "COALESCE(archived_at, '') = ''" if "archived_at" in cols else "1"
+    cur = conn.execute(f"""
+        UPDATE accounts SET cadence_start = ''
+        WHERE {archived}
+          AND prospecting_status = 'Prospecting'
+          AND pipeline_milestone = 'None / In Cadence'
+          AND COALESCE(cadence_start, '') != ''
+          AND NOT ({named} AND {reachable})
+          AND NOT EXISTS (SELECT 1 FROM interactions i WHERE i.account_id = accounts.id)
+          AND NOT EXISTS (SELECT 1 FROM cadence_dismissals d WHERE d.account_id = accounts.id)
+    """)
+    conn.execute("INSERT INTO settings (key, value) VALUES ('migration_research_v1', ?)",
+                 (now_iso(),))
+    return cur.rowcount
+
+
+def init_db() -> list[str]:
+    """Create or upgrade the database. Returns one-off notices for the
+    startup window (e.g. what a migration moved)."""
+    notices = []
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with get_db() as conn:
         conn.executescript(SCHEMA)
         _migrate(conn)
+        moved = _move_unreachable_to_research(conn)
+        if moved:
+            notices.append(f"{moved} account(s) with nobody to contact moved to "
+                           f"Research — their cadence starts when you add a contact.")
         for key, value in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
                          (key, value))
@@ -590,6 +663,7 @@ def init_db() -> None:
                     "sort_order, updated_at) VALUES (?,?,?,?,?,?,?)",
                     (t["name"], t["kind"], t["steps"], t["subject"], t["body"],
                      t["sort_order"], now_iso()))
+    return notices
 
 
 if __name__ == "__main__":

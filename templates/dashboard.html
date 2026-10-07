@@ -51,6 +51,7 @@
   </div></div>
   <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ stats.in_cadence }}</div><div class="text-muted small">In Cadence</div>
+    {% if stats.research %}<div class="small"><a href="{{ url_for('accounts', view='research') }}">+{{ stats.research }} in Research</a></div>{% endif %}
   </div></div>
   <div class="col-6 col-md"><div class="card text-center p-2 h-100">
     <div class="stat-value">{{ stats.closed_won }}</div><div class="text-muted small">Closed Won</div>
@@ -96,7 +97,22 @@
             <form method="post" action="{{ url_for('quick_log') }}" class="d-inline">
               <input type="hidden" name="account_id" value="{{ r.account_id }}">
               <input type="hidden" name="step_type" value="{{ r.step_type }}">
+              {% if r.step_type in CALL_STEPS %}
+              {# A call gets its outcome recorded in the same tap. "fixed" keeps
+                 the menu from being clipped by the scrolling table. #}
+              <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-success dropdown-toggle"
+                        data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'
+                        aria-expanded="false" title="Log the call and how it went">✓ Log call</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  {% for o in CALL_OUTCOMES %}
+                  <li><button class="dropdown-item" name="outcome" value="{{ o }}">{{ o }}</button></li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% else %}
               <button class="btn btn-sm btn-success" title="Log this step as done">✓ Log</button>
+              {% endif %}
               <button class="btn btn-sm btn-outline-secondary" title="Clear without logging"
                       formaction="{{ url_for('dismiss_reminder') }}">✕ Skip</button>
             </form>
@@ -186,6 +202,33 @@
   {% endif %}
 </div>
 
+{% if stats.research %}
+<div class="card mb-4 border-info">
+  <div class="card-header bg-info-subtle fw-bold d-flex justify-content-between flex-wrap gap-1">
+    <span>🔎 Research — {{ stats.research }} account{{ 's' if stats.research != 1 }} with nobody to contact yet</span>
+    <a href="{{ url_for('accounts', view='research') }}" class="small fw-normal">Research list →</a>
+  </div>
+  <div class="card-body py-2 small text-muted">
+    These aren't on the clock. Find a decision-maker in ZoomInfo, add them
+    (paste their page, or a company's employee list), and the cadence starts
+    that day. Biggest portfolios first:
+  </div>
+  <ul class="list-group list-group-flush">
+    {% for a in research_top %}
+    <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
+      <span>
+        <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a>
+        {% if a.matching_properties %}<span class="badge text-bg-warning">🎯 {{ a.matching_properties }}</span>{% endif %}
+      </span>
+      <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ a.company_name)|urlencode }}"
+         target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary"
+         title="Find people at this company on ZoomInfo">🔎 ZoomInfo</a>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if stale %}
 <div class="card mb-4 border-warning">
   <div class="card-header bg-warning-subtle fw-bold">🥶 Going Stale — no touch in 14+ days</div>
@@ -254,6 +297,10 @@
         <span>
           <a href="{{ url_for('account_detail', account_id=i.account_id) }}" class="fw-semibold text-decoration-none">{{ i.company_name }}</a>
           — <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
+          {% if i.outcome %}<span class="badge {{ 'text-bg-success' if i.outcome == 'Meeting booked'
+                                                 else 'text-bg-primary' if i.outcome == 'Spoke'
+                                                 else 'text-bg-danger' if i.outcome in ('Not interested', 'Bad number')
+                                                 else 'text-bg-light border' }}">{{ i.outcome }}</span>{% endif %}
         </span>
         <small class="text-muted">{{ i.created_at|dt }}</small>
       </div>

@@ -46,6 +46,7 @@
     </div></div>
     <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
       <div class="stat-value">{{ tiles.in_cadence }}</div><div class="text-muted small">In cold cadence</div>
+      {% if tiles.research %}<div class="small"><a href="{{ url_for('accounts', view='research') }}">+{{ tiles.research }} in Research</a></div>{% endif %}
     </div></div>
     <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
       <div class="stat-value">{{ tiles.won }}</div><div class="text-muted small">Closed won</div>
@@ -117,6 +118,35 @@
       <div class="col-slot"><div class="col-label {{ 'fw-bold' if d.is_today }}">{{ d.label }}<br>{{ d.day }}</div></div>
       {% endfor %}
     </div>
+  </div>
+
+  <div class="card p-3 mb-3">
+    <h5 class="mb-1">Calls — last 30 days</h5>
+    {% if calls.tagged %}
+    <div class="text-muted small mb-3">From the {{ calls.tagged }} call{{ 's' if calls.tagged != 1 }}
+      logged with an outcome{% if calls.total > calls.tagged %} ({{ calls.total - calls.tagged }}
+      more logged without one aren't counted in the rates){% endif %}.</div>
+    <div class="row g-2 mb-3 text-center">
+      <div class="col-6 col-md-3"><div class="stat-value">{{ calls.total }}</div><div class="small text-muted">Calls made</div></div>
+      <div class="col-6 col-md-3"><div class="stat-value">{{ calls.connects }}</div><div class="small text-muted">Reached the person</div></div>
+      <div class="col-6 col-md-3"><div class="stat-value">{{ calls.connect_rate }}%</div><div class="small text-muted">Connect rate</div></div>
+      <div class="col-6 col-md-3"><div class="stat-value">{{ calls.meetings }}</div>
+        <div class="small text-muted">Meetings booked{% if calls.meeting_rate is not none %} · {{ calls.meeting_rate }}% of connects{% endif %}</div></div>
+    </div>
+    {% for b in calls.bars %}
+    <div class="hbar-row" title="{{ b.label }}: {{ b.count }}">
+      <div class="hbar-label">{{ b.label }}</div>
+      <div class="hbar-track"><div class="hbar {{ 'hbar-zero' if not b.count }}" style="width: {{ b.pct }}%"></div></div>
+      <div class="hbar-value">{{ b.count }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="text-muted small">Log calls with an outcome — No answer, Voicemail, Spoke,
+      Meeting booked… — and this shows how often you reach the decision-maker and how often
+      that becomes a meeting. Which of the two needs work is the most useful thing a
+      call list can tell you.{% if calls.total %} ({{ calls.total }} call{{ 's' if calls.total != 1 }}
+      logged so far without an outcome.){% endif %}</div>
+    {% endif %}
   </div>
 
   <div class="row g-3">

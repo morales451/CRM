@@ -121,7 +121,7 @@
       <hr>
       <div class="d-flex gap-2 flex-wrap">
         <form method="post" action="{{ url_for('restart_cadence', account_id=account.id) }}"
-              onsubmit="return confirm('Restart the 10-day cadence from today? Status resets to Prospecting / None-In Cadence.')">
+              onsubmit="return confirm('Restart the cadence from today? Status resets to Prospecting / None-In Cadence.')">
           <button class="btn btn-sm btn-outline-primary">↻ Restart Cadence</button>
         </form>
         <details>
@@ -218,7 +218,22 @@
     </div>
 
     <div class="card p-3 mb-3">
-      <h5>Cadence Progress <span class="text-muted small">(started {{ account.cadence_start|d }})</span></h5>
+      {% set in_research = in_cadence and not (account.cadence_start or '').strip() %}
+      <h5>Cadence Progress <span class="text-muted small">
+        {% if in_research %}(waiting for a contact){% else %}(started {{ account.cadence_start|d }}){% endif %}
+      </span></h5>
+      {% if in_research %}
+      <div class="alert alert-info py-2 small">
+        <strong>🔎 In Research.</strong> There's nobody to contact here yet, so the
+        cadence hasn't started — its first step is an email. Add a decision-maker with
+        an email or phone (paste their ZoomInfo page above) and the cadence starts today.
+        <form method="post" action="{{ url_for('start_cadence', account_id=account.id) }}" class="mt-2">
+          <button class="btn btn-sm btn-outline-primary"
+                  title="For example, to cold-call the main line before you have a name. Anything already logged still counts.">
+            ▶ Start the cadence anyway</button>
+        </form>
+      </div>
+      {% endif %}
       <ul class="list-group list-group-flush">
         {% for s in steps %}
         <li class="list-group-item d-flex justify-content-between align-items-center px-0">
@@ -227,12 +242,14 @@
             {% elif s.state == 'skipped' %}⏭️
             {% elif s.state == 'due' %}🔴
             {% elif s.state == 'inactive' %}⏸️
+            {% elif s.state == 'waiting' %}⏳
             {% else %}⚪{% endif %}
             <strong>Day {{ s.day }}:</strong> {{ s.step_type }}
           </span>
           <span class="small text-muted">
-            {{ s.due_date|d }} ·
+            {% if s.due_date %}{{ s.due_date|d }} ·{% endif %}
             {% if s.state == 'done' %}Logged
+            {% elif s.state == 'waiting' %}Starts when a contact is added
             {% elif s.state == 'skipped' %}Checked off
             {% elif s.state == 'due' %}<span class="overdue">Due</span>
             {% elif s.state == 'inactive' %}Cadence stopped
@@ -489,6 +506,14 @@ Direct Phone: 713-555-0199</pre>
           </select>
         </div>
         <div class="mb-2">
+          <select name="outcome" class="form-select form-select-sm" title="For calls: how it went">
+            <option value="">Call outcome (optional)…</option>
+            {% for o in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}
+          </select>
+          <div class="form-text">Meeting booked → Accepted Meeting · Not interested ends the
+            cadence · Bad number sends the account back to Research.</div>
+        </div>
+        <div class="mb-2">
           <textarea name="notes" rows="3" class="form-control form-control-sm" placeholder="What happened? (optional)"></textarea>
         </div>
         <button class="btn btn-sm btn-success">+ Log Interaction</button>
@@ -511,7 +536,15 @@ Direct Phone: 713-555-0199</pre>
         {% for i in interactions %}
         <div class="timeline-item">
           <div class="d-flex justify-content-between flex-wrap gap-1">
-            <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
+            <span>
+              <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
+              {% if i.outcome %}
+              <span class="badge {{ 'text-bg-success' if i.outcome == 'Meeting booked'
+                                   else 'text-bg-primary' if i.outcome == 'Spoke'
+                                   else 'text-bg-danger' if i.outcome in ('Not interested', 'Bad number')
+                                   else 'text-bg-light border' }}">{{ i.outcome }}</span>
+              {% endif %}
+            </span>
             <small class="text-muted">
               {{ i.created_at|dt }}
               <a href="#" class="ms-1 text-decoration-none" title="Edit this entry"
@@ -529,6 +562,12 @@ Direct Phone: 713-555-0199</pre>
                 </select>
               </div>
               <div class="col-5"><input type="date" name="created_date" value="{{ i.created_at[:10] }}" class="form-control form-control-sm"></div>
+              <div class="col-12">
+                <select name="outcome" class="form-select form-select-sm">
+                  <option value="">No call outcome</option>
+                  {% for o in CALL_OUTCOMES %}<option {{ 'selected' if o == i.outcome }}>{{ o }}</option>{% endfor %}
+                </select>
+              </div>
               <div class="col-12"><textarea name="notes" rows="2" class="form-control form-control-sm">{{ i.notes }}</textarea></div>
               <div class="col-12 d-flex gap-1">
                 <button class="btn btn-sm btn-primary">Save</button>

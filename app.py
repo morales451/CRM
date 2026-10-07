@@ -22,7 +22,8 @@ import excel_export
 import importer
 import undo as undo_module
 import warranty_calc
-from db import (ARCHIVE_REASONS, DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
+from db import (ARCHIVE_REASONS, CALL_OUTCOMES, CALL_STEPS, CONNECT_OUTCOMES,
+                DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
                 INVOICE_STATUSES,
                 PIPELINE_MILESTONES, PREFERRED_CONTACT_METHODS,
                 PROJECT_STATUSES, PROSPECTING_STATUSES,
@@ -112,6 +113,8 @@ def inject_constants():
         "PROJECT_STATUSES": PROJECT_STATUSES,
         "ARCHIVE_REASONS": ARCHIVE_REASONS,
         "INVOICE_STATUSES": INVOICE_STATUSES,
+        "CALL_OUTCOMES": CALL_OUTCOMES,
+        "CALL_STEPS": CALL_STEPS,
         "today": today_iso(),
     }
 
@@ -402,9 +405,11 @@ def dashboard():
                 "AND prospecting_status NOT IN ('Not Interested') AND pipeline_milestone "
                 "NOT IN ('Closed Won','Closed Lost')").fetchone()["c"],
             "in_cadence": conn.execute(
-                "SELECT COUNT(*) c FROM accounts WHERE COALESCE(archived_at, '') = '' "
-                "AND prospecting_status = ? AND pipeline_milestone = ?",
-                (cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE)).fetchone()["c"],
+                f"SELECT COUNT(*) c FROM accounts WHERE {cadence.IN_CADENCE_SQL}"
+            ).fetchone()["c"],
+            "research": conn.execute(
+                f"SELECT COUNT(*) c FROM accounts WHERE {cadence.RESEARCH_SQL}"
+            ).fetchone()["c"],
             "closed_won": conn.execute(
                 "SELECT COUNT(*) c FROM accounts "
                 f"WHERE COALESCE(archived_at, '') = '' AND pipeline_milestone = 'Closed Won'").fetchone()["c"],
@@ -415,13 +420,19 @@ def dashboard():
                JOIN accounts a ON a.id = i.account_id
                WHERE COALESCE(a.archived_at, '') = ''
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
+        # Who to look up next: research accounts, biggest portfolios first.
+        research_top = conn.execute(
+            f"SELECT id, company_name, matching_properties, work_phone "
+            f"FROM accounts WHERE {cadence.RESEARCH_SQL} "
+            f"ORDER BY COALESCE(matching_properties, 0) DESC, "
+            f"company_name COLLATE NOCASE LIMIT 6").fetchall()
         progress = _today_progress(conn, totals["reminders"] + totals["followups"])
         return render_template("dashboard.html", reminders=reminders,
                                followups=followups, stale=stale, owed=owed,
                                stats=stats, recent=recent, today=today_iso(),
                                order=order, top_priority=top_priority,
                                progress=progress, totals=totals,
-                               show_all=show_all)
+                               show_all=show_all, research_top=research_top)
     finally:
         conn.close()
 
@@ -429,6 +440,50 @@ def dashboard():
 def _account_exists(conn, account_id) -> bool:
     return conn.execute("SELECT 1 FROM accounts WHERE id = ?",
                         (account_id,)).fetchone() is not None
+
+
+def _log_interaction(conn, account_id, itype: str, notes: str,
+                     outcome: str = "") -> str:
+    """Record an interaction and carry out what its outcome means.
+
+    One place for the dashboard, the queue and the account page, so a call
+    marked "Meeting booked" moves the deal wherever it was logged. Records an
+    undo covering both the log and anything the outcome changed — these are
+    one-tap buttons on a calling list, and a mis-tap on "Not interested"
+    shouldn't quietly end a cadence.
+
+    Returns a sentence describing any knock-on change, for the flash message.
+    """
+    outcome = outcome if outcome in CALL_OUTCOMES else ""
+    before = conn.execute(
+        "SELECT id, prospecting_status, pipeline_milestone, cadence_start, notes "
+        "FROM accounts WHERE id=?", (account_id,)).fetchone()
+    cur = conn.execute(
+        "INSERT INTO interactions (account_id, interaction_type, notes, outcome, "
+        "created_at) VALUES (?,?,?,?,?)",
+        (account_id, itype, notes, outcome, now_iso()))
+    effect = ""
+    if outcome == "Meeting booked":
+        conn.execute("UPDATE accounts SET pipeline_milestone='Accepted Meeting', "
+                     "updated_at=? WHERE id=?", (now_iso(), account_id))
+        effect = " Moved to Accepted Meeting — the cadence stops here."
+    elif outcome == "Not interested":
+        conn.execute("UPDATE accounts SET prospecting_status='Not Interested', "
+                     "updated_at=? WHERE id=?", (now_iso(), account_id))
+        effect = " Marked Not Interested — the cadence stops here."
+    elif outcome == "Bad number":
+        stamp = datetime.now().strftime("%b %d, %Y")
+        note = f"Bad number reported on {stamp} ({itype})."
+        conn.execute(
+            "UPDATE accounts SET cadence_start='', notes=?, updated_at=? WHERE id=?",
+            (((before["notes"] + "\n") if before["notes"] else "") + note,
+             now_iso(), account_id))
+        effect = (" Moved back to Research — fix the number (or add another "
+                  "contact) and the cadence picks up again, with this call still to do.")
+    _offer_undo(conn, f"logging “{itype}”" + (f" ({outcome})" if outcome else ""),
+                [undo_module.delete_op("interactions", [cur.lastrowid]),
+                 undo_module.update_op("accounts", [dict(before)])])
+    return effect
 
 
 @app.route("/reminders/dismiss", methods=["POST"])
@@ -462,13 +517,13 @@ def quick_log():
         if not _account_exists(conn, account_id):
             flash("That account no longer exists.", "danger")
             return redirect(request.form.get("next") or url_for("dashboard"))
-        conn.execute(
-            "INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
-            "VALUES (?,?,?,?)", (account_id, step_type, notes, now_iso()))
+        outcome = request.form.get("outcome", "")
+        effect = _log_interaction(conn, account_id, step_type, notes, outcome)
         conn.commit()
     finally:
         conn.close()
-    flash(f"Logged “{step_type}”.", "success")
+    flash(f"Logged “{step_type}”" + (f" — {outcome}" if outcome in CALL_OUTCOMES else "")
+          + "." + effect, "success")
     return redirect(request.form.get("next") or url_for("dashboard"))
 
 
@@ -608,9 +663,9 @@ def insights():
                 "AND prospecting_status != 'Not Interested' "
                 "AND pipeline_milestone NOT IN ('Closed Won','Closed Lost')"),
             "in_cadence": count(
-                f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
-                "AND prospecting_status=? AND pipeline_milestone=?",
-                cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE),
+                f"SELECT COUNT(*) FROM accounts WHERE {cadence.IN_CADENCE_SQL}"),
+            "research": count(
+                f"SELECT COUNT(*) FROM accounts WHERE {cadence.RESEARCH_SQL}"),
             "won": won,
             "win_rate": round(100 * won / (won + lost)) if (won + lost) else None,
         }
@@ -668,6 +723,32 @@ def insights():
                    if workdays else 0,
         }
 
+        # Calls, last 30 days: how many, how often you reach someone, how often
+        # that turns into a meeting. Rates use only calls with an outcome
+        # recorded, so older calls logged before outcomes existed can't drag
+        # them down.
+        month_back = (today - timedelta(days=30)).isoformat()
+        ph = ",".join("?" * len(CALL_STEPS))
+        call_rows = conn.execute(
+            f"""SELECT COALESCE(i.outcome, '') AS outcome FROM interactions i
+                JOIN accounts a ON a.id = i.account_id
+                WHERE COALESCE(a.archived_at, '') = '' AND i.created_at >= ?
+                  AND (i.interaction_type IN ({ph}) OR COALESCE(i.outcome, '') != '')""",
+            (month_back, *CALL_STEPS)).fetchall()
+        tagged = [r["outcome"] for r in call_rows if r["outcome"]]
+        connects = sum(1 for o in tagged if o in CONNECT_OUTCOMES)
+        meetings = sum(1 for o in tagged if o == "Meeting booked")
+        calls = {
+            "total": len(call_rows),
+            "tagged": len(tagged),
+            "connects": connects,
+            "meetings": meetings,
+            "connect_rate": round(100 * connects / len(tagged)) if tagged else None,
+            "meeting_rate": round(100 * meetings / connects) if connects else None,
+            "bars": _bar_items([(o, tagged.count(o)) for o in CALL_OUTCOMES],
+                               total=len(tagged) or None),
+        }
+
         # Pipeline funnel (the cadence pool would dwarf it, so it's a tile instead)
         pipeline_bars = _bar_items([
             (m, count(f"SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
@@ -713,7 +794,7 @@ def insights():
     finally:
         conn.close()
     return render_template("insights.html", tiles=tiles, weekly=weekly,
-                           activity=activity,
+                           activity=activity, calls=calls,
                            pipeline_bars=pipeline_bars, cadence_bars=cadence_bars,
                            status_bars=status_bars, type_bars=type_bars,
                            money=money)
@@ -1689,13 +1770,21 @@ def accounts():
     sort = request.args.get("sort", "priority")
     if sort not in ACCOUNT_SORTS:
         sort = "priority"
-    view = "archived" if request.args.get("view") == "archived" else "active"
+    view = request.args.get("view", "")
+    if view not in ("archived", "research"):
+        view = "active"
 
     page = _parse_int(request.args.get("page", "1"), on_error=1) or 1
     page = max(1, page)
 
-    where = (" AND COALESCE(a.archived_at, '') != ''" if view == "archived"
-             else " AND COALESCE(a.archived_at, '') = ''")
+    if view == "archived":
+        where = " AND COALESCE(a.archived_at, '') != ''"
+    elif view == "research":
+        # Waiting for someone to contact. Sorted biggest-portfolio-first by
+        # default, this is the list of who to look up in ZoomInfo next.
+        where = " AND " + cadence.research_where("a")
+    else:
+        where = " AND COALESCE(a.archived_at, '') = ''"
     params = []
     if status:
         where += " AND a.prospecting_status = ?"
@@ -1732,6 +1821,9 @@ def accounts():
         archived_count = conn.execute(
             "SELECT COUNT(*) c FROM accounts "
             "WHERE COALESCE(archived_at, '') != ''").fetchone()["c"]
+        research_count = conn.execute(
+            f"SELECT COUNT(*) c FROM accounts WHERE {cadence.RESEARCH_SQL}"
+        ).fetchone()["c"]
         # When a row only matched because of someone in its contact list, say
         # who — otherwise the result looks like a mystery.
         match_hints = _contact_match_hints(conn, q, rows) if q else {}
@@ -1742,6 +1834,7 @@ def accounts():
                            min_matching=min_matching_raw, sort=sort,
                            total_matching=total_matching, view=view,
                            archived_count=archived_count,
+                           research_count=research_count,
                            match_hints=match_hints,
                            total=total, page=page, pages=pages,
                            per_page=ACCOUNTS_PER_PAGE)
@@ -1758,15 +1851,18 @@ def new_account():
         conn = get_db()
         try:
             cols = list(fields) + ["cadence_start", "created_at", "updated_at"]
+            ready = cadence.has_contact(fields)
             cur = conn.execute(
                 f"INSERT INTO accounts ({','.join(cols)}) "
                 f"VALUES ({','.join('?' * len(cols))})",
-                (*fields.values(), today_iso(), ts, ts))
+                (*fields.values(), today_iso() if ready else "", ts, ts))
             conn.commit()
             new_id = cur.lastrowid
         finally:
             conn.close()
-        flash(f"Account “{fields['company_name']}” created.", "success")
+        flash(f"Account “{fields['company_name']}” created."
+              + ("" if ready else " It's in Research until you add a contact "
+                 "with an email or phone — then its cadence starts."), "success")
         return redirect(url_for("account_detail", account_id=new_id))
     return render_template("account_form.html", account=None)
 
@@ -1826,34 +1922,78 @@ def edit_account(account_id):
             f"UPDATE accounts SET {','.join(c + '=?' for c in fields)}, "
             f"updated_at=? WHERE id=?",
             (*fields.values(), now_iso(), account_id))
+        started = cadence.start_cadence_if_ready(conn, account_id)
         conn.commit()
     finally:
         conn.close()
-    flash("Account updated.", "success")
+    flash("Account updated." + (" It has a contact now, so its cadence starts today."
+                                if started else ""), "success")
+    return redirect(url_for("account_detail", account_id=account_id))
+
+
+def _restart_cadence(conn, ids: list[int]) -> list[dict]:
+    """Start a fresh cadence from today for these accounts.
+
+    Steps already logged would otherwise count as done and the new cycle would
+    have nothing to do, so they're kept as history but retagged as General
+    Notes. Returns the undo ops for everything this changed besides the
+    account rows themselves (callers snapshot those)."""
+    ph = ",".join("?" * len(ids))
+    steps = [step for _, step in cadence.CADENCE_STEPS]
+    sph = ",".join("?" * len(steps))
+    retagged = [{"id": r["id"], "interaction_type": r["interaction_type"],
+                 "notes": r["notes"]} for r in conn.execute(
+        f"SELECT id, interaction_type, notes FROM interactions "
+        f"WHERE account_id IN ({ph}) AND interaction_type IN ({sph})", (*ids, *steps))]
+    dismissals = undo_module.capture(conn, "cadence_dismissals",
+                                     f"account_id IN ({ph})", ids)
+    conn.execute(
+        f"UPDATE accounts SET cadence_start=?, prospecting_status=?, "
+        f"pipeline_milestone=?, updated_at=? WHERE id IN ({ph})",
+        (today_iso(), cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE, now_iso(), *ids))
+    conn.execute(f"DELETE FROM cadence_dismissals WHERE account_id IN ({ph})", ids)
+    conn.execute(
+        f"UPDATE interactions SET interaction_type='General Note', "
+        f"notes='[' || interaction_type || ' — previous cadence] ' || notes "
+        f"WHERE account_id IN ({ph}) AND interaction_type IN ({sph})", (*ids, *steps))
+    return [undo_module.update_op("interactions", retagged),
+            undo_module.insert_op("cadence_dismissals", dismissals)]
+
+
+@app.route("/accounts/<int:account_id>/start-cadence", methods=["POST"])
+def start_cadence(account_id):
+    """Start the clock on an account waiting in Research, without a contact.
+
+    Unlike a restart this keeps any progress: an account sent back to Research
+    by a bad number carries on from the step it was on."""
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        if not (acct["cadence_start"] or "").strip():
+            conn.execute("UPDATE accounts SET cadence_start=?, updated_at=? WHERE id=?",
+                         (today_iso(), now_iso(), account_id))
+            conn.commit()
+    finally:
+        conn.close()
+    flash("Cadence started from today.", "success")
     return redirect(url_for("account_detail", account_id=account_id))
 
 
 @app.route("/accounts/<int:account_id>/restart-cadence", methods=["POST"])
 def restart_cadence(account_id):
-    """Reset the cadence clock to today and clear prior step history."""
+    """Reset the cadence clock to today and clear prior step history.
+
+    Also how an account waiting in Research is started by hand — say, to
+    cold-call a switchboard before a named contact has been found."""
     conn = get_db()
     try:
-        _account_or_404(conn, account_id)
-        conn.execute(
-            "UPDATE accounts SET cadence_start=?, prospecting_status=?, "
-            "pipeline_milestone=?, updated_at=? WHERE id=?",
-            (today_iso(), cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE,
-             now_iso(), account_id))
-        conn.execute("DELETE FROM cadence_dismissals WHERE account_id=?",
-                     (account_id,))
-        # Old logged cadence steps would suppress the new cycle's reminders,
-        # so retag them as day-0 history under General Note.
-        conn.execute(
-            "UPDATE interactions SET interaction_type='General Note', "
-            "notes='[' || interaction_type || ' — previous cadence] ' || notes "
-            "WHERE account_id=? AND interaction_type IN "
-            "('Email 1','Call & Text','Call 2','Email 2','Breakup Email')",
-            (account_id,))
+        acct = _account_or_404(conn, account_id)
+        ops = [undo_module.update_op("accounts", [{
+            "id": account_id, "cadence_start": acct["cadence_start"],
+            "prospecting_status": acct["prospecting_status"],
+            "pipeline_milestone": acct["pipeline_milestone"]}])]
+        ops += _restart_cadence(conn, [account_id])
+        _offer_undo(conn, "the cadence restart", ops)
         conn.commit()
     finally:
         conn.close()
@@ -1991,19 +2131,11 @@ def bulk_accounts():
         elif action == "restart_cadence":
             # Restarting also wipes the checked-off steps, so the undo has to
             # carry them too — otherwise it restores the dates but not them.
+            # Same as restarting one account: logged steps are retagged as
+            # history, or a worked account would restart with nothing to do.
+            before = snapshot("cadence_start", "prospecting_status", "pipeline_milestone")
             _offer_undo(conn, f"restarting the cadence on {n} account(s)",
-                        snapshot("cadence_start", "prospecting_status",
-                                 "pipeline_milestone")
-                        + [undo_module.insert_op("cadence_dismissals",
-                           undo_module.capture(conn, "cadence_dismissals",
-                                               f"account_id IN ({ph})", ids))])
-            conn.execute(
-                f"UPDATE accounts SET cadence_start=?, prospecting_status=?, "
-                f"pipeline_milestone=?, updated_at=? WHERE id IN ({ph})",
-                [today_iso(), cadence.ACTIVE_STATUS, cadence.ACTIVE_MILESTONE,
-                 ts] + ids)
-            conn.execute(
-                f"DELETE FROM cadence_dismissals WHERE account_id IN ({ph})", ids)
+                        before + _restart_cadence(conn, ids))
             flash(f"Restarted the cadence on {n} account(s) from today.", "success")
 
         elif action == "delete":
@@ -2112,13 +2244,13 @@ def log_interaction(account_id):
     conn = get_db()
     try:
         _account_or_404(conn, account_id)
-        conn.execute(
-            "INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
-            "VALUES (?,?,?,?)", (account_id, itype, notes, now_iso()))
+        outcome = request.form.get("outcome", "")
+        effect = _log_interaction(conn, account_id, itype, notes, outcome)
         conn.commit()
     finally:
         conn.close()
-    flash(f"Logged “{itype}”.", "success")
+    flash(f"Logged “{itype}”" + (f" — {outcome}" if outcome in CALL_OUTCOMES else "")
+          + "." + effect, "success")
     return redirect(request.form.get("next")
                     or url_for("account_detail", account_id=account_id))
 
@@ -2148,12 +2280,19 @@ def edit_interaction(interaction_id):
             except ValueError:
                 flash(f"Couldn't read the date “{new_date}” — kept the original.",
                       "warning")
+        outcome = request.form.get("outcome", row["outcome"] or "")
+        if outcome not in CALL_OUTCOMES:
+            outcome = ""
+        # Editing only corrects the record; it doesn't re-run what the outcome
+        # did at the time (moving the deal, etc.) — that would be surprising.
         conn.execute(
-            "UPDATE interactions SET interaction_type=?, notes=?, created_at=? "
-            "WHERE id=?", (itype, notes, created_at, interaction_id))
+            "UPDATE interactions SET interaction_type=?, notes=?, outcome=?, "
+            "created_at=? WHERE id=?",
+            (itype, notes, outcome, created_at, interaction_id))
         _offer_undo(conn, "that edit", [undo_module.update_op("interactions", [
             {"id": row["id"], "interaction_type": row["interaction_type"],
-             "notes": row["notes"], "created_at": row["created_at"]}])])
+             "notes": row["notes"], "outcome": row["outcome"] or "",
+             "created_at": row["created_at"]}])])
         conn.commit()
         account_id = row["account_id"]
     finally:
@@ -2245,11 +2384,14 @@ def add_contact(account_id):
                 f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
                 f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
                 (account_id, *(person[c] for c in CONTACT_COLS), now_iso()))
+        started = cadence.start_cadence_if_ready(conn, account_id)
         conn.commit()
     finally:
         conn.close()
     flash(f"Contact {person['first_name']} {person['last_name']} added"
-          + (" as primary." if make_primary else ".") + parsed_note, "success")
+          + (" as primary." if make_primary else ".") + parsed_note
+          + (" The account had nobody to contact before, so its cadence starts "
+             "today." if started else ""), "success")
     return redirect(url_for("account_detail", account_id=account_id))
 
 
@@ -2403,6 +2545,7 @@ def roster_add(account_id):
             added.append(who)
             if not (person["email"] or person["work_phone"] or person["mobile_phone"]):
                 bare.append(who)
+        started = cadence.start_cadence_if_ready(conn, account_id)
         conn.commit()
     finally:
         conn.close()
@@ -2413,6 +2556,8 @@ def roster_add(account_id):
             msg += (f" {len(bare)} came with no email or phone "
                     f"({', '.join(bare)}) — expand those rows on ZoomInfo and "
                     f"paste again, or add the details by hand.")
+        if started:
+            msg += " This account now has someone to contact, so its cadence starts today."
         flash(msg, "success")
     else:
         flash("Nothing added — those people are already on this account.", "warning")
@@ -2665,7 +2810,7 @@ def import_page():
                     # list turns into thousands of overdue tasks.
                     flash(f"All {result['imported']} accounts start their cadence "
                           f"today, so they'll all come due together. Use Re-Pace "
-                          f"Cadence below to spread them out — about a quarter of "
+                          f"Cadence below to spread them out — about a fifth of "
                           f"the touches you can do in a day, e.g. 10.", "warning")
             except ValueError as e:
                 flash(str(e), "danger")
@@ -2680,6 +2825,176 @@ def import_page():
         conn.close()
     return render_template("import.html", result=result, duplicates=duplicates,
                            backup_dir=_backup_dir_setting())
+
+
+# ------------------------------------------------------- Merge duplicates
+
+def _merge_accounts(conn, keep_id: int, loser_ids: list[int]) -> dict:
+    """Fold duplicate accounts into one. Returns a summary; records an undo.
+
+    Everything moves to the account being kept — people, history, roof
+    reports, projects, checked-off steps — then the duplicates are deleted.
+    Nothing is overwritten: the kept account's own details win, and a
+    duplicate's details only fill gaps (its notes are appended, labelled).
+
+    Undo restores all of it. Roof reports and projects are moved back by
+    pointing them at their old account again, never by re-inserting them:
+    re-inserting a row over itself would cascade-delete its photos and
+    invoices.
+    """
+    keeper = conn.execute("SELECT * FROM accounts WHERE id=?", (keep_id,)).fetchone()
+    keeper_before = {k: keeper[k] for k in keeper.keys()}
+    ts = now_iso()
+
+    def name_key(first, last):
+        return ((first or "").strip().lower(), (last or "").strip().lower())
+
+    people = {name_key(keeper["first_name"], keeper["last_name"])} - {("", "")}
+    people |= {name_key(c["first_name"], c["last_name"]) for c in conn.execute(
+        "SELECT first_name, last_name FROM contacts WHERE account_id=?", (keep_id,))}
+    has_primary = bool((keeper["first_name"] or keeper["last_name"] or "").strip())
+
+    updates: dict = {}
+    notes = keeper["notes"] or ""
+    losers, loser_contacts, loser_dismissals = [], [], []
+    moved_children: dict[str, list] = {"interactions": [], "bids": [], "projects": []}
+    new_contacts, new_dismissals = [], []
+    summary = {"merged": [], "people": 0, "touches": 0, "reports": 0, "projects": 0}
+
+    def current(field):
+        return updates.get(field, keeper[field])
+
+    for lid in loser_ids:
+        loser = conn.execute("SELECT * FROM accounts WHERE id=?", (lid,)).fetchone()
+        losers.append(dict(loser))
+        loser_contacts += undo_module.capture(conn, "contacts", "account_id=?", (lid,))
+        loser_dismissals += undo_module.capture(conn, "cadence_dismissals",
+                                                "account_id=?", (lid,))
+        summary["merged"].append(loser["company_name"])
+
+        # The duplicate's primary person: becomes ours if we have nobody,
+        # otherwise joins our contacts (unless they're already here).
+        lkey = name_key(loser["first_name"], loser["last_name"])
+        if lkey != ("", ""):
+            if lkey not in people:
+                if not has_primary:
+                    for f in CONTACT_COLS:
+                        updates[f] = loser[f] or ""
+                    has_primary = True
+                else:
+                    cur = conn.execute(
+                        f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
+                        f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
+                        (keep_id, *(loser[f] or "" for f in CONTACT_COLS), ts))
+                    new_contacts.append(cur.lastrowid)
+                people.add(lkey)
+                summary["people"] += 1
+        else:
+            # No named person — but a switchboard number or general email is
+            # still worth keeping if we don't have one.
+            for f in ("email", "work_phone", "mobile_phone"):
+                if not (current(f) or "").strip() and (loser[f] or "").strip():
+                    updates[f] = loser[f]
+
+        for c in conn.execute("SELECT * FROM contacts WHERE account_id=?", (lid,)).fetchall():
+            ck = name_key(c["first_name"], c["last_name"])
+            if ck in people:
+                continue                       # already here; goes with the duplicate
+            conn.execute("UPDATE contacts SET account_id=? WHERE id=?", (keep_id, c["id"]))
+            people.add(ck)
+            summary["people"] += 1
+
+        for table, label in (("interactions", "touches"), ("bids", "reports"),
+                             ("projects", "projects")):
+            for r in conn.execute(f"SELECT id FROM {table} WHERE account_id=?", (lid,)).fetchall():
+                moved_children[table].append({"id": r["id"], "account_id": lid})
+                summary[label] += 1
+            conn.execute(f"UPDATE {table} SET account_id=? WHERE account_id=?", (keep_id, lid))
+
+        for d in conn.execute("SELECT step_type, dismissed_at FROM cadence_dismissals "
+                              "WHERE account_id=?", (lid,)).fetchall():
+            cur = conn.execute("INSERT OR IGNORE INTO cadence_dismissals "
+                               "(account_id, step_type, dismissed_at) VALUES (?,?,?)",
+                               (keep_id, d["step_type"], d["dismissed_at"]))
+            if cur.rowcount:
+                new_dismissals.append(cur.lastrowid)
+
+        # Company-level gaps.
+        for f in ("num_properties", "matching_properties"):
+            if loser[f] is not None and (current(f) is None or loser[f] > current(f)):
+                updates[f] = loser[f]
+        if not (current("next_follow_up") or "") and (loser["next_follow_up"] or ""):
+            updates["next_follow_up"] = loser["next_follow_up"]
+            updates["follow_up_note"] = loser["follow_up_note"] or ""
+        if (current("preferred_contact") or "Unknown") == "Unknown" \
+                and (loser["preferred_contact"] or "Unknown") != "Unknown":
+            updates["preferred_contact"] = loser["preferred_contact"]
+        if not (current("cadence_start") or "") and (loser["cadence_start"] or ""):
+            updates["cadence_start"] = loser["cadence_start"]   # keep a running clock
+        if (loser["notes"] or "").strip() and loser["notes"].strip() not in notes:
+            notes = (notes + "\n\n" if notes else "") + \
+                f"— merged from “{loser['company_name']}” —\n{loser['notes'].strip()}"
+
+        conn.execute("DELETE FROM accounts WHERE id=?", (lid,))
+
+    updates["notes"] = notes
+    updates["updated_at"] = ts
+    conn.execute(f"UPDATE accounts SET {','.join(k + '=?' for k in updates)} WHERE id=?",
+                 (*updates.values(), keep_id))
+
+    _offer_undo(conn, f"merging into “{keeper['company_name']}”", [
+        undo_module.insert_op("accounts", losers),
+        undo_module.insert_op("contacts", loser_contacts),
+        undo_module.insert_op("cadence_dismissals", loser_dismissals),
+        undo_module.update_op("interactions", moved_children["interactions"]),
+        undo_module.update_op("bids", moved_children["bids"]),
+        undo_module.update_op("projects", moved_children["projects"]),
+        undo_module.delete_op("contacts", new_contacts),
+        undo_module.delete_op("cadence_dismissals", new_dismissals),
+        undo_module.update_op("accounts", [keeper_before]),
+    ])
+    return summary
+
+
+@app.route("/duplicates/merge", methods=["POST"])
+def merge_duplicates():
+    back = url_for("import_page") + "#duplicates"
+    try:
+        keep_id = int(request.form.get("keep", ""))
+        ids = sorted({int(i) for i in request.form.getlist("account_ids")})
+    except ValueError:
+        flash("Pick which account to keep first.", "warning")
+        return redirect(back)
+    losers = [i for i in ids if i != keep_id]
+    if keep_id not in ids or not losers:
+        flash("Pick which account to keep first.", "warning")
+        return redirect(back)
+
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            f"SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
+            f"FROM accounts WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+        # Only ever merge accounts that really are the same company: all
+        # present, all active, all normalising to the same name. A tampered or
+        # stale form can't fold two unrelated companies together.
+        keys = {importer.normalize_company(r["company_name"]) for r in rows}
+        if len(rows) != len(ids) or any(r["archived_at"] for r in rows) or len(keys) != 1:
+            flash("Those accounts can't be merged — they're no longer duplicates "
+                  "of each other. The list below is up to date.", "warning")
+            return redirect(back)
+        summary = _merge_accounts(conn, keep_id, losers)
+        conn.commit()
+        kept = conn.execute("SELECT company_name FROM accounts WHERE id=?",
+                            (keep_id,)).fetchone()["company_name"]
+    finally:
+        conn.close()
+    bits = [f"{summary[k]} {label}" for k, label in
+            (("people", "people"), ("touches", "logged touches"),
+             ("reports", "roof reports"), ("projects", "projects")) if summary[k]]
+    flash(f"Merged {len(losers)} duplicate(s) into “{kept}”"
+          + (": moved " + ", ".join(bits) if bits else "") + ".", "success")
+    return redirect(url_for("account_detail", account_id=keep_id))
 
 
 @app.route("/repace", methods=["POST"])
@@ -2700,6 +3015,7 @@ def repace():
         rows = conn.execute(
             f"""SELECT id FROM accounts a
                WHERE COALESCE(a.archived_at, '') = '' AND prospecting_status = ? AND pipeline_milestone = ?
+                 AND COALESCE(a.cadence_start, '') != ''
                  AND NOT EXISTS (SELECT 1 FROM interactions i WHERE i.account_id = a.id)
                  AND NOT EXISTS (SELECT 1 FROM cadence_dismissals d WHERE d.account_id = a.id)
                ORDER BY id""",
@@ -2811,9 +3127,11 @@ def print_network_instructions():
 
 if __name__ == "__main__":
     moved = db_module.migrate_legacy_data()
-    init_db()
+    notices = init_db()
     print(f"\n  Your data:  {db_module.DATA_DIR}")
     print(f"  If a page errors: {db_module.ERROR_LOG}")
+    for line in notices:
+        print(f"  ▸ {line}")
     print("  (kept outside this folder, so updating the app never touches it)")
     if moved:
         print("  Moved from the old location:")

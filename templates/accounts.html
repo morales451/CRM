@@ -7,7 +7,9 @@
   </h1>
   <div class="d-flex gap-2 align-items-center flex-wrap">
     <div class="btn-group btn-group-sm" role="group">
-      <a href="{{ url_for('accounts') }}" class="btn {{ 'btn-primary' if view != 'archived' else 'btn-outline-secondary' }}">Active</a>
+      <a href="{{ url_for('accounts') }}" class="btn {{ 'btn-primary' if view == 'active' else 'btn-outline-secondary' }}">Active</a>
+      <a href="{{ url_for('accounts', view='research') }}" class="btn {{ 'btn-info' if view == 'research' else 'btn-outline-secondary' }}"
+         title="Accounts with nobody to contact yet — their cadence starts when you add one">🔎 Research{% if research_count %} ({{ research_count }}){% endif %}</a>
       <a href="{{ url_for('accounts', view='archived') }}" class="btn {{ 'btn-warning' if view == 'archived' else 'btn-outline-secondary' }}">🗄 Archived{% if archived_count %} ({{ archived_count }}){% endif %}</a>
     </div>
     <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
@@ -16,7 +18,7 @@
 
 <form method="get" class="card p-2 mb-3">
   <div class="row g-2">
-    {% if view == 'archived' %}<input type="hidden" name="view" value="archived">{% endif %}
+    {% if view in ('archived', 'research') %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
     <div class="col-12 col-md-4">
       <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm"
              placeholder="Search company, any contact, title, phone, notes…">
@@ -55,7 +57,7 @@
 
 {% set filters = {'q': q, 'status': status, 'milestone': milestone,
                   'min_matching': min_matching, 'sort': sort,
-                  'view': 'archived' if view == 'archived' else none} %}
+                  'view': view if view in ('archived', 'research') else none} %}
 {% macro pager() %}
   {% if pages > 1 %}
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 px-2 py-2 small">
@@ -73,6 +75,15 @@
   </div>
   {% endif %}
 {% endmacro %}
+
+{% if view == 'research' %}
+<div class="alert alert-info py-2 small">
+  <strong>Who to look up next.</strong> These accounts have nobody to contact yet,
+  so they aren't on the cadence clock. Biggest portfolios are at the top. Open one,
+  find a decision-maker in ZoomInfo, add them — and that account's cadence starts the
+  same day. <em>Restart cadence from today</em> in the bulk actions starts one anyway.
+</div>
+{% endif %}
 
 <form method="post" action="{{ url_for('bulk_accounts') }}" id="bulkform">
 <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -146,7 +157,7 @@
           {% endif %}
         </tr>
       {% else %}
-        <tr><td colspan="9" class="text-muted text-center py-4">{% if view == 'archived' %}Nothing archived yet. Archiving an account hides it from your lists and stops future imports from adding it back.{% elif q %}No accounts match “{{ q }}”. The search covers company names, every contact on an account, titles, phone numbers and notes.{% else %}No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.{% endif %}</td></tr>
+        <tr><td colspan="9" class="text-muted text-center py-4">{% if view == 'research' %}Nothing waiting for research — every active account has someone to contact.{% elif view == 'archived' %}Nothing archived yet. Archiving an account hides it from your lists and stops future imports from adding it back.{% elif q %}No accounts match “{{ q }}”. The search covers company names, every contact on an account, titles, phone numbers and notes.{% else %}No accounts found. <a href="{{ url_for('import_page') }}">Import a list</a> or <a href="{{ url_for('new_account') }}">add one manually</a>.{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table>

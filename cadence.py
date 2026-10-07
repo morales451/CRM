@@ -3,7 +3,11 @@
 Reminders are COMPUTED, not stored. A cadence step is "due" for an account when:
   1. The account is active in cadence:
        prospecting_status == 'Prospecting' AND pipeline_milestone == 'None / In Cadence'
-  2. cadence_start + (step_day - 1) days <= today
+     and its clock has started (cadence_start is set — an empty cadence_start
+     means it's still waiting in Research for someone to contact)
+  2. Its due date has arrived. Day 1 is the start date itself; every later
+     step is counted in BUSINESS days from there, so no step lands on a
+     weekend and Monday doesn't inherit Saturday's and Sunday's work.
   3. No interaction of that step's type has been logged for the account
   4. The step has not been manually checked off (cadence_dismissals)
 
@@ -31,6 +35,92 @@ def _parse_date(iso_str: str) -> date:
     return date.fromisoformat(iso_str[:10])
 
 
+def today() -> date:
+    """The date the cadence is measured against. A function rather than a
+    direct date.today() call so tests can pin it to a known weekday."""
+    return date.today()
+
+
+def add_business_days(start: date, n: int) -> date:
+    """start moved forward n working days, skipping Saturdays and Sundays."""
+    d = start
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            n -= 1
+    return d
+
+
+def step_due(start: date, day: int) -> date:
+    """When cadence step `day` falls due for a clock started on `start`.
+
+    Day 1 is the start date whatever day that is — import on a Saturday and
+    the first email is due that Saturday. Every later step counts business
+    days, so Day 3 of a Friday start is Tuesday, not Sunday."""
+    return start if day <= 1 else add_business_days(start, day - 1)
+
+
+def has_contact(acct) -> bool:
+    """Is there someone to reach? A named person plus an email or a phone.
+
+    The cadence opens with an email, so starting the clock on a company with
+    nothing but a switchboard number just manufactures overdue tasks nobody
+    can do. Accounts without a contact wait in Research until one is added.
+    """
+    def val(key):
+        try:
+            return (acct[key] or "").strip()
+        except (KeyError, IndexError):
+            return ""
+    named = bool(val("first_name") or val("last_name"))
+    reachable = bool(val("email") or val("work_phone") or val("mobile_phone"))
+    return named and reachable
+
+
+def start_cadence_if_ready(conn, account_id) -> bool:
+    """Start an account's clock today if it was waiting in Research and now
+    has someone to contact. Call after anything that adds contact details.
+
+    Only ever starts a clock — never stops or moves one that's running.
+    Returns True when it started one. The caller commits.
+    """
+    acct = conn.execute(
+        "SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+    if acct is None or (acct["cadence_start"] or "").strip():
+        return False
+    if (acct["archived_at"] or "") or acct["prospecting_status"] != ACTIVE_STATUS \
+            or acct["pipeline_milestone"] != ACTIVE_MILESTONE:
+        return False
+    if not has_contact(acct):
+        return False
+    conn.execute("UPDATE accounts SET cadence_start = ? WHERE id = ?",
+                 (today().isoformat(), account_id))
+    return True
+
+
+def _stage_sql(clock_running: bool, alias: str = "") -> str:
+    a = f"{alias}." if alias else ""
+    return (f"COALESCE({a}archived_at, '') = '' "
+            f"AND {a}prospecting_status = '{ACTIVE_STATUS}' "
+            f"AND {a}pipeline_milestone = '{ACTIVE_MILESTONE}' "
+            f"AND COALESCE({a}cadence_start, '') {'!=' if clock_running else '='} ''")
+
+
+def research_where(alias: str = "") -> str:
+    """SQL condition for "waiting in Research": active, not archived, no clock
+    yet. Shared so every count and list agrees on what Research means."""
+    return _stage_sql(False, alias)
+
+
+def in_cadence_where(alias: str = "") -> str:
+    """SQL condition for "in the cadence": the same, with the clock running."""
+    return _stage_sql(True, alias)
+
+
+RESEARCH_SQL = research_where()
+IN_CADENCE_SQL = in_cadence_where()
+
+
 def get_due_reminders(conn, account_id: int | None = None,
                       order: str = "due", collapse: bool = True) -> list[dict]:
     """Return due cadence reminders — by default, the NEXT one per account.
@@ -54,7 +144,7 @@ def get_due_reminders(conn, account_id: int | None = None,
                     matching_properties, num_properties,
                     day, step_type, due_date, days_overdue, steps_behind}
     """
-    today = date.today()
+    now = today()
 
     sql = """
         SELECT id, company_name, first_name, last_name, work_phone,
@@ -63,6 +153,7 @@ def get_due_reminders(conn, account_id: int | None = None,
         FROM accounts
         WHERE prospecting_status = ? AND pipeline_milestone = ?
           AND COALESCE(archived_at, '') = ''
+          AND COALESCE(cadence_start, '') != ''
     """
     params: list = [ACTIVE_STATUS, ACTIVE_MILESTONE]
     if account_id is not None:
@@ -76,9 +167,11 @@ def get_due_reminders(conn, account_id: int | None = None,
     ph = ",".join("?" * len(ids))
 
     logged: set[tuple[int, str]] = set()
+    # A call that hit a bad number didn't complete its step — the step stays
+    # outstanding so it comes round again once the number is fixed.
     for row in conn.execute(
         f"SELECT DISTINCT account_id, interaction_type FROM interactions "
-        f"WHERE account_id IN ({ph})", ids):
+        f"WHERE account_id IN ({ph}) AND COALESCE(outcome, '') != 'Bad number'", ids):
         logged.add((row["account_id"], row["interaction_type"]))
 
     dismissed: set[tuple[int, str]] = set()
@@ -91,8 +184,8 @@ def get_due_reminders(conn, account_id: int | None = None,
     for acct in accounts:
         start = _parse_date(acct["cadence_start"])
         for day, step_type in CADENCE_STEPS:
-            due = start + timedelta(days=day - 1)
-            if due > today:
+            due = step_due(start, day)
+            if due > now:
                 continue
             key = (acct["id"], step_type)
             if key in logged or key in dismissed:
@@ -111,7 +204,7 @@ def get_due_reminders(conn, account_id: int | None = None,
                 "day": day,
                 "step_type": step_type,
                 "due_date": due.isoformat(),
-                "days_overdue": (today - due).days,
+                "days_overdue": (now - due).days,
                 "steps_behind": 1,
             })
 
@@ -149,29 +242,32 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
         return []
     active = (acct["prospecting_status"] == ACTIVE_STATUS
               and acct["pipeline_milestone"] == ACTIVE_MILESTONE)
-    start = _parse_date(acct["cadence_start"])
-    today = date.today()
+    started = bool((acct["cadence_start"] or "").strip())
+    start = _parse_date(acct["cadence_start"]) if started else None
+    now = today()
 
     logged = {r["interaction_type"] for r in conn.execute(
-        "SELECT DISTINCT interaction_type FROM interactions WHERE account_id = ?",
-        (account_id,))}
+        "SELECT DISTINCT interaction_type FROM interactions WHERE account_id = ? "
+        "AND COALESCE(outcome, '') != 'Bad number'", (account_id,))}
     dismissed = {r["step_type"] for r in conn.execute(
         "SELECT step_type FROM cadence_dismissals WHERE account_id = ?",
         (account_id,))}
 
     steps = []
     for day, step_type in CADENCE_STEPS:
-        due = start + timedelta(days=day - 1)
+        due = step_due(start, day) if started else None
         if step_type in logged:
             state = "done"
         elif step_type in dismissed:
             state = "skipped"
         elif not active:
             state = "inactive"
-        elif due <= today:
+        elif not started:
+            state = "waiting"          # in Research: no clock yet
+        elif due <= now:
             state = "due"
         else:
             state = "upcoming"
         steps.append({"day": day, "step_type": step_type,
-                      "due_date": due.isoformat(), "state": state})
+                      "due_date": due.isoformat() if due else "", "state": state})
     return steps

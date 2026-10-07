@@ -43,6 +43,11 @@ def update_op(table: str, rows: list[dict]) -> dict:
     return {"op": "update", "table": table, "rows": rows}
 
 
+def delete_op(table: str, ids: list[int]) -> dict:
+    """Rows to remove on undo — for actions that ADDED something."""
+    return {"op": "delete", "table": table, "rows": [{"id": i} for i in ids]}
+
+
 def files_op(names: list[str]) -> dict:
     """Bid photo filenames sitting in the trash folder, to move back."""
     return {"op": "files", "names": names}
@@ -135,6 +140,9 @@ def restore(conn, undo_id) -> str | None:
                     f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) "
                     f"VALUES ({','.join('?' * len(cols))})",
                     [data[c] for c in cols])
+        elif op["op"] == "delete":
+            for data in op["rows"]:
+                conn.execute(f"DELETE FROM {table} WHERE id=?", (int(data["id"]),))
         elif op["op"] == "update":
             for data in op["rows"]:
                 cols = _checked(conn, table, [c for c in data if c != "id"])

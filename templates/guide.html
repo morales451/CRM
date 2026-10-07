@@ -25,6 +25,7 @@
       <a href="#daily">2. The daily routine</a><br>
       <a href="#dashboard">3. Dashboard</a><br>
       <a href="#queue">4. Work the Queue</a><br>
+      <a href="#outcomes">4b. Call outcomes</a><br>
       <a href="#import">5. Importing lists</a>
     </div>
     <div class="col-6 col-md-4">
@@ -95,16 +96,37 @@
   <li><kbd>✕ Skip this step</kbd> — clears the step without logging it.</li>
   <li><kbd>Skip for now →</kbd> — leaves the task in place and shows the next one; <kbd>← Back</kbd> steps back.</li>
 </ul>
+<p><strong>Call steps get outcome buttons</strong>, right under the account so you
+don't scroll past the scripts after every call: No answer, Voicemail, Gatekeeper,
+Spoke, Meeting booked, Not interested, Bad number — numbered <kbd>1</kbd>–<kbd>7</kbd>.
+One tap logs the call and moves on. See <a href="#outcomes">call outcomes</a>.</p>
 <p><strong>Keyboard shortcuts</strong> for calling blocks: <kbd>L</kbd> log &amp; next,
 <kbd>S</kbd> skip the step, <kbd>N</kbd> or <kbd>→</kbd> next task, <kbd>P</kbd> or
-<kbd>←</kbd> previous, <kbd>E</kbd> exit, <kbd>?</kbd> for the list. They're ignored
+<kbd>←</kbd> previous, <kbd>1</kbd>–<kbd>7</kbd> call outcome, <kbd>E</kbd> exit, <kbd>?</kbd> for the list. They're ignored
 while you're typing in a box.</p>
 <p>Follow-up tasks show your note, a quick log form, snooze buttons, and ✓ Done.</p>
+
+<h2 id="outcomes">4b. Call outcomes</h2>
+<ul>
+  <li>Logging a call — from the queue, the dashboard's <em>✓ Log call</em> menu, or the
+    account page — records how it went: <strong>No answer, Voicemail, Gatekeeper,
+    Spoke, Meeting booked, Not interested, Bad number</strong>.</li>
+  <li>Three of them also move the account for you:
+    <ul>
+      <li><strong>Meeting booked</strong> → Pipeline Milestone becomes Accepted Meeting, which ends the cadence.</li>
+      <li><strong>Not interested</strong> → Prospecting Status becomes Not Interested, which ends the cadence.</li>
+      <li><strong>Bad number</strong> → the account goes back to Research with a dated note. That call is <em>not</em> counted as done, so once you fix the number (or add another contact) the cadence picks up again with the call still to make.</li>
+    </ul></li>
+  <li>Every one-tap log is undoable — the log and whatever it changed. A mis-tap on
+    "Not interested" mid-call-block is one click to take back.</li>
+  <li>Outcomes show as badges on the account timeline and Recent Activity, can be
+    corrected afterwards from the timeline's ✎ editor, and go into the Excel export.</li>
+</ul>
 
 <h2 id="import">5. Importing lists (CoStar etc.)</h2>
 <ul>
   <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
-  <li><strong>Pacing:</strong> set "Start N /business day" — about a quarter of the touches you can do in a day — each account brings five touches over ten days, so at 10 a day you settle around 40 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
+  <li><strong>Pacing:</strong> set "Start N /business day" — about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
   <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, missing property counts are backfilled onto existing accounts, and anything you <a href="#archive">archived</a> stays out.</li>
   <li>Imported accounts capture address/city/zip/website into Notes, the criteria-matching property count (🎯), and total properties owned. Defaults: Prospecting / None-In Cadence → straight into the cadence.</li>
 </ul>
@@ -149,6 +171,22 @@ future import <em>can</em> add that company again.</div>
 
 <h2 id="cadence">7. The cold cadence</h2>
 <ul>
+  <li><strong>Counted in business days.</strong> Day 1 is the day the cadence starts;
+    every later step counts working days, so nothing lands on a weekend and Monday
+    doesn't inherit the weekend's work. Started on a Friday: Email 1 Friday, the call
+    Tuesday, Call 2 Friday, Email 2 Tuesday, the breakup Thursday.</li>
+  <li><strong>🔎 Research: no clock until there's someone to contact.</strong> An
+    account only starts its cadence once it has a named person with an email or phone
+    — the first step is an email, and a switchboard number can't receive one. Until
+    then it waits on the <a href="{{ url_for('accounts', view='research') }}">Research
+    list</a> with no overdue tasks, biggest portfolios first: that list is who to look
+    up in ZoomInfo next. The moment you add a contact — typing them in, pasting a
+    ZoomInfo page or roster, or uploading a ZoomInfo export — the cadence starts that
+    day. <em>Start the cadence anyway</em> on the account page is there for calling a
+    main line before you have a name.</li>
+  <li>When this version first runs it moves untouched accounts with nobody to contact
+    into Research and prints how many in the startup window. Anything you've already
+    worked keeps its dates.</li>
   <li><strong>You see one step per account, not all of them.</strong> The cadence is
     a sequence — you can't send Email 1 and the Breakup Email to the same person on
     the same day — so an account shows up once, at the step it's waiting on. Log or
@@ -156,7 +194,7 @@ future import <em>can</em> add that company again.</div>
     "+N more steps behind".</li>
   <li><strong>If everything is due at once</strong>, it's because a big import put
     every account on the same clock. <strong>Re-Pace Cadence</strong> on the Import
-    page re-staggers the untouched ones — pick about a quarter of the touches you can do in a day — each account brings five touches over ten days, so at 10 a day you settle around 40 tasks a day — and never moves an
+    page re-staggers the untouched ones — pick about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day — and never moves an
     account you've already contacted.</li>
 </ul>
 <table class="table table-sm w-auto">
@@ -172,7 +210,7 @@ future import <em>can</em> add that company again.</div>
 <ul>
   <li>Applies only while an account is <strong>Prospecting</strong> + <strong>None / In Cadence</strong>. Change either (interested, not interested, any milestone) and all its reminders vanish instantly; change back and they reappear — nothing is ever stored stale.</li>
   <li>Each account page shows its cadence progress (✅ logged, ⏭️ skipped, 🔴 due, ⚪ upcoming).</li>
-  <li><strong>↻ Restart Cadence</strong> (account page) resets the 10-day clock to today for re-engaging a cold prospect — old cadence steps are kept in history as notes.</li>
+  <li><strong>↻ Restart Cadence</strong> (account page, or in bulk from the Accounts list) starts a fresh cadence from today for re-engaging a cold prospect — old cadence steps are kept in history as notes, so the new cycle starts at Email 1 again. Undoable.</li>
 </ul>
 
 <h2 id="contacts">8. Contacts &amp; ZoomInfo</h2>
@@ -292,6 +330,10 @@ future import <em>can</em> add that company again.</div>
 <ul>
   <li><strong>Tiles:</strong> tasks due, touches this week (with vs-last-week arrow — your effort meter), active prospects, in-cadence pool, closed won, win rate — plus a money row once projects exist.</li>
   <li><strong>Daily activity:</strong> interactions logged per day for the last 14 days against your daily goal (set it on the <a href="{{ url_for('templates_page') }}">Templates</a> page; 0 hides the goal line). Bars that reach the goal turn green, weekends are faded, and the heading says how many weekdays you hit and your weekday average. This is the chart that tells you whether a slow month is an activity problem or a conversion problem — while there's still time to fix it.</li>
+  <li><strong>Calls — last 30 days:</strong> calls made, how many reached the person,
+    your connect rate, and meetings booked as a share of connects, with a bar per
+    outcome. Low connect rate means a list or timing problem; low meetings per connect
+    means a pitch problem. Rates only count calls logged with an outcome.</li>
   <li><strong>Weekly activity:</strong> interactions logged per week, last 8 weeks — the longer trend behind the daily chart.</li>
   <li><strong>Pipeline:</strong> where deals pile up. <strong>Cadence reach:</strong> how many accounts got each step — a steep drop from emails to calls means calls are being skipped. <strong>Status breakdown</strong> and <strong>activity mix</strong> round it out.</li>
 </ul>
@@ -301,7 +343,7 @@ future import <em>can</em> add that company again.</div>
   <li><strong>Undo bar.</strong> Delete an account, contact, roof report, photo, project, task or invoice — or apply any bulk action — and a bar appears at the top of the page saying what just happened, with an <em>↶ Undo</em> button. Undo puts everything back: the account <em>and</em> its contacts, history, bids, projects, invoices and photo files. The bar shows for 15 minutes after the action, and each record can only be replayed once.</li>
   <li>Deleted bid photos wait in a trash folder for 7 days so an undo can restore the images themselves, not just their database rows. After that they're cleared automatically on startup.</li>
   <li><strong>Fixing a logged interaction.</strong> On the account timeline, the ✎ next to any entry opens an editor: change the type, the notes, or the <strong>date</strong>, or delete the entry. The date matters — reminders are worked out from what's logged, so correcting the date corrects the cadence. Deleting a logged cadence step brings its reminder back.</li>
-  <li><strong>Duplicate accounts.</strong> Imports now treat “Boxer Property Corp” and “Boxer Property, Corp.” as the same company, so a re-pull from CoStar can't create a second account or un-archive one you removed. Whenever an import row is matched to an account spelled differently, the summary lists the pair so you can check it. Any duplicates created before that are listed at the bottom of the Import page with links to each — move anything worth keeping onto the one you want and archive the other.</li>
+  <li><strong>Duplicate accounts.</strong> Imports now treat “Boxer Property Corp” and “Boxer Property, Corp.” as the same company, so a re-pull from CoStar can't create a second account or un-archive one you removed. Whenever an import row is matched to an account spelled differently, the summary lists the pair so you can check it. Duplicates created before that are listed at the bottom of the Import page. Pick the one to keep — the one that's been worked most is pre-selected — and press <strong>Merge</strong>: people, history, roof reports, projects and checked-off steps all move onto it, gaps in its details are filled from the others, their notes are appended (labelled), and the duplicates are removed. Undo puts every piece back, photos and invoices included. An archived duplicate never blocks imports for the live company.</li>
 </ul>
 
 <h2 id="backup">15. Data safety</h2>

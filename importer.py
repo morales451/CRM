@@ -10,6 +10,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
+import cadence
 from db import now_iso
 
 # field -> normalized header synonyms
@@ -195,18 +196,25 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
     # Matched on the NORMALIZED name so "Boxer Property Corp" and
     # "Boxer Property, Corp." are the same company — otherwise a re-pull from
     # CoStar silently creates duplicates and un-archives companies you removed.
+    # An ACTIVE account for a company always wins over an archived one with the
+    # same name: archiving a duplicate must not block the company it duplicated.
+    # Active accounts are read first so they claim each key.
     existing, archived, existing_names = {}, {}, {}
+    active_keys: set[str] = set()
     for row in conn.execute(
             "SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
-            "FROM accounts"):
+            "FROM accounts ORDER BY (COALESCE(archived_at, '') != ''), id"):
         key = normalize_company(row["company_name"])
         existing.setdefault(key, row["id"])
         existing_names.setdefault(key, row["company_name"])
         if row["archived_at"]:
             archived.setdefault(key, row["company_name"])
+        else:
+            active_keys.add(key)
 
     imported = skipped_dupe = skipped_blank = backfilled = 0
     skipped_archived = 0
+    started = to_research = 0
     archived_names = []
     # Rows matched to an account spelled differently — listed back so a match
     # is never silent and a wrong one can be spotted.
@@ -224,7 +232,7 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             return _clean_int(row.get(mapping[name])) if name in mapping else None
 
         key = normalize_company(company)
-        if key in archived:
+        if key in archived and key not in active_keys:
             # Deliberately removed from the working list — don't resurrect it.
             skipped_archived += 1
             if len(archived_names) < 25:
@@ -276,6 +284,15 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         if extras:
             notes = (notes + "\n" if notes else "") + "\n".join(extras)
 
+        person = {
+            "first_name": field("first_name"), "last_name": field("last_name"),
+            "email": field("email"),
+            "work_phone": _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
+            "mobile_phone": _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
+        }
+        # Someone to contact -> into the cadence (paced). Nobody yet -> into
+        # Research with no clock; it starts the day a contact is added.
+        ready = cadence.has_contact(person)
         cur = conn.execute(
             """INSERT INTO accounts
                (company_name, first_name, last_name, title, num_properties,
@@ -284,19 +301,21 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
                 preferred_contact, notes, prospecting_status,
                 pipeline_milestone, cadence_start, created_at, updated_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (company, field("first_name"), field("last_name"), field("title"),
+            (company, person["first_name"], person["last_name"], field("title"),
              row_int("num_properties"), row_int("matching_properties"),
-             field("email"),
-             _clean_phone(row.get(mapping["work_phone"])) if "work_phone" in mapping else "",
-             _clean_phone(row.get(mapping["mobile_phone"])) if "mobile_phone" in mapping else "",
+             person["email"], person["work_phone"], person["mobile_phone"],
              field("linkedin_url"), field("seniority"),
              "Unknown", notes,
-             "Prospecting", "None / In Cadence", start, ts, ts),
+             "Prospecting", "None / In Cadence", start if ready else "", ts, ts),
         )
         existing[key] = cur.lastrowid
         existing_names.setdefault(key, company)
         imported += 1
-        if per_day and imported % per_day == 0:
+        if not ready:
+            to_research += 1
+            continue                      # research rows don't use a pacing slot
+        started += 1
+        if per_day and started % per_day == 0:
             start_date = _next_business_day(start_date + timedelta(days=1))
             start = start_date.isoformat()
 
@@ -307,6 +326,8 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         "skipped_archived": skipped_archived,
         "archived_names": archived_names,
         "matched_names": matched_names,
+        "started": started,
+        "to_research": to_research,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "total_rows": len(df),
@@ -413,7 +434,6 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
     archived_names: list[str] = []
     matched_accounts: set[int] = set()
     ts = now_iso()
-    today = date.today().isoformat()
 
     for _, row in df.iterrows():
         company = _clean(row.get(mapping["company_name"]))
@@ -434,7 +454,9 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
             continue
 
         key = normalize_company(company)
-        if key in archived:
+        # An active account for the company wins; only refuse when the company
+        # exists solely as an archived record.
+        if key in archived and key not in accounts_by_key:
             skipped_archived += 1
             if archived[key] not in archived_names and len(archived_names) < 25:
                 archived_names.append(archived[key])
@@ -445,12 +467,13 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
             if not create_missing:
                 unmatched[company] = unmatched.get(company, 0) + 1
                 continue
+            # Opened in Research; the contact attached below starts its clock.
             cur = conn.execute(
                 """INSERT INTO accounts
                    (company_name, preferred_contact, prospecting_status,
                     pipeline_milestone, cadence_start, created_at, updated_at)
-                   VALUES (?, 'Unknown', 'Prospecting', 'None / In Cadence', ?, ?, ?)""",
-                (company, today, ts, ts))
+                   VALUES (?, 'Unknown', 'Prospecting', 'None / In Cadence', '', ?, ?)""",
+                (company, ts, ts))
             account_id = cur.lastrowid
             accounts_by_key[key] = account_id
             accounts_created += 1
@@ -495,11 +518,15 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
         matched_accounts.add(account_id)
         attached += 1
 
+    # Anyone who just got a reachable contact leaves Research today.
+    cadence_started = sum(1 for a in matched_accounts
+                          if cadence.start_cadence_if_ready(conn, a))
     conn.commit()
     return {
         "attached": attached,
         "companies_matched": len(matched_accounts),
         "accounts_created": accounts_created,
+        "cadence_started": cadence_started,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "skipped_archived": skipped_archived,
@@ -1185,8 +1212,24 @@ def find_duplicate_groups(conn) -> list[dict]:
     """
     groups: dict[str, list] = {}
     for row in conn.execute(
-            "SELECT id, company_name, matching_properties, prospecting_status, "
-            "pipeline_milestone, created_at FROM accounts "
-            "WHERE COALESCE(archived_at, '') = '' ORDER BY id"):
+            """SELECT a.id, a.company_name, a.matching_properties,
+                      a.prospecting_status, a.pipeline_milestone, a.created_at,
+                      a.first_name, a.last_name,
+                      (SELECT COUNT(*) FROM interactions i WHERE i.account_id = a.id) AS touches,
+                      (SELECT COUNT(*) FROM contacts c WHERE c.account_id = a.id)
+                        + (CASE WHEN TRIM(COALESCE(a.first_name,'') || COALESCE(a.last_name,'')) != ''
+                                THEN 1 ELSE 0 END) AS people
+               FROM accounts a
+               WHERE COALESCE(a.archived_at, '') = '' ORDER BY a.id"""):
         groups.setdefault(normalize_company(row["company_name"]), []).append(dict(row))
-    return [{"key": k, "accounts": v} for k, v in groups.items() if len(v) > 1]
+    out = []
+    for key, accts in groups.items():
+        if len(accts) < 2:
+            continue
+        # Suggest keeping the one that's been worked most (then the one with
+        # most people on it, then the oldest) — that's where the history is.
+        best = max(accts, key=lambda a: (a["touches"], a["people"], -a["id"]))
+        for a in accts:
+            a["suggested"] = a["id"] == best["id"]
+        out.append({"key": key, "accounts": accts})
+    return out

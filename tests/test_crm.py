@@ -79,9 +79,14 @@ rems = cadence.get_due_reminders(conn)
 check("cadence: Day 1 due for both accounts",
       len(rems) == 2 and all(r["step_type"] == "Email 1" for r in rems), rems)
 
-# Backdate Acme's cadence 7 days → days 1,3,6 due
-week_ago = (date.today() - timedelta(days=7)).isoformat()
-conn.execute("UPDATE accounts SET cadence_start=? WHERE id=?", (week_ago, acme["id"]))
+# Pin "today" so these checks don't depend on the weekday the suite runs on:
+# steps count business days, so "7 calendar days ago" means a different
+# number of steps on a Wednesday than on a Monday.
+_real_cadence_today = cadence.today
+cadence.today = lambda: date(2026, 10, 14)           # a Wednesday
+# Started Monday 10-05: Day 1 Mon 05, Day 3 Wed 07, Day 6 Mon 12,
+# Day 8 Wed 14 (today), Day 10 Fri 16 (not yet).
+conn.execute("UPDATE accounts SET cadence_start=? WHERE id=?", ("2026-10-05", acme["id"]))
 conn.commit()
 # The engine still knows every outstanding step...
 all_steps = cadence.get_due_reminders(conn, acme["id"], collapse=False)
@@ -95,7 +100,7 @@ check("cadence: only the next step is shown, not all four",
       [r["step_type"] for r in acme_rems])
 check("cadence: the row says how far behind the account is",
       acme_rems[0]["steps_behind"] == 4, acme_rems[0])
-check("cadence: overdue days computed", acme_rems[0]["days_overdue"] == 7, acme_rems[0])
+check("cadence: overdue days computed", acme_rems[0]["days_overdue"] == 9, acme_rems[0])
 
 # ---- 3. Logging an interaction clears that step only (persistence rule)
 conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
@@ -119,6 +124,8 @@ check("cadence: skipping a step also moves to the next",
 check("cadence: skip and log leave the same steps outstanding",
       [r["step_type"] for r in cadence.get_due_reminders(conn, acme["id"], collapse=False)]
       == ["Call 2", "Email 2"])
+
+cadence.today = _real_cadence_today
 
 # ---- 5. Milestone cancellation: advancing milestone kills ALL reminders instantly
 conn.execute("UPDATE accounts SET pipeline_milestone='Accepted Meeting' WHERE id=?", (acme["id"],))
@@ -461,7 +468,10 @@ check("pipeline: invalid milestone rejected", conn.execute(
 conn.close()
 
 # ---- 15. Staggered import
-stag_csv = b"Company Name\r\n" + b"".join(f"Stagger Co {i}\r\n".encode() for i in range(1, 8))
+# Each row has someone to contact, so it goes into the paced cadence rather
+# than into Research.
+stag_csv = b"Company Name,First Name,Last Name,Work Phone\r\n" + b"".join(
+    f"Stagger Co {i},Pat,Lee{i},713-555-01{i:02d}\r\n".encode() for i in range(1, 8))
 r = client.post("/import", data={"file": (io.BytesIO(stag_csv), "stagger.csv"), "per_day": "3"},
                 content_type="multipart/form-data")
 check("stagger: import ok", b"7</strong> account(s) imported" in r.data, r.data[:400])
@@ -2594,6 +2604,584 @@ check("review: a broken page chrome still produces a readable error",
       and b"Internal Server Error" not in r.data, r.data[:200])
 check("review: the app recovers once the chrome is fixed",
       client.get("/").status_code == 200)
+
+# ---- 46. Business-day cadence
+_fri = date(2026, 10, 9)
+check("business days: Day 1 is the start date itself",
+      cadence.step_due(_fri, 1) == _fri)
+check("business days: no step falls on a weekend",
+      all(cadence.step_due(date(2026, 10, 5) + timedelta(days=k), d).weekday() < 5
+          for k in range(14) for d, _ in cadence.CADENCE_STEPS if d > 1))
+check("business days: a Friday start's Day 3 is Tuesday, not Sunday",
+      cadence.step_due(_fri, 3) == date(2026, 10, 13))
+check("business days: Day 10 is nine working days on",
+      cadence.step_due(_fri, 10) == date(2026, 10, 22))
+check("business days: a weekend start still has Day 1 that day",
+      cadence.step_due(date(2026, 10, 10), 1) == date(2026, 10, 10)
+      and cadence.step_due(date(2026, 10, 10), 3) == date(2026, 10, 13))
+
+# Pacing produces a flat load: exactly 5x the daily starts, no Monday spike.
+_starts, _d = [], date(2026, 10, 12)
+while len(_starts) < 200:
+    if _d.weekday() < 5:
+        _starts += [_d] * 10
+    _d += timedelta(days=1)
+_load = []
+for _k in range(14, 28):
+    _t = date(2026, 10, 12) + timedelta(days=_k)
+    if _t.weekday() < 5:
+        _load.append(sum(1 for _s in _starts for _day, _ in cadence.CADENCE_STEPS
+                         if cadence.step_due(_s, _day) == _t))
+check("business days: paced at 10/day, every working day carries exactly 50",
+      set(_load) == {50}, _load)
+
+# ---- 47. Research: no clock until there's someone to contact
+check("research: a named person with a phone is reachable",
+      cadence.has_contact({"first_name": "Glen", "last_name": "", "email": "",
+                           "work_phone": "713", "mobile_phone": ""}))
+check("research: a switchboard number alone is not",
+      not cadence.has_contact({"first_name": "", "last_name": "", "email": "",
+                               "work_phone": "713", "mobile_phone": ""}))
+check("research: a name with no way to reach them is not",
+      not cadence.has_contact({"first_name": "Glen", "last_name": "Harlow",
+                               "email": "", "work_phone": "", "mobile_phone": ""}))
+
+_rc = db.get_db()
+_res = importer.import_accounts(_rc, _sheet(
+    [["Ready Holdings One", "Ann", "Lo", "", 9, "ann@r1.com", "", "", "", ""],
+     ["Switchboard Only Co", "", "", "", 8, "", "713-555-1000", "", "", ""],
+     ["Ready Holdings Two", "Ben", "Ma", "", 7, "", "713-555-2000", "", "", ""],
+     ["Bare Name Co", "Cy", "Ng", "", 6, "", "", "", "", ""]], HDR), per_day=1)
+_by_name = {r["company_name"]: r for r in _rc.execute(
+    "SELECT * FROM accounts WHERE company_name IN ('Ready Holdings One',"
+    "'Switchboard Only Co','Ready Holdings Two','Bare Name Co')")}
+check("research: the import says how many went where",
+      _res["started"] == 2 and _res["to_research"] == 2, _res)
+check("research: reachable rows get a cadence start",
+      _by_name["Ready Holdings One"]["cadence_start"] != ""
+      and _by_name["Ready Holdings Two"]["cadence_start"] != "")
+check("research: unreachable rows wait with no clock",
+      _by_name["Switchboard Only Co"]["cadence_start"] == ""
+      and _by_name["Bare Name Co"]["cadence_start"] == "")
+check("research: pacing slots are only spent on rows that can be worked",
+      _by_name["Ready Holdings One"]["cadence_start"]
+      != _by_name["Ready Holdings Two"]["cadence_start"])
+_due_ids = {r["account_id"] for r in cadence.get_due_reminders(_rc, collapse=False)}
+check("research: a waiting account produces no reminders",
+      _by_name["Switchboard Only Co"]["id"] not in _due_ids
+      and _by_name["Bare Name Co"]["id"] not in _due_ids)
+check("research: the account page shows it as waiting, not overdue",
+      all(st["state"] == "waiting" and st["due_date"] == ""
+          for st in cadence.get_cadence_progress(_rc, _by_name["Switchboard Only Co"]["id"])))
+
+_sw = _by_name["Switchboard Only Co"]["id"]
+r = client.get(f"/accounts/{_sw}")
+check("research: the account page explains why and offers to start anyway",
+      b"In Research" in r.data and b"Start the cadence anyway" in r.data)
+r = client.get("/accounts?view=research")
+check("research: it's on the Research list", b"Switchboard Only Co" in r.data
+      and b"Who to look up next" in r.data)
+check("research: and not on it once it has a contact",
+      b"Ready Holdings One" not in r.data)
+r = client.get("/")
+check("research: the dashboard lists who to look up next",
+      b"Research" in r.data and b"Switchboard Only Co" in r.data)
+
+# Adding a contact starts the clock — from every place a contact can arrive.
+r = client.post(f"/accounts/{_sw}/contacts/add", data={
+    "first_name": "Dee", "last_name": "Fox", "email": "dee@sw.com"},
+    follow_redirects=True)
+_now_start = _rc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                         (_sw,)).fetchone()["cadence_start"]
+check("research: adding a contact starts the cadence today",
+      _now_start == cadence.today().isoformat(), _now_start)
+check("research: and says so", b"cadence starts today" in r.data)
+check("research: the first step is due straight away",
+      [x["step_type"] for x in cadence.get_due_reminders(_rc, account_id=_sw)] == ["Email 1"])
+
+_bn = _by_name["Bare Name Co"]["id"]
+client.post(f"/accounts/{_bn}/edit", data={
+    "company_name": "Bare Name Co", "first_name": "Cy", "last_name": "Ng",
+    "work_phone": "713-555-3000", "prospecting_status": "Prospecting",
+    "pipeline_milestone": "None / In Cadence", "preferred_contact": "Unknown"},
+    follow_redirects=True)
+check("research: typing a phone in on the account page starts it too",
+      _rc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                  (_bn,)).fetchone()["cadence_start"] != "")
+
+# a running clock is never moved by adding another contact
+_r1 = _by_name["Ready Holdings One"]["id"]
+_before = _rc.execute("SELECT cadence_start FROM accounts WHERE id=?", (_r1,)).fetchone()[0]
+client.post(f"/accounts/{_r1}/contacts/add", data={
+    "first_name": "Eve", "last_name": "Hu", "email": "eve@r1.com"})
+check("research: a second contact doesn't restart a running cadence",
+      _rc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                  (_r1,)).fetchone()[0] == _before)
+
+# the roster picker starts it
+_rid2 = _rc.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+    "pipeline_milestone, cadence_start, created_at, updated_at) VALUES "
+    "('Roster Research Co','Unknown','Prospecting','None / In Cadence','',?,?)",
+    (db.now_iso(), db.now_iso())).lastrowid
+_rc.commit()
+client.post(f"/accounts/{_rid2}/contacts/roster/add", data={
+    "pick": ["0"], "p0_first_name": "Gil", "p0_last_name": "Ray",
+    "p0_title": "VP", "p0_email": "gil@rr.com"}, follow_redirects=True)
+check("research: picking people off a roster starts it",
+      _rc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                  (_rid2,)).fetchone()[0] != "")
+
+# a ZoomInfo contact upload starts it
+_zid = _rc.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+    "pipeline_milestone, cadence_start, created_at, updated_at) VALUES "
+    "('Zoom Research Co','Unknown','Prospecting','None / In Cadence','',?,?)",
+    (db.now_iso(), db.now_iso())).lastrowid
+_rc.commit()
+_zres = importer.import_contacts(_rc, _sheet(
+    [["Zoom Research Co", "Hal", "Ito", "Director", "", "hal@zr.com", "", "", "", ""]], HDR))
+check("research: a ZoomInfo contact upload starts it",
+      _zres["cadence_started"] == 1 and _rc.execute(
+          "SELECT cadence_start FROM accounts WHERE id=?", (_zid,)).fetchone()[0] != "")
+
+# start anyway, with nobody to contact
+_any = _rc.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+    "pipeline_milestone, cadence_start, created_at, updated_at) VALUES "
+    "('Start Anyway Co','Unknown','Prospecting','None / In Cadence','',?,?)",
+    (db.now_iso(), db.now_iso())).lastrowid
+_rc.commit()
+client.post(f"/accounts/{_any}/restart-cadence", follow_redirects=True)
+check("research: 'start anyway' starts the clock with no contact",
+      _rc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                  (_any,)).fetchone()[0] == date.today().isoformat())
+
+# a new account typed in by hand
+client.post("/accounts/new", data={"company_name": "Hand Made Research Co",
+                                    "prospecting_status": "Prospecting",
+                                    "pipeline_milestone": "None / In Cadence"})
+check("research: a new account with nobody to contact starts in Research",
+      _rc.execute("SELECT cadence_start FROM accounts WHERE company_name="
+                  "'Hand Made Research Co'").fetchone()[0] == "")
+
+# re-pace leaves Research alone
+_rc.execute("UPDATE accounts SET cadence_start='' WHERE id=?", (_any,))
+_rc.commit()
+client.post("/repace", data={"per_day": "5"}, follow_redirects=True)
+check("research: Re-Pace doesn't give a waiting account a clock",
+      _rc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                  (_any,)).fetchone()[0] == "")
+_rc.execute("DELETE FROM accounts WHERE company_name IN ('Ready Holdings One',"
+            "'Switchboard Only Co','Ready Holdings Two','Bare Name Co',"
+            "'Roster Research Co','Zoom Research Co','Start Anyway Co',"
+            "'Hand Made Research Co')")
+_rc.commit(); _rc.close()
+
+# ---- 48. The one-time move for an existing database
+_mdir = Path(tempfile.mkdtemp(prefix="crm_rmig_"))
+_keep_db = db.DB_PATH
+db.DB_PATH = _mdir / "crm.db"
+db.init_db()
+_m = db.get_db()
+_m.execute("DELETE FROM settings WHERE key='migration_research_v1'")   # an older DB
+_old_start = "2026-09-21"
+def _acc(name, first="", email="", phone=""):
+    return _m.execute(
+        "INSERT INTO accounts (company_name, first_name, email, work_phone, "
+        "preferred_contact, prospecting_status, pipeline_milestone, cadence_start, "
+        "created_at, updated_at) VALUES (?,?,?,?,'Unknown','Prospecting',"
+        "'None / In Cadence',?,?,?)",
+        (name, first, email, phone, _old_start, db.now_iso(), db.now_iso())).lastrowid
+_untouched_bare = _acc("Untouched Switchboard", phone="713-555-0000")
+_touched_bare = _acc("Worked Switchboard", phone="713-555-0001")
+_m.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+           "VALUES (?,?,?,?)", (_touched_bare, "Call & Text", "", db.now_iso()))
+_ready = _acc("Has A Contact", first="Ivy", email="ivy@x.com")
+_m.commit(); _m.close()
+_notices = db.init_db()
+_m = db.get_db()
+_cs = {r["company_name"]: r["cadence_start"] for r in _m.execute(
+    "SELECT company_name, cadence_start FROM accounts")}
+check("migration: an untouched account with nobody to contact moves to Research",
+      _cs["Untouched Switchboard"] == "", _cs)
+check("migration: one you've already worked keeps its dates",
+      _cs["Worked Switchboard"] == _old_start, _cs)
+check("migration: one with a contact keeps its dates",
+      _cs["Has A Contact"] == _old_start, _cs)
+check("migration: the startup window says what moved",
+      any("1 account(s)" in n and "Research" in n for n in _notices), _notices)
+_m.execute("UPDATE accounts SET cadence_start=? WHERE company_name='Untouched Switchboard'",
+           (_old_start,))
+_m.commit()
+db.init_db()
+check("migration: it only ever runs once",
+      _m.execute("SELECT cadence_start FROM accounts WHERE company_name="
+                 "'Untouched Switchboard'").fetchone()[0] == _old_start)
+_m.close()
+db.DB_PATH = _keep_db
+
+# ---- 49. Call outcomes
+_oc = db.get_db()
+_two_bd_ago = date.today() - timedelta(days=7)   # Call & Text (Day 3) due by now
+def _call_acct(name):
+    i = _oc.execute(
+        "INSERT INTO accounts (company_name, first_name, last_name, email, work_phone, "
+        "preferred_contact, prospecting_status, pipeline_milestone, cadence_start, "
+        "created_at, updated_at) VALUES (?,'Kim','Ode','k@x.com','713-555-4000',"
+        "'Unknown','Prospecting','None / In Cadence',?,?,?)",
+        (name, _two_bd_ago.isoformat(), db.now_iso(), db.now_iso())).lastrowid
+    _oc.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+                "VALUES (?,?,?,?)", (i, "Email 1", "", db.now_iso()))
+    _oc.commit()
+    return i
+
+def _qlog(aid, outcome, step="Call & Text"):
+    return client.post("/reminders/quicklog", data={
+        "account_id": str(aid), "step_type": step, "outcome": outcome},
+        follow_redirects=True)
+
+_a1 = _call_acct("Outcome Voicemail Co")
+r = _qlog(_a1, "Voicemail")
+_row = _oc.execute("SELECT * FROM interactions WHERE account_id=? AND "
+                   "interaction_type='Call & Text'", (_a1,)).fetchone()
+check("outcomes: the outcome is stored with the call", _row["outcome"] == "Voicemail")
+check("outcomes: a voicemail completes the step",
+      "Call & Text" not in [x["step_type"] for x in
+                            cadence.get_due_reminders(_oc, account_id=_a1, collapse=False)])
+check("outcomes: the flash says what was logged", b"Voicemail" in r.data)
+
+_a2 = _call_acct("Outcome Meeting Co")
+r = _qlog(_a2, "Meeting booked")
+check("outcomes: Meeting booked moves the deal to Accepted Meeting",
+      _oc.execute("SELECT pipeline_milestone FROM accounts WHERE id=?",
+                  (_a2,)).fetchone()[0] == "Accepted Meeting")
+check("outcomes: ...which ends the cadence",
+      cadence.get_due_reminders(_oc, account_id=_a2) == [])
+check("outcomes: ...and says so", b"Accepted Meeting" in r.data)
+
+_a3 = _call_acct("Outcome No Thanks Co")
+_qlog(_a3, "Not interested")
+check("outcomes: Not interested sets the status and ends the cadence",
+      _oc.execute("SELECT prospecting_status FROM accounts WHERE id=?",
+                  (_a3,)).fetchone()[0] == "Not Interested"
+      and cadence.get_due_reminders(_oc, account_id=_a3) == [])
+
+_a4 = _call_acct("Outcome Bad Number Co")
+r = _qlog(_a4, "Bad number")
+_acc4 = _oc.execute("SELECT * FROM accounts WHERE id=?", (_a4,)).fetchone()
+check("outcomes: Bad number sends the account back to Research",
+      _acc4["cadence_start"] == "" and b"back to Research" in r.data, dict(_acc4))
+check("outcomes: ...with a dated note", "Bad number reported" in _acc4["notes"])
+check("outcomes: ...and the call is NOT counted as done",
+      [x["state"] for x in cadence.get_cadence_progress(_oc, _a4)
+       if x["step_type"] == "Call & Text"] == ["waiting"])
+client.post(f"/accounts/{_a4}/edit", data={
+    "company_name": "Outcome Bad Number Co", "first_name": "Kim", "last_name": "Ode",
+    "email": "k@x.com", "work_phone": "713-555-9999",
+    "prospecting_status": "Prospecting", "pipeline_milestone": "None / In Cadence",
+    "preferred_contact": "Unknown"})
+_after = cadence.get_due_reminders(_oc, account_id=_a4, collapse=False)
+check("outcomes: fixing the number restarts the cadence",
+      _oc.execute("SELECT cadence_start FROM accounts WHERE id=?",
+                  (_a4,)).fetchone()[0] == cadence.today().isoformat())
+check("outcomes: ...and the unfinished call comes round again",
+      "Call & Text" in [x["step_type"] for x in
+                        cadence.get_due_reminders(_oc, account_id=_a4, collapse=False)]
+      or any(st["step_type"] == "Call & Text" and st["state"] in ("upcoming", "due")
+             for st in cadence.get_cadence_progress(_oc, _a4)))
+
+# a mis-tap is undoable: the log AND what it did to the deal
+_a5 = _call_acct("Outcome Misstap Co")
+_qlog(_a5, "Not interested")
+_undo_id = _oc.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]
+client.post(f"/undo/{_undo_id}")
+check("outcomes: undoing a one-tap log restores the status",
+      _oc.execute("SELECT prospecting_status FROM accounts WHERE id=?",
+                  (_a5,)).fetchone()[0] == "Prospecting")
+check("outcomes: ...and removes the logged call",
+      _oc.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
+                  "interaction_type='Call & Text'", (_a5,)).fetchone()[0] == 0)
+check("outcomes: ...so the call is due again",
+      "Call & Text" in [x["step_type"] for x in
+                        cadence.get_due_reminders(_oc, account_id=_a5, collapse=False)])
+
+_a6 = _call_acct("Outcome Junk Co")
+_qlog(_a6, "Abducted by aliens")
+check("outcomes: an unknown outcome is ignored, the call still logged",
+      _oc.execute("SELECT outcome FROM interactions WHERE account_id=? AND "
+                  "interaction_type='Call & Text'", (_a6,)).fetchone()[0] == "")
+
+# where the buttons appear
+r = client.get("/")
+check("outcomes: the dashboard offers outcomes on call steps",
+      b"Log call" in r.data and b'value="Meeting booked"' in r.data)
+_qpos = [i for i, t in enumerate(_app_mod._build_queue(_oc))
+         if t["account_id"] == _a1 or t["kind"] == "cadence"]
+_qhtml = ""
+for _pos in range(len(_app_mod._build_queue(_oc))):
+    _qhtml = client.get(f"/queue?pos={_pos}").data.decode()
+    if "How did the call go" in _qhtml:
+        break
+check("outcomes: the queue shows one button per outcome, numbered",
+      "How did the call go" in _qhtml and 'id="k-o7"' in _qhtml
+      and "'7': 'k-o7'" in _qhtml)
+
+# the account page: log with an outcome, see it, correct it
+r = client.post(f"/accounts/{_a1}/log", data={
+    "interaction_type": "Call 2", "outcome": "Spoke", "notes": "good chat"},
+    follow_redirects=True)
+check("outcomes: the account page can log an outcome",
+      _oc.execute("SELECT outcome FROM interactions WHERE account_id=? AND "
+                  "interaction_type='Call 2'", (_a1,)).fetchone()[0] == "Spoke")
+check("outcomes: the timeline shows it", b">Spoke</span>" in r.data)
+_iid = _oc.execute("SELECT id FROM interactions WHERE account_id=? AND "
+                   "interaction_type='Call 2'", (_a1,)).fetchone()[0]
+client.post(f"/interactions/{_iid}/edit", data={
+    "interaction_type": "Call 2", "notes": "good chat", "outcome": "Gatekeeper"})
+check("outcomes: the outcome can be corrected afterwards",
+      _oc.execute("SELECT outcome FROM interactions WHERE id=?",
+                  (_iid,)).fetchone()[0] == "Gatekeeper")
+
+r = client.get("/insights")
+check("outcomes: Insights shows calls, connects and meetings",
+      b"Calls" in r.data and b"Connect rate" in r.data
+      and b"Meetings booked" in r.data)
+_oc.execute("DELETE FROM accounts WHERE company_name LIKE 'Outcome %'")
+_oc.commit(); _oc.close()
+
+# an older database gains the outcome column without losing anything
+_odir = Path(tempfile.mkdtemp(prefix="crm_omig_"))
+_keep_db2 = db.DB_PATH
+db.DB_PATH = _odir / "crm.db"
+_raw = _sq.connect(db.DB_PATH)
+_raw.executescript("""
+CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT NOT NULL,
+  prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
+  pipeline_milestone TEXT NOT NULL DEFAULT 'None / In Cadence',
+  cadence_start TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE interactions (id INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  interaction_type TEXT NOT NULL, notes TEXT DEFAULT '', created_at TEXT NOT NULL);
+INSERT INTO accounts (company_name, cadence_start, created_at, updated_at)
+  VALUES ('Old Co', '2026-01-01', '2026-01-01', '2026-01-01');
+INSERT INTO interactions (account_id, interaction_type, notes, created_at)
+  VALUES (1, 'Call 2', 'kept', '2026-01-02');
+""")
+_raw.commit(); _raw.close()
+db.init_db()
+_m2 = db.get_db()
+check("outcomes migration: the column is added to an old database",
+      "outcome" in {r[1] for r in _m2.execute("PRAGMA table_info(interactions)")})
+check("outcomes migration: existing calls keep their notes",
+      _m2.execute("SELECT notes FROM interactions").fetchone()[0] == "kept")
+_m2.close()
+db.DB_PATH = _keep_db2
+
+# ---- 50. Active accounts win over archived duplicates on import
+_pc = db.get_db()
+_pts = db.now_iso()
+_pc.execute("INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+            "pipeline_milestone, cadence_start, archived_at, archive_reason, created_at, "
+            "updated_at) VALUES ('Precedence Co Inc','Unknown','Prospecting',"
+            "'None / In Cadence','',?,'Duplicate',?,?)", (_pts, _pts, _pts))
+_live = _pc.execute("INSERT INTO accounts (company_name, preferred_contact, "
+                    "prospecting_status, pipeline_milestone, cadence_start, created_at, "
+                    "updated_at) VALUES ('Precedence Co','Unknown','Prospecting',"
+                    "'None / In Cadence','',?,?)", (_pts, _pts)).lastrowid
+_pc.commit()
+_pr = importer.import_contacts(_pc, _sheet(
+    [["Precedence Co", "Pia", "Lu", "", "", "pia@pc.com", "", "", "", ""]], HDR))
+check("precedence: an archived duplicate doesn't block contacts for the live company",
+      _pr["attached"] == 1 and _pr["skipped_archived"] == 0, _pr)
+check("precedence: they land on the live account",
+      _pc.execute("SELECT first_name FROM accounts WHERE id=?", (_live,)).fetchone()[0] == "Pia")
+_pr = importer.import_accounts(_pc, _sheet(
+    [["Precedence Co, LLC", "", "", "", 4, "", "", "", "", ""]], HDR))
+check("precedence: re-importing the company counts as a duplicate of the live one",
+      _pr["skipped_duplicates"] == 1 and _pr["skipped_archived"] == 0, _pr)
+_pc.execute("DELETE FROM accounts WHERE company_name LIKE 'Precedence Co%'")
+_pc.commit(); _pc.close()
+
+# ---- 51. Merging duplicates
+_mc = db.get_db()
+def _mk(name, first="", last="", phone="", mobile="", notes="", matching=None,
+        cadence_start=""):
+    return _mc.execute(
+        "INSERT INTO accounts (company_name, first_name, last_name, work_phone, "
+        "mobile_phone, notes, matching_properties, preferred_contact, "
+        "prospecting_status, pipeline_milestone, cadence_start, created_at, "
+        "updated_at) VALUES (?,?,?,?,?,?,?,'Unknown','Prospecting',"
+        "'None / In Cadence',?,?,?)",
+        (name, first, last, phone, mobile, notes, matching, cadence_start,
+         db.now_iso(), db.now_iso())).lastrowid
+_keep = _mk("Hartley Properties LLC", "Ann", "Ross", phone="713-555-1111",
+            notes="Keeper notes", matching=5, cadence_start="2026-09-01")
+_dupe = _mk("Hartley Properties, Inc.", "Bob", "Tran", phone="713-555-2222",
+            notes="Address: 1 Main St", matching=9)
+_bare = _mk("HARTLEY PROPERTIES", mobile="832-555-3333")
+for _ in range(3):
+    _mc.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
+                "created_at) VALUES (?,?,?,?)", (_keep, "General Note", "k", db.now_iso()))
+for _ in range(2):
+    _mc.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
+                "created_at) VALUES (?,?,?,?)", (_dupe, "Call 2", "d", db.now_iso()))
+_cara = _mc.execute("INSERT INTO contacts (account_id, first_name, last_name, created_at) "
+                    "VALUES (?,?,?,?)", (_dupe, "Cara", "Diaz", db.now_iso())).lastrowid
+_ann2 = _mc.execute("INSERT INTO contacts (account_id, first_name, last_name, created_at) "
+                    "VALUES (?,?,?,?)", (_dupe, "Ann", "Ross", db.now_iso())).lastrowid
+_bid = _mc.execute("INSERT INTO bids (account_id, roof_address, created_at, updated_at) "
+                   "VALUES (?,?,?,?)", (_dupe, "1 Main St", db.now_iso(), db.now_iso())).lastrowid
+db.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+(db.UPLOAD_DIR / "merge_photo.jpg").write_bytes(b"\xff\xd8merge")
+_photo = _mc.execute("INSERT INTO bid_photos (bid_id, filename, created_at) VALUES (?,?,?)",
+                     (_bid, "merge_photo.jpg", db.now_iso())).lastrowid
+_proj = _mc.execute("INSERT INTO projects (account_id, name, created_at, updated_at) "
+                    "VALUES (?,?,?,?)", (_dupe, "Hartley roof", db.now_iso(), db.now_iso())).lastrowid
+_inv = _mc.execute("INSERT INTO invoices (project_id, amount, created_at, updated_at) "
+                   "VALUES (?,?,?,?)", (_proj, 5000, db.now_iso(), db.now_iso())).lastrowid
+_mc.execute("INSERT INTO cadence_dismissals (account_id, step_type, dismissed_at) "
+            "VALUES (?,?,?)", (_dupe, "Email 1", db.now_iso()))
+_mc.commit()
+
+_grp = [g for g in importer.find_duplicate_groups(_mc) if g["key"] == "hartley properties"]
+check("merge: the three spellings are found as one group",
+      len(_grp) == 1 and len(_grp[0]["accounts"]) == 3, _grp)
+check("merge: the most-worked account is suggested as the one to keep",
+      [a["id"] for a in _grp[0]["accounts"] if a["suggested"]] == [_keep])
+check("merge: the Import page offers to merge them",
+      b"Merge into the selected account" in client.get("/import").data)
+
+# refusals
+r = client.post("/duplicates/merge", data={"keep": str(_keep),
+                "account_ids": [str(_keep), "999999"]}, follow_redirects=True)
+check("merge: refuses ids that don't exist", b"be merged" in r.data)
+_other = _mk("Completely Different Co", "Zed", "Ink")
+_mc.commit()
+r = client.post("/duplicates/merge", data={"keep": str(_keep),
+                "account_ids": [str(_keep), str(_other)]}, follow_redirects=True)
+check("merge: refuses to merge two different companies",
+      b"be merged" in r.data
+      and _mc.execute("SELECT 1 FROM accounts WHERE id=?", (_other,)).fetchone())
+r = client.post("/duplicates/merge", data={"keep": "",
+                "account_ids": [str(_keep), str(_dupe)]}, follow_redirects=True)
+check("merge: insists on picking which one to keep", b"Pick which account" in r.data)
+
+r = client.post("/duplicates/merge", data={
+    "keep": str(_keep), "account_ids": [str(_keep), str(_dupe), str(_bare)]},
+    follow_redirects=True)
+_k = _mc.execute("SELECT * FROM accounts WHERE id=?", (_keep,)).fetchone()
+_kcontacts = {(c["first_name"], c["last_name"]) for c in _mc.execute(
+    "SELECT first_name, last_name FROM contacts WHERE account_id=?", (_keep,))}
+check("merge: the duplicates are gone",
+      not _mc.execute(f"SELECT 1 FROM accounts WHERE id IN ({_dupe},{_bare})").fetchone())
+check("merge: the kept account keeps its own primary contact",
+      _k["first_name"] == "Ann" and _k["work_phone"] == "713-555-1111", dict(_k))
+check("merge: the duplicate's primary person joins as a contact",
+      ("Bob", "Tran") in _kcontacts, _kcontacts)
+check("merge: other people move across", ("Cara", "Diaz") in _kcontacts)
+check("merge: someone already on the account isn't added twice",
+      ("Ann", "Ross") not in _kcontacts, _kcontacts)
+check("merge: all the history moves",
+      _mc.execute("SELECT COUNT(*) FROM interactions WHERE account_id=?",
+                  (_keep,)).fetchone()[0] == 5)
+check("merge: the roof report moves, photo and file intact",
+      _mc.execute("SELECT account_id FROM bids WHERE id=?", (_bid,)).fetchone()[0] == _keep
+      and _mc.execute("SELECT 1 FROM bid_photos WHERE id=?", (_photo,)).fetchone()
+      and (db.UPLOAD_DIR / "merge_photo.jpg").exists())
+check("merge: the project moves, invoice intact",
+      _mc.execute("SELECT account_id FROM projects WHERE id=?", (_proj,)).fetchone()[0] == _keep
+      and _mc.execute("SELECT 1 FROM invoices WHERE id=?", (_inv,)).fetchone())
+check("merge: checked-off steps move",
+      _mc.execute("SELECT COUNT(*) FROM cadence_dismissals WHERE account_id=?",
+                  (_keep,)).fetchone()[0] == 1)
+check("merge: the bigger building count wins", _k["matching_properties"] == 9)
+check("merge: a missing mobile is filled from a duplicate", _k["mobile_phone"] == "832-555-3333")
+check("merge: the duplicate's notes are kept, labelled",
+      "Keeper notes" in _k["notes"] and "merged from" in _k["notes"]
+      and "1 Main St" in _k["notes"], _k["notes"])
+check("merge: the running cadence clock is kept", _k["cadence_start"] == "2026-09-01")
+check("merge: the summary says what moved",
+      b"Merged 2 duplicate" in r.data and b"logged touches" in r.data)
+
+client.post("/undo/" + str(_mc.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]))
+_k2 = _mc.execute("SELECT * FROM accounts WHERE id=?", (_keep,)).fetchone()
+check("merge undo: the duplicates come back",
+      _mc.execute(f"SELECT COUNT(*) FROM accounts WHERE id IN ({_dupe},{_bare})").fetchone()[0] == 2)
+check("merge undo: the kept account's details are as they were",
+      _k2["matching_properties"] == 5 and _k2["notes"] == "Keeper notes"
+      and _k2["mobile_phone"] == "", dict(_k2))
+check("merge undo: history goes back where it came from",
+      _mc.execute("SELECT COUNT(*) FROM interactions WHERE account_id=?",
+                  (_keep,)).fetchone()[0] == 3
+      and _mc.execute("SELECT COUNT(*) FROM interactions WHERE account_id=?",
+                      (_dupe,)).fetchone()[0] == 2)
+check("merge undo: people go back, and the added contact is removed",
+      _mc.execute("SELECT account_id FROM contacts WHERE id=?", (_cara,)).fetchone()[0] == _dupe
+      and _mc.execute("SELECT account_id FROM contacts WHERE id=?", (_ann2,)).fetchone()[0] == _dupe
+      and not _mc.execute("SELECT 1 FROM contacts WHERE account_id=? AND first_name='Bob'",
+                          (_keep,)).fetchone())
+check("merge undo: the roof report goes back WITH its photo",
+      _mc.execute("SELECT account_id FROM bids WHERE id=?", (_bid,)).fetchone()[0] == _dupe
+      and _mc.execute("SELECT 1 FROM bid_photos WHERE id=?", (_photo,)).fetchone()
+      and (db.UPLOAD_DIR / "merge_photo.jpg").exists())
+check("merge undo: the project goes back WITH its invoice",
+      _mc.execute("SELECT account_id FROM projects WHERE id=?", (_proj,)).fetchone()[0] == _dupe
+      and _mc.execute("SELECT 1 FROM invoices WHERE id=?", (_inv,)).fetchone())
+check("merge undo: checked-off steps go back",
+      _mc.execute("SELECT COUNT(*) FROM cadence_dismissals WHERE account_id=?",
+                  (_dupe,)).fetchone()[0] == 1
+      and _mc.execute("SELECT COUNT(*) FROM cadence_dismissals WHERE account_id=?",
+                      (_keep,)).fetchone()[0] == 0)
+_mc.execute("DELETE FROM accounts WHERE company_name LIKE 'Hartley%' "
+            "OR company_name='HARTLEY PROPERTIES' OR company_name='Completely Different Co'")
+_mc.commit(); _mc.close()
+
+# ---- 52. Restarting a worked account really starts over — single or bulk
+_rs = db.get_db()
+def _worked(name):
+    a = _rs.execute(
+        "INSERT INTO accounts (company_name, first_name, email, preferred_contact, "
+        "prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) "
+        "VALUES (?,'Al','a@c.com','Unknown','Prospecting','None / In Cadence',"
+        "'2026-08-01',?,?)", (name, db.now_iso(), db.now_iso())).lastrowid
+    for _, step in cadence.CADENCE_STEPS:
+        _rs.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
+                    "created_at) VALUES (?,?,?,?)", (a, step, "sent", "2026-08-15T10:00:00-05:00"))
+    _rs.commit()
+    return a
+_w1, _w2 = _worked("Worked Single Co"), _worked("Worked Bulk Co")
+check("restart: a fully worked account has nothing due", not cadence.get_due_reminders(_rs, account_id=_w1))
+client.post(f"/accounts/{_w1}/restart-cadence")
+check("restart: restarting one account starts at Email 1 again",
+      [x["step_type"] for x in cadence.get_due_reminders(_rs, account_id=_w1)] == ["Email 1"])
+check("restart: the old steps are kept as history",
+      _rs.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
+                  "notes LIKE '[%previous cadence] sent'", (_w1,)).fetchone()[0] == 5)
+client.post("/accounts/bulk", data={"action": "restart_cadence", "account_ids": [str(_w2)]})
+check("restart: a BULK restart starts at Email 1 too",
+      [x["step_type"] for x in cadence.get_due_reminders(_rs, account_id=_w2)] == ["Email 1"])
+client.post("/undo/" + str(_rs.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]))
+check("restart: undoing a bulk restart puts the logged steps back",
+      _rs.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
+                  "interaction_type != 'General Note' AND notes='sent'", (_w2,)).fetchone()[0] == 5
+      and not cadence.get_due_reminders(_rs, account_id=_w2))
+
+# "Start anyway" on a Research account keeps progress (e.g. after a bad number)
+_sa = _worked("Start Anyway Progress Co")
+_rs.execute("UPDATE interactions SET interaction_type='General Note' WHERE account_id=? "
+            "AND interaction_type NOT IN ('Email 1')", (_sa,))
+_rs.execute("UPDATE accounts SET cadence_start='' WHERE id=?", (_sa,))
+_rs.commit()
+client.post(f"/accounts/{_sa}/start-cadence")
+_due = [x["step_type"] for x in cadence.get_due_reminders(_rs, account_id=_sa, collapse=False)]
+check("start anyway: the clock starts today",
+      _rs.execute("SELECT cadence_start FROM accounts WHERE id=?", (_sa,)).fetchone()[0]
+      == date.today().isoformat())
+check("start anyway: a step already done stays done", "Email 1" not in _due, _due)
+_rs.execute("DELETE FROM accounts WHERE company_name IN ('Worked Single Co','Worked Bulk Co',"
+            "'Start Anyway Progress Co')")
+_rs.commit(); _rs.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

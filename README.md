@@ -71,7 +71,22 @@ computer's firewall (Windows will usually prompt you the first time — choose
   follow-up appears with the account's info and the personalized script on one
   screen; log it and the next task loads. Turns a call block into a flow.
   Keyboard shortcuts (`L` log, `S` skip, `N`/`P` next and previous, `?` help)
-  keep a calling block moving without the mouse.
+  keep a calling block moving without the mouse. On a call step the outcome
+  buttons sit right under the account, numbered `1`–`7`.
+- **Call outcomes** — logging a call records how it went in one tap: No
+  answer, Voicemail, Gatekeeper, Spoke, Meeting booked, Not interested, Bad
+  number. *Meeting booked* moves the deal to Accepted Meeting and *Not
+  interested* sets the status (both end the cadence); *Bad number* sends the
+  account back to Research and leaves that call to do again once the number
+  is fixed. Every one-tap log is undoable. Insights turns the outcomes into
+  calls made, connect rate and meetings per connect.
+- **Research list** — an account only starts its cadence once it has someone
+  to contact: a named person with an email or phone. Until then it waits in
+  Research (no clock, no overdue tasks), sorted biggest-portfolio-first as the
+  list of who to look up in ZoomInfo next. Adding a contact — by hand, by
+  pasting a ZoomInfo page or roster, or by a ZoomInfo upload — starts the
+  cadence that day. *Start the cadence anyway* is there for cold-calling a
+  switchboard before you have a name.
 - **Follow-Ups** — set a "next follow-up" date + note on any account (quick
   buttons: tomorrow / +3 days / +1 week). Due follow-ups pin to the dashboard
   and queue until done or snoozed — so warm prospects outside the cold cadence
@@ -176,12 +191,18 @@ computer's firewall (Windows will usually prompt you the first time — choose
   Company names are matched on their meaning, not their spelling — "Boxer
   Property Corp" and "Boxer Property, Corp." are one company — so a re-pull
   from CoStar can't create a second account or un-archive one you removed.
-  Duplicates created by older versions are listed at the bottom of the
-  Import page.
+  Rows with a contact go into the cadence; rows without one go to Research.
+- **Merge duplicates** — duplicates left by older versions are listed at the
+  bottom of the Import page. Pick the one to keep (the most-worked is
+  pre-selected) and press Merge: people, history, roof reports, projects and
+  checked-off steps all move onto it, gaps in its details are filled, the
+  duplicate's notes are appended, and the duplicates are removed. Fully
+  undoable — photos and invoices included. An archived duplicate never
+  blocks imports for the live company.
   Imported accounts default to **Prospecting / None / In Cadence** and enter
   the cadence immediately — or use the **pacing option** to stagger starts
-  (about a quarter of your daily touch capacity, e.g. 10 a business day — each
-  account brings five touches over ten days, so starts stack up) so a big list becomes a steady daily
+  (about a fifth of your daily touch capacity, e.g. 10 a business day — each
+  account brings five touches over ten business days, so starts stack up) so a big list becomes a steady daily
   routine instead of hundreds of Day-1 tasks at once. Forgot to pace? The
   **Re-Pace Cadence** tool on the Import page re-staggers all untouched
   in-cadence accounts after the fact.
@@ -211,20 +232,28 @@ the dashboard from 1.3 MB and ~950 ms of browser load down to 52 KB and ~50 ms.
 
 ## Cadence Logic
 
-Standard 10-day cadence, computed from each account's cadence start date:
+Five steps over ten **business** days, computed from each account's cadence
+start date. Day 1 is the start date itself; every later step counts working
+days, so nothing ever falls on a weekend and Monday doesn't inherit Saturday's
+and Sunday's work:
 
-| Day | Step          |
-|-----|---------------|
-| 1   | Email 1       |
-| 3   | Call & Text   |
-| 6   | Call 2        |
-| 8   | Email 2       |
-| 10  | Breakup Email |
+| Day | Step          | e.g. started Friday |
+|-----|---------------|---------------------|
+| 1   | Email 1       | Friday              |
+| 3   | Call & Text   | Tuesday             |
+| 6   | Call 2        | Friday              |
+| 8   | Email 2       | Tuesday             |
+| 10  | Breakup Email | Thursday            |
 
 Rules:
 
 - Cadence applies **only** while Prospecting Status = "Prospecting" **and**
-  Pipeline Milestone = "None / In Cadence".
+  Pipeline Milestone = "None / In Cadence" — and only once the clock has
+  started. An account with nobody to contact waits in **Research** with no
+  clock; adding a contact starts it that day. When this version first runs it
+  moves untouched accounts with nobody to contact into Research (anything you
+  have already worked keeps its dates) and says how many in the startup
+  window.
 - Moving an account to any other status or milestone stops the cadence and
   clears its reminders **instantly** (reminders are computed live, never stored
   stale).
@@ -236,7 +265,7 @@ Rules:
   current step brings the next one forward.
 - Importing a big list without pacing puts every account on the same clock,
   so they all come due together. Use **Re-Pace Cadence** on the Import page
-  to stagger untouched accounts — pick about a quarter of the touches you can do in a day — each account brings five touches over ten days, so at 10 a day you settle around 40 tasks a day. It never moves
+  to stagger untouched accounts — pick about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day. It never moves
   anyone you have already contacted.
 - "Restart Cadence" on an account's detail page resets the clock to today —
   useful for re-engaging a cold prospect.
@@ -273,4 +302,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-487 checks, about two seconds.
+582 checks, about two seconds.
