@@ -2119,6 +2119,51 @@ _html = client.post(f"/accounts/{_t2}/contacts/parse", data={
 check("preview: a name taken from the email is flagged for checking",
       'value="Sarah"' in _html and "came from the email" in _html)
 
+# ---- 39. A REAL whole-page copy, captured from ZoomInfo
+_real = (Path(__file__).resolve().parent / "fixtures" / "zoominfo_page.txt").read_text()
+_r = importer.parse_contact_blob(_real)
+check("real page: the contact's name",
+      _r["first_name"] == "Glen" and _r["last_name"] == "Harlow", _r)
+check("real page: title and company", _r["title"] == "President"
+      and _r["company"] == "Harlow Enterprises", _r)
+check("real page: both phone numbers, sorted by their tags",
+      _r["work_phone"] == "(713) 555-0100"
+      and _r["mobile_phone"] == "(708) 555-0101", _r)
+check("real page: seniority inferred", _r["seniority"] == "C-Level", _r)
+check("real page: no email on the page, so none is invented", _r["email"] == "", _r)
+_flat = " ".join(str(v) for v in _r.values())
+check("real page: left-hand navigation is not the contact",
+      "Lists" not in _flat and "Automations" not in _flat
+      and "Track Contact" not in _flat, _r)
+check("real page: no Markdown link syntax survives",
+      "](" not in _flat and "http" not in _flat, _r)
+check("real page: Similar Contacts are excluded",
+      "Brent" not in _flat and "Vivian" not in _flat, _r)
+check("real page: the Employment History and Web References prose is ignored",
+      "Summit Events Group" not in _flat and "Lakeside Event Rental" not in _flat, _r)
+check("real page: addresses don't become a title or company",
+      "Harbor" not in _flat and "Springfield" not in _flat, _r)
+
+# The specific traps this page sprang, kept as their own checks.
+check("real page: a bulleted tab strip never cuts the page short",
+      importer._expand_lines(["* Org Chart"])[0]["bullet"] is True
+      and importer._expand_lines(["Org Chart"])[0]["bullet"] is False)
+check("real page: 'Employees' as a field label doesn't stop the parse",
+      importer._normalize("Employees") not in importer._PAGE_STOP_MARKERS)
+check("real page: a company link gives the header its anchor",
+      importer._contact_header(importer._expand_lines([
+          "Glen Harlow", "President",
+          "[Harlow Enterprises](https://app.zoominfo.com/#/apps/profile/company/1000001)"]))
+      == ("Glen Harlow", "President", "Harlow Enterprises"))
+check("real page: a Markdown nav bar splits into separate buttons",
+      len(importer._expand_lines(["[Home](https://a/1)[Advanced Search](https://a/2)"])) == 2)
+check("names: interface text is not capitalised like a name",
+      not importer._looks_like_name("Lists and records")
+      and importer._looks_like_name("Glen Harlow"))
+check("names: lowercase particles are still allowed",
+      importer._looks_like_name("Maria de Leon")
+      and importer._looks_like_name("Sarah O'Brien"))
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

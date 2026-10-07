@@ -116,9 +116,10 @@ computer's firewall (Windows will usually prompt you the first time — choose
     Ctrl+C, paste into the box and press **Read the paste**. Name, title,
     company, email, direct line, mobile and LinkedIn fill the form so you can
     check them before saving. Menus, buttons and the colleagues listed further
-    down (Similar Contacts, Org Chart) are discarded, and the contact is
-    identified by matching the names on the page against the email address, so
-    other people on the same page can't get mixed in. The **Contact Details**
+    down (Similar Contacts, Org Chart) are discarded, and the contact is found
+    by anchoring on the company link in the page header — so other people on
+    the same page can't get mixed in, and it works on pages with no revealed
+    email. Markdown links from the browser copy are unpacked. The **Contact Details**
     panel's `(B)` / `(HQ)` / `(D)` / `(M)` tags decide which number is the
     mobile and which is the work line. Smaller selections, "Label: value"
     lists and spreadsheet rows work too; a paste with no contact in it is
@@ -246,4 +247,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-394 checks, about two seconds.
+410 checks, about two seconds.

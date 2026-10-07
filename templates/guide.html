@@ -177,9 +177,16 @@ future import <em>can</em> add that company again.</div>
       <li>No careful selecting needed — menus, buttons and the colleagues listed
         further down the page (Similar Contacts, Org Chart, People Also Viewed) are
         thrown away.</li>
-      <li><strong>It works out which name is the contact by matching it against the
-        email address</strong>, so when a page lists several people nobody else gets
-        mixed in.</li>
+      <li><strong>It finds the contact by anchoring on the company link</strong> in
+        the page header — ZoomInfo stacks the header as name, job title, company, so
+        the two lines above that link are the person. Where there is an email, the
+        surname in it confirms the choice. Either way the people listed further down
+        the page can't get mixed in.</li>
+      <li>Pages copied from a browser arrive as Markdown, so links look like
+        <code>[Harlow Enterprises](https://…)</code>. Those are unpacked, and a link to
+        somebody else's profile is skipped.</li>
+      <li>Not every contact has a revealed email. The phones, name, title and company
+        still come through, and no email is invented.</li>
       <li>The <em>Contact Details</em> panel's headings are ignored and its type tags
         are read: <code>(B)</code> business, <code>(HQ)</code> head office,
         <code>(D)</code> direct, <code>(M)</code> mobile. That's what decides which

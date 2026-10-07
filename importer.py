@@ -600,7 +600,11 @@ def _looks_like_name(line: str) -> bool:
         return False
     if any(hint in low for hint in _TITLE_HINTS):
         return False
-    return all(re.fullmatch(r"[A-Za-z][A-Za-z.'\-]*", w) for w in words)
+    if not all(re.fullmatch(r"[A-Za-z][A-Za-z.'\-]*", w) for w in words):
+        return False
+    # Real names are capitalised. Interface text like "Lists and records"
+    # isn't — which is how a nav item once became a contact's name.
+    return all(w[0].isupper() or w.lower() in _NAME_PARTICLES for w in words)
 
 
 def _split_name(full: str) -> tuple[str, str]:
@@ -625,38 +629,75 @@ def seniority_from_title(title: str) -> str:
     return ""
 
 
+# A page copied out of the browser arrives as Markdown: every link shows up
+# as [text](url). The URL is worth more than the text — ZoomInfo links the
+# company to /profile/company/ and other people to /profile/person/.
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+_COMPANY_LINK = "/profile/company/"
+_PERSON_LINK = "/profile/person/"
+
+# Bullets Markdown puts in front of list items.
+_BULLET_RE = re.compile(r"^\s*[*+\u2022\u2013-]\s+")
+
+# Name particles that are lowercase in a real name.
+_NAME_PARTICLES = {"de", "del", "della", "van", "von", "der", "den", "da",
+                   "di", "la", "le", "bin", "al", "ter", "ten", "dos", "do"}
+
+
 # Everything below one of these headings belongs to OTHER people or to
 # unrelated sections, so a whole-page copy is cut off here. Without this, a
 # colleague's phone number from "Similar Contacts" could land on your contact.
 _PAGE_STOP_MARKERS = {
     _normalize(h) for h in (
         "Similar Contacts", "Similar Profiles", "People Also Viewed",
-        "People also viewed", "Related Contacts", "Other Contacts",
-        "Org Chart", "Organizational Chart", "Colleagues", "Coworkers",
-        "Employees", "Company Contacts", "Contacts at", "More Contacts",
-        "Recommended Contacts", "Frequently Viewed", "Similar Companies",
-        "Competitors", "Related Companies", "News", "Recent News",
-        "Scoops", "Funding", "Technologies Used", "Intent",
+        "Related Contacts", "Other Contacts", "Org Chart",
+        "Organizational Chart", "Colleagues", "Coworkers",
+        # NOT "Employees": on a contact page that is a company field label
+        # sitting above the headcount, and stopping there threw away the
+        # Contact Details panel below it. It stays in the chrome list instead.
+        "Company Contacts", "More Contacts", "Recommended Contacts",
+        "Frequently Viewed", "Similar Companies", "Competitors",
+        "Related Companies", "News", "Recent News", "Scoops", "Funding",
+        "Technologies Used", "Intent", "Employment History",
+        "Web References", "Activity Feed", "About", "Recent Activity",
     )
 }
 
-# ZoomInfo's own buttons, tabs and labels. Dropped from a whole-page copy so
-# they can't be mistaken for a name, a title or a company.
+# Stops only once the contact's own details have been seen. ZoomInfo puts
+# Location directly under the phone numbers, but a different layout might put
+# it higher, and cutting the page before the phones would be worse.
+_SOFT_STOP_MARKERS = {_normalize(h) for h in ("Location", "Locations", "CRM")}
+
+# ZoomInfo's own navigation, buttons, tabs and field labels. Dropped so they
+# can't be mistaken for a name, a title or a company. Taken from a real
+# whole-page copy — "Lists and records" was becoming the contact's name.
 _UI_CHROME = {
     _normalize(c) for c in (
-        "Home", "Search", "Advanced Search", "Lists", "My Lists", "Export",
-        "Exports", "Save", "Saved", "Save to List", "Add to List", "Share",
-        "Copy", "Copied", "Print", "Edit", "Delete", "View Profile",
-        "View Full Profile", "See More", "Show More", "Show Less", "More",
-        "Less", "Back", "Next", "Previous", "Close", "Cancel", "Done",
-        "Upgrade", "Upgrade Now", "Request", "Request Contact", "Feedback",
-        "Report an Issue", "Report Inaccuracy", "Suggest an Edit",
-        "Settings", "Help", "Support", "Log Out", "Sign Out", "Profile",
-        "Dashboard", "Notifications", "Filters", "Filter", "Sort", "Clear",
-        "Select All", "Actions", "Enrich", "Engage", "Connect", "Follow",
-        "Following", "Verified", "Last Updated", "Updated", "Accuracy",
-        "Confidence", "Premium", "Add Note", "Notes", "Tags", "Add Tag",
+        # left-hand navigation and toolbar
+        "Navigation", "Home", "Search", "Advanced Search", "Signals",
+        "Lists and records", "Lists", "My Lists", "Automations", "Alerts",
+        "Suggest Update", "Tag", "Tags", "Add tag", "Add Tag", "Track Contact",
+        "Export", "Exports", "Tabs", "Contact Profile", "Overview",
+        "Technologies", "Save", "Saved", "Save to List", "Add to List",
+        "Share", "Copy", "Copied", "Print", "Edit", "Delete", "View Profile",
+        "View Full Profile", "See More", "Show More", "Show more",
+        "Show Less", "More", "Less", "Back", "Next", "Previous", "Close",
+        "Cancel", "Done", "Upgrade", "Upgrade Now", "Request",
+        "Request Contact", "Feedback", "Report an Issue",
+        "Report Inaccuracy", "Suggest an Edit", "Settings", "Help",
+        "Support", "Log Out", "Sign Out", "Profile", "Dashboard",
+        "Notifications", "Filters", "Filter", "Sort", "Clear", "Select All",
+        "Actions", "Enrich", "Engage", "Connect", "Connect Now", "Follow",
+        "Following", "Verified", "Premium", "Add Note", "Notes",
         "ZoomInfo", "Copy to Clipboard", "Reveal", "Click to Reveal",
+        "Effort", "Engagement",
+        # field labels that sit on their own line above their value
+        "Website", "Industry", "Revenue", "Employees", "Local", "HQ",
+        "Account Owner", "Match Date", "Last Updated", "Updated",
+        "Accuracy", "Confidence", "Contact Details", "Phone numbers",
+        "Emails", "Email", "Current Role Start Date", "Current Company Start Date",
+        "Notice Provided Date", "Salesforce", "HubSpot", "Dynamics",
+        "Enter search terms or select from the recent searches in the open dialog",
     )
 }
 
@@ -701,6 +742,58 @@ def name_from_email(email: str) -> tuple[str, str]:
     return first_name, last.title()
 
 
+def _expand_lines(raw_lines):
+    """Turn pasted page text into records: {"text", "url", "bullet"}.
+
+    A browser copy is Markdown, so "[Harlow Enterprises](…/profile/company/1)"
+    arrives as one line. The URL is the useful part — it says whether the line
+    names the company, another person, or nothing in particular. A line made
+    only of links becomes one record per link, so a navigation bar collapses
+    into individual buttons that the chrome list can drop.
+    """
+    out = []
+    for line in raw_lines:
+        line = line.strip()
+        bullet = bool(_BULLET_RE.match(line))   # test BEFORE stripping it off
+        line = _BULLET_RE.sub("", line)
+        links = _MD_LINK_RE.findall(line)
+        if not links:
+            out.append({"text": line, "url": "", "bullet": bullet})
+            continue
+        stripped = _MD_LINK_RE.sub("", line).strip(" |\t")
+        if not stripped:
+            # Nothing but links: each one stands on its own.
+            for text, url in links:
+                out.append({"text": text.strip(" ,|"), "url": url,
+                            "bullet": bullet})
+        else:
+            # Links embedded in a sentence: keep the sentence, drop the URLs.
+            out.append({"text": _MD_LINK_RE.sub(r"\1", line).strip(),
+                        "url": links[0][1], "bullet": bullet})
+    return out
+
+
+def _contact_header(records):
+    """(name, title, company) read off a ZoomInfo contact page's header.
+
+    The company is a link to /profile/company/, and ZoomInfo stacks the header
+    as name, job title, company. Anchoring on that link beats guessing from
+    word lists: it survives new nav items, renamed buttons and a page with no
+    email on it at all.
+    """
+    for i, rec in enumerate(records):
+        if _COMPANY_LINK not in (rec["url"] or "") or not rec["text"]:
+            continue
+        company = rec["text"]
+        above = [r["text"] for r in records[:i] if r["text"]]
+        if len(above) >= 2 and _looks_like_name(above[-2]):
+            return above[-2], above[-1], company
+        if above and _looks_like_name(above[-1]):
+            return above[-1], "", company
+        return "", "", company
+    return "", "", ""
+
+
 def parse_contact_blob(text: str) -> dict:
     """Pull a contact out of text copied from a ZoomInfo profile.
 
@@ -730,15 +823,38 @@ def parse_contact_blob(text: str) -> dict:
     raw_lines = [l.strip() for l in text.replace("\r", "").split("\n")]
     if len([l for l in raw_lines if l]) == 1 and "\t" in text:
         raw_lines = [c.strip() for c in text.split("\t")]
+    records = _expand_lines(raw_lines)
+    name_line, title_line, company_line = _contact_header(records)
+    if name_line:
+        out["first_name"], out["last_name"] = _split_name(name_line)
+    if title_line:
+        out["title"] = title_line
+    if company_line:
+        out["company"] = company_line
+
     lines = []
-    for line in raw_lines:
+    seen_detail = False
+    for rec in records:
+        line, url = rec["text"], rec["url"]
         if not line:
             continue
         key = _normalize(line)
-        if key in _PAGE_STOP_MARKERS:
-            break                      # the rest of the page is other people
+        # A bullet is a list item ("* Org Chart" is a tab, not a heading), so
+        # it can never cut the page short — the tab strip sits ABOVE the
+        # contact's phone numbers, and stopping there lost them entirely.
+        if not rec["bullet"]:
+            if key in _PAGE_STOP_MARKERS:
+                break                  # the rest belongs to other people
+            if key in _SOFT_STOP_MARKERS and seen_detail:
+                break
         if key in _UI_CHROME:
-            continue                   # a button, not data
+            continue                   # a button or a field label, not data
+        if _PERSON_LINK in url:
+            continue                   # somebody else's profile
+        if len(line) <= 2 and line.isalpha():
+            continue                   # avatar initials ("A", "AM")
+        if _EMAIL_RE.search(line) or re.sub(r"\D", "", line)[:10].__len__() >= 10:
+            seen_detail = True
         lines.append(line)
 
     emails: list[list] = []   # [[address, tag], ...]
