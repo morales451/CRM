@@ -2164,6 +2164,35 @@ check("names: lowercase particles are still allowed",
       importer._looks_like_name("Maria de Leon")
       and importer._looks_like_name("Sarah O'Brien"))
 
+# ---- 40. The same contact with profile tabs switched off
+# Disabling tabs adds a "Homepage / Glen Harlow" breadcrumb ABOVE the real
+# header and drops entries from the tab strip. Neither may change the answer.
+_real2 = (Path(__file__).resolve().parent / "fixtures"
+          / "zoominfo_page_tabs_off.txt").read_text()
+_r2 = importer.parse_contact_blob(_real2)
+check("tabs off: same contact, same answer",
+      {k: _r2[k] for k in ("first_name", "last_name", "title", "company",
+                           "work_phone", "mobile_phone", "seniority")}
+      == {"first_name": "Glen", "last_name": "Harlow", "title": "President",
+          "company": "Harlow Enterprises", "work_phone": "(713) 555-0100",
+          "mobile_phone": "(708) 555-0101", "seniority": "C-Level"}, _r2)
+check("tabs off: toggling tabs changes nothing", _r2 == _r, (_r, _r2))
+check("tabs off: the breadcrumb copy of the name is ignored, not used",
+      [i for i, rec in enumerate(importer._expand_lines(
+          [l.strip() for l in _real2.split("\n")])) if rec["text"] == "Glen Harlow"]
+      != [], "the breadcrumb should still be present in the fixture")
+check("tabs off: the header anchor reads the lines next to the company link",
+      importer._contact_header(importer._expand_lines(
+          [l.strip() for l in _real2.split("\n")]))
+      == ("Glen Harlow", "President", "Harlow Enterprises"))
+check("tabs off: a longer company URL still anchors",
+      importer._contact_header(importer._expand_lines([
+          "Glen Harlow", "President",
+          "[Harlow Enterprises](https://app.zoominfo.com/#/apps/profile/company/"
+          "1000001?url=%2Fapps%2Faccount-settings%2Fcustomization%2Fprofile-tabs"
+          "%2Fcontact-tabs&titleText=Homepage&profileId=1000001)"]))
+      == ("Glen Harlow", "President", "Harlow Enterprises"))
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)
