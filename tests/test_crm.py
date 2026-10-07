@@ -83,10 +83,18 @@ check("cadence: Day 1 due for both accounts",
 week_ago = (date.today() - timedelta(days=7)).isoformat()
 conn.execute("UPDATE accounts SET cadence_start=? WHERE id=?", (week_ago, acme["id"]))
 conn.commit()
+# The engine still knows every outstanding step...
+all_steps = cadence.get_due_reminders(conn, acme["id"], collapse=False)
+check("cadence: backdated 7d → days 1,3,6,8 outstanding",
+      [r["step_type"] for r in all_steps] == ["Email 1", "Call & Text", "Call 2", "Email 2"],
+      [r["step_type"] for r in all_steps])
+# ...but you are only shown the one the account is actually waiting on.
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
-check("cadence: backdated 7d → days 1,3,6,8 due",
-      [r["step_type"] for r in acme_rems] == ["Email 1", "Call & Text", "Call 2", "Email 2"],
+check("cadence: only the next step is shown, not all four",
+      [r["step_type"] for r in acme_rems] == ["Email 1"],
       [r["step_type"] for r in acme_rems])
+check("cadence: the row says how far behind the account is",
+      acme_rems[0]["steps_behind"] == 4, acme_rems[0])
 check("cadence: overdue days computed", acme_rems[0]["days_overdue"] == 7, acme_rems[0])
 
 # ---- 3. Logging an interaction clears that step only (persistence rule)
@@ -94,15 +102,23 @@ conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, cre
              "VALUES (?,?,?,?)", (acme["id"], "Email 1", "sent intro", db.now_iso()))
 conn.commit()
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
-check("cadence: logged step cleared, others persist",
-      [r["step_type"] for r in acme_rems] == ["Call & Text", "Call 2", "Email 2"])
+check("cadence: logging a step brings the next one forward",
+      [r["step_type"] for r in acme_rems] == ["Call & Text"]
+      and acme_rems[0]["steps_behind"] == 3, acme_rems)
+check("cadence: the later steps are still outstanding underneath",
+      [r["step_type"] for r in cadence.get_due_reminders(conn, acme["id"], collapse=False)]
+      == ["Call & Text", "Call 2", "Email 2"])
 
 # ---- 4. Manual dismissal clears a step
 conn.execute("INSERT INTO cadence_dismissals (account_id, step_type, dismissed_at) "
              "VALUES (?,?,?)", (acme["id"], "Call & Text", db.now_iso()))
 conn.commit()
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
-check("cadence: dismissed step cleared", [r["step_type"] for r in acme_rems] == ["Call 2", "Email 2"])
+check("cadence: skipping a step also moves to the next",
+      [r["step_type"] for r in acme_rems] == ["Call 2"], acme_rems)
+check("cadence: skip and log leave the same steps outstanding",
+      [r["step_type"] for r in cadence.get_due_reminders(conn, acme["id"], collapse=False)]
+      == ["Call 2", "Email 2"])
 
 # ---- 5. Milestone cancellation: advancing milestone kills ALL reminders instantly
 conn.execute("UPDATE accounts SET pipeline_milestone='Accepted Meeting' WHERE id=?", (acme["id"],))
@@ -2411,6 +2427,55 @@ check("error page: an oversized log is rotated, not appended to for ever",
       and db.ERROR_LOG.with_suffix(".log.old").exists())
 db.ERROR_LOG = _prev_log
 _app_mod.app.logger.setLevel(_logging.NOTSET)
+
+# ---- 44. A big untouched import shows one task per account, not five
+_pile = db.get_db()
+_pile_start = (date.today() - timedelta(days=16)).isoformat()
+_ts = db.now_iso()
+for _i in range(40):
+    _pile.execute(
+        "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+        "pipeline_milestone, cadence_start, matching_properties, created_at, "
+        "updated_at) VALUES (?,'Email','Prospecting','None / In Cadence',?,?,?,?)",
+        (f"Untouched Import {_i:03d}", _pile_start, _i, _ts, _ts))
+_pile.commit()
+_ids = [r["id"] for r in _pile.execute(
+    "SELECT id FROM accounts WHERE company_name LIKE 'Untouched Import%'")]
+_outstanding = [r for r in cadence.get_due_reminders(_pile, collapse=False)
+                if r["account_id"] in _ids]
+_shown = [r for r in cadence.get_due_reminders(_pile) if r["account_id"] in _ids]
+check("pile-up: every step really is outstanding",
+      len(_outstanding) == 40 * len(cadence.CADENCE_STEPS), len(_outstanding))
+check("pile-up: but each account appears exactly once",
+      len(_shown) == 40
+      and len({r["account_id"] for r in _shown}) == 40, len(_shown))
+check("pile-up: the one shown is the earliest step the account is waiting on",
+      all(r["step_type"] == "Email 1" and r["day"] == 1 for r in _shown),
+      {r["step_type"] for r in _shown})
+check("pile-up: the row says how many steps are stacked behind",
+      all(r["steps_behind"] == len(cadence.CADENCE_STEPS) for r in _shown),
+      {r["steps_behind"] for r in _shown})
+
+# work one of them and the next step takes its place
+_one = _ids[0]
+_pile.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
+              "created_at) VALUES (?,?,?,?)", (_one, "Email 1", "sent", db.now_iso()))
+_pile.commit()
+_next = cadence.get_due_reminders(_pile, account_id=_one)
+check("pile-up: logging the step promotes the next one",
+      len(_next) == 1 and _next[0]["step_type"] == "Call & Text"
+      and _next[0]["steps_behind"] == 4, _next)
+_pile.close()
+
+r = client.get("/")
+_html = r.data.decode()
+check("pile-up: the dashboard count reflects accounts, not steps",
+      "Untouched Import" in _html)
+check("pile-up: the backlog is shown rather than hidden",
+      "more step" in _html or "steps behind" in _html.lower(), )
+_conn = db.get_db()
+_conn.execute("DELETE FROM accounts WHERE company_name LIKE 'Untouched Import%'")
+_conn.commit(); _conn.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

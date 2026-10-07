@@ -229,6 +229,14 @@ Rules:
   stale).
 - A due reminder stays pinned to the dashboard until you either log that
   interaction (✓ Log) or check it off manually (✕ Skip).
+- **One step at a time.** The cadence is a sequence, so an account appears
+  once, at the step it is actually waiting on — never five times. If it has
+  fallen behind, the row says "+N more steps behind"; logging or skipping the
+  current step brings the next one forward.
+- Importing a big list without pacing puts every account on the same clock,
+  so they all come due together. Use **Re-Pace Cadence** on the Import page
+  to stagger untouched accounts (e.g. 25 per business day) — it never moves
+  anyone you have already contacted.
 - "Restart Cadence" on an account's detail page resets the clock to today —
   useful for re-engaging a cold prospect.
 
@@ -264,4 +272,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-460 checks, about two seconds.
+471 checks, about two seconds.

@@ -77,7 +77,14 @@
             {% if phone %}<br><a href="tel:{{ phone|tel }}">{{ phone }}</a>{% endif %}
             {% if r.email %}<br><a href="mailto:{{ r.email }}">{{ r.email }}</a>{% endif %}
           </td>
-          <td><span class="badge text-bg-primary">Day {{ r.day }}: {{ r.step_type }}</span></td>
+          <td>
+            <span class="badge text-bg-primary">Day {{ r.day }}: {{ r.step_type }}</span>
+            {% if r.steps_behind > 1 %}
+            <div class="small text-muted" title="This account has fallen {{ r.steps_behind }} steps behind. Log this one and the next appears.">
+              +{{ r.steps_behind - 1 }} more step{{ 's' if r.steps_behind > 2 }} behind
+            </div>
+            {% endif %}
+          </td>
           <td class="small">
             {{ r.due_date|d }}
             {% if r.days_overdue > 0 %}<br><span class="overdue">{{ r.days_overdue }}d overdue</span>{% endif %}

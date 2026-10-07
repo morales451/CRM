@@ -48,6 +48,7 @@
         {% if task.kind == 'cadence' %}
           <span class="badge text-bg-primary fs-6">Day {{ task.reminder.day }}: {{ task.reminder.step_type }}</span>
           {% if task.reminder.days_overdue > 0 %}<span class="overdue small">{{ task.reminder.days_overdue }}d overdue</span>{% endif %}
+          {% if task.reminder.steps_behind > 1 %}<span class="small text-muted">· {{ task.reminder.steps_behind - 1 }} later step{{ 's' if task.reminder.steps_behind > 2 }} also waiting</span>{% endif %}
         {% else %}
           <span class="badge text-bg-info fs-6">📅 Follow-up</span>
           <span class="small {{ 'overdue' if task.due < today }}">due {{ task.due|d }}</span>

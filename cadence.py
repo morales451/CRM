@@ -32,8 +32,17 @@ def _parse_date(iso_str: str) -> date:
 
 
 def get_due_reminders(conn, account_id: int | None = None,
-                      order: str = "due") -> list[dict]:
-    """Return due cadence reminders.
+                      order: str = "due", collapse: bool = True) -> list[dict]:
+    """Return due cadence reminders — by default, the NEXT one per account.
+
+    The cadence is a sequence: Email 1, then the call, then Email 2. You
+    cannot do all five to the same person on the same day, so an account that
+    has sat untouched for two weeks should appear once, at the step it is
+    actually waiting on — not five times. Logging that step brings the next
+    one forward.
+
+    collapse=False returns every outstanding step, which is what the
+    "steps behind" count on a reminder is worked out from.
 
     order="due"      -> oldest due date first (classic cadence order)
     order="priority" -> accounts with the most criteria-matching buildings
@@ -43,7 +52,7 @@ def get_due_reminders(conn, account_id: int | None = None,
     Each reminder: {account_id, company_name, first_name, last_name,
                     work_phone, mobile_phone, email, preferred_contact,
                     matching_properties, num_properties,
-                    day, step_type, due_date, days_overdue}
+                    day, step_type, due_date, days_overdue, steps_behind}
     """
     today = date.today()
 
@@ -103,7 +112,23 @@ def get_due_reminders(conn, account_id: int | None = None,
                 "step_type": step_type,
                 "due_date": due.isoformat(),
                 "days_overdue": (today - due).days,
+                "steps_behind": 1,
             })
+
+    if collapse:
+        # Keep only the earliest outstanding step for each account, and note
+        # how many others are stacked up behind it.
+        nxt: dict[int, dict] = {}
+        for r in reminders:
+            current = nxt.get(r["account_id"])
+            if current is None:
+                nxt[r["account_id"]] = r
+            elif r["day"] < current["day"]:
+                r["steps_behind"] = current["steps_behind"] + 1
+                nxt[r["account_id"]] = r
+            else:
+                current["steps_behind"] += 1
+        reminders = list(nxt.values())
 
     if order == "priority":
         reminders.sort(key=lambda r: (-(r["matching_properties"] or 0),
