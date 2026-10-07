@@ -3416,6 +3416,64 @@ check("website migration: lifted out of Notes on upgrade",
 _wm.close()
 db.DB_PATH = _keep_db3
 
+# ---- 61. Self-updater (no git, no zip juggling)
+import updater, zipfile as _zf
+def _branch_zip(files, top="CRM-main/"):
+    b = io.BytesIO()
+    with _zf.ZipFile(b, "w") as z:
+        z.writestr(top, "")
+        for name, body in files.items():
+            z.writestr(top + name, body)
+    return b.getvalue()
+
+_ud = Path(tempfile.mkdtemp(prefix="crm_upd_"))
+(_ud / "app.py").write_text("old")
+(_ud / "same.txt").write_text("same")
+(_ud / "mine.txt").write_text("not in the repo")
+_os_stat = (_ud / "same.txt").stat().st_mtime_ns
+_changed = updater.apply_zip(_branch_zip({
+    "app.py": "new", "same.txt": "same", "templates/new.html": "hi",
+    "../escape.txt": "no", "requirements.txt": "flask"}), _ud)
+check("updater: changed and new files are written, the top folder dropped",
+      (_ud / "app.py").read_text() == "new" and (_ud / "templates/new.html").read_text() == "hi")
+check("updater: unchanged files aren't rewritten (start.bat is running)",
+      "same.txt" not in _changed and (_ud / "same.txt").stat().st_mtime_ns == _os_stat, _changed)
+check("updater: files that aren't part of the app are left alone",
+      (_ud / "mine.txt").read_text() == "not in the repo")
+check("updater: nothing is written outside the app folder",
+      not (_ud.parent / "escape.txt").exists() and "../escape.txt" not in _changed)
+check("updater: refuses a download that isn't the app, changing nothing",
+      _raises(lambda: updater.apply_zip(_branch_zip({"other.py": "x"}), _ud))
+      and (_ud / "app.py").read_text() == "new")
+check("updater: refuses a corrupt download", _raises(lambda: updater.apply_zip(b"junk", _ud)))
+
+_real_sha, _real_dl, _real_req = updater.latest_sha, updater.download, updater._install_requirements
+_pip = []
+updater._install_requirements = lambda d: _pip.append(d)
+updater.latest_sha = lambda timeout=5: "a" * 40
+updater.download = lambda timeout=30: _branch_zip({"app.py": "v2", "requirements.txt": "flask\npandas"})
+check("updater: an update applies and records the version",
+      updater.update(_ud, auto=True) == 0 and (_ud / "app.py").read_text() == "v2"
+      and (_ud / ".installed_version").read_text().strip() == "a" * 40)
+check("updater: new requirements get installed", len(_pip) == 1)
+updater.download = lambda timeout=30: (_ for _ in ()).throw(AssertionError("downloaded"))
+check("updater: already current -> no download at all", updater.update(_ud, auto=True) == 0)
+updater.latest_sha = lambda timeout=5: None
+check("updater: offline on start -> the app still starts",
+      updater.update(_ud, auto=True) == 0 and (_ud / "app.py").read_text() == "v2")
+updater.latest_sha = lambda timeout=5: "b" * 40
+updater.download = lambda timeout=30: (_ for _ in ()).throw(OSError("network down"))
+check("updater: a failed download on start -> the app still starts, nothing changed",
+      updater.update(_ud, auto=True) == 0 and (_ud / "app.py").read_text() == "v2"
+      and (_ud / ".installed_version").read_text().strip() == "a" * 40)
+check("updater: a failed download on demand says so", updater.update(_ud, auto=False) == 1)
+updater.latest_sha, updater.download, updater._install_requirements = _real_sha, _real_dl, _real_req
+_bat = (Path(__file__).resolve().parent.parent / "start.bat").read_text()
+check("updater: start.bat updates first, inside one ( ) block",
+      _bat.index("updater.py --auto") < _bat.index("python app.py"))
+check("updater: ...and the block holds every command",
+      _bat.count("(") >= 1 and _bat.rstrip().endswith(")"))
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

@@ -27,17 +27,21 @@ on the production-grade `waitress` server.
 
 ### Updating
 
-**Double-click `update.bat`** (Windows) or run `./update.sh` (Mac/Linux) — it
-pulls the latest code and installs any new requirements. This needs the app to
-have been **cloned** rather than unzipped; clone it once with:
+**It updates itself.** `start.bat` / `./start.sh` runs `updater.py` before
+starting. That script asks GitHub for the newest commit on `main`, and if this
+folder isn't on it, downloads the branch zip (about 300 KB) and copies over
+only the files that changed. It needs no Git. Offline or a failed download
+means the app starts the version you have, unchanged. Every file is checked
+before anything is written, and files that aren't part of the app are left
+alone. `update.bat` / `./update.sh` does the same without starting. A folder
+that is a `git clone` updates with `git pull --ff-only` instead. Set
+`ROOF_CRM_NO_AUTO_UPDATE=1` to skip the check on start. Your data in
+`Documents/RoofCRM` is never touched. Hit **Download Full Backup** on the
+Import page first if you want a guaranteed rollback point.
 
-```bash
-git clone https://github.com/morales451/CRM.git RoofCRM-App
-```
-
-Downloading a new zip and replacing the folder also works. Either way your data
-in `Documents/RoofCRM` is untouched. Hit **Download Full Backup** on the Import
-page first if you want a guaranteed rollback point.
+The start and update scripts wrap their commands in a single `( )` / `{ }`
+block, because cmd and bash read a script while running it and an update
+that rewrites the running script would otherwise derail it.
 
 **Phone tip:** open the app in your phone's browser and use "Add to Home
 Screen" — it installs like an app with its own icon and opens full-screen.
@@ -319,4 +323,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-622 checks, about two seconds.
+636 checks, about two seconds.

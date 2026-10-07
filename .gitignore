@@ -11,3 +11,7 @@ venv/
 *.db-shm
 tests/test_backups/
 uploads/
+
+# written by updater.py
+.installed_version
+*.updating

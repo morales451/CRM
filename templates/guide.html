@@ -415,27 +415,24 @@ future import <em>can</em> add that company again.</div>
 replace, delete or re-download the app folder as often as you like and your accounts, photos and
 backups stay put. The first time you run this version, anything left in the old location is moved
 there automatically and the startup window lists what moved.</p>
-<h3>Option A — the zip (what you're doing now)</h3>
-<p>Unzip the new version, replace your app folder, start it. That's now safe — nothing of yours is
-inside that folder.</p>
-
-<h3>Option B — set up git once, then it's one double-click forever</h3>
-<p>A zipped folder can't update itself; it has to be <em>cloned</em> once. Ten minutes, once:</p>
-<ol>
-  <li>Install Git for Windows from <code>git-scm.com/download/win</code> (accept all the defaults).</li>
-  <li>Open the folder where you want the app to live (e.g. Desktop). Right-click an empty spot →
-    <strong>Open in Terminal</strong> (or "Git Bash Here"), and run:
-    <div><code>git clone https://github.com/morales451/CRM.git RoofCRM-App</code></div>
-  </li>
-  <li>That creates a <code>RoofCRM-App</code> folder. Start it with <code>start.bat</code> as usual —
-    your data in Documents\RoofCRM is picked up automatically.</li>
-  <li>You can delete the old unzipped folder once the app runs from the new one.</li>
-</ol>
-<p><strong>From then on, to update: double-click <code>update.bat</code></strong> inside that folder
-(<code>./update.sh</code> on Mac/Linux). It pulls the latest code, installs anything new, and tells
-you when it's done. If something goes wrong it says so and changes nothing.</p>
-<p class="muted">Under the hood <code>update.bat</code> just runs <code>git pull</code> — you can type
-that yourself in the folder if you prefer.</p>
+<h3>It updates itself</h3>
+<p><strong>Every time you start the app with <code>start.bat</code>, it checks for a newer version
+and installs it first.</strong> That takes a second or two. There's nothing to download or unzip,
+and you don't need Git. The startup window says <em>Already up to date</em> or <em>Updated N
+file(s)</em>. Offline? It says so and starts the version you have.</p>
+<ul>
+  <li><strong>App already open and you want the latest now?</strong> Close its window and double-click
+    <code>start.bat</code> again. <code>update.bat</code> also updates without starting.</li>
+  <li>Only the app's own files change. Your data in <code>Documents\RoofCRM</code> is never touched,
+    and if a download fails partway through, nothing is changed.</li>
+  <li>New requirements are installed automatically when a version needs them.</li>
+  <li>To turn off the check on start, set an environment variable <code>ROOF_CRM_NO_AUTO_UPDATE=1</code>.
+    <code>update.bat</code> still works.</li>
+  <li>A folder made with <code>git clone</code> updates with <code>git pull</code> instead, so its
+    history stays intact.</li>
+</ul>
+<p class="muted">One-time catch: a copy older than this feature doesn't have the updater yet, so it
+needs one last zip download. After that you won't need a zip again.</p>
 <div class="tip"><strong>Belt and braces:</strong> before any update, hit
 <kbd>⬇ Download Full Backup</kbd> on the <a href="{{ url_for('import_page') }}">Import</a> page, or
 just confirm your off-machine backup folder is set. Takes five seconds and makes an update
