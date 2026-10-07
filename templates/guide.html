@@ -128,7 +128,7 @@ while you're typing in a box.</p>
   <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
   <li><strong>Pacing:</strong> set "Start N /business day" — about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
   <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, missing property counts are backfilled onto existing accounts, and anything you <a href="#archive">archived</a> stays out.</li>
-  <li>Imported accounts capture address/city/zip/website into Notes, the criteria-matching property count (🎯), and total properties owned. Defaults: Prospecting / None-In Cadence → straight into the cadence.</li>
+  <li>Imported accounts capture address/city/zip into Notes, the website into its own field (contact uploads match on it), the criteria-matching property count (🎯), and total properties owned. Rows with a named person plus an email or phone go straight into the cadence; the rest wait in <a href="{{ url_for('accounts', view='research') }}">Research</a> until you add someone.</li>
 </ul>
 
 <h2 id="priority">6. Priority: biggest portfolios first</h2>
@@ -214,6 +214,56 @@ future import <em>can</em> add that company again.</div>
 </ul>
 
 <h2 id="contacts">8. Contacts &amp; ZoomInfo</h2>
+
+<h3 id="zoominfo-batch">The main way: a whole batch of companies at once</h3>
+<p>Don't open companies one by one. Send ZoomInfo the whole Research list, export
+  the people you want from every one of those companies in one go, and upload that file.
+  Fifty companies take about the same time as one.</p>
+<ol>
+  <li><strong>CRM → ZoomInfo.</strong> Open
+    <a href="{{ url_for('accounts', view='research') }}">Accounts → 🔎 Research</a>
+    and press <strong>⬇ Download for ZoomInfo</strong>. You get a CSV of those companies
+    with their website and address, biggest portfolios first. A search or 🎯 filter on the
+    page narrows the file the same way, so <em>🎯 ≥ 5</em> gives you just the big owners.</li>
+  <li><strong>In ZoomInfo:</strong> upload that CSV as a <em>company</em> list (Lists →
+    import/upload). ZoomInfo matches each row to its company, using the website when it
+    has one.</li>
+  <li>Go to <strong>Advanced Search → Contacts</strong>, filter to that company list, and
+    add your ICP filters: <em>Management Level</em> (C-Level, VP-Level, Director),
+    and Department or Job Function if you want facilities, asset or property people.</li>
+  <li>Look over the results, untick anyone you don't want, and <strong>Export</strong>.
+    Each exported contact can use a ZoomInfo credit, so the filters are also what keeps
+    the cost down. The stock export (CSV or Excel) works as it is, so you don't need to edit it.</li>
+  <li><strong>ZoomInfo → CRM.</strong> On the <a href="{{ url_for('import_page') }}#contacts">Import</a>
+    page, choose the file under <em>Import Contacts</em> and press Upload. Put a number in
+    <em>Start N /business day</em> if the batch is big. With 60 companies and a 10 there,
+    the cadences start 10 per working day rather than all at once.</li>
+</ol>
+<p>What happens on upload:</p>
+<ul>
+  <li>Each person attaches to their company by <strong>name</strong>. If the name doesn't
+    match, they attach by <strong>web domain</strong>: the export's Email Domain/Website
+    against the account's website. So “Harlow Enterprises” still
+    finds your “HARLOW ENT HOLDINGS LTD” if that account's website is harlowenterprises.com.
+    Every domain match is listed in the summary so you can check it. A domain shared by
+    two of your accounts doesn't match either one, and free mail domains
+    (gmail, yahoo …) never count. The emails of people already on an account
+    aren't used, because a property manager's management firm would otherwise drag
+    that firm's own staff onto the owner's account. An account gets a website from your
+    CoStar list, from you, or from the first export that matches it by name.</li>
+  <li>The first person on an account becomes its primary and the rest go under Contacts.
+    Change the primary any time with ★ on the account page.</li>
+  <li>Direct lines with an extension, like ZoomInfo's <code>(713) 555-0100 ext. 32</code>,
+    dial correctly: 📞 dials the number, pauses, then keys the extension. If someone has no
+    direct line, the company's HQ phone from the export is used.</li>
+  <li>The account's cadence starts (it leaves Research), people already on the account are
+    skipped, archived companies are left alone, and the website is saved onto the account
+    if it didn't have one.</li>
+  <li><strong>The whole upload can be undone</strong> from the Undo bar. That removes the
+    people it added, puts the accounts back exactly as they were, and returns them to Research.</li>
+</ul>
+
+<h3>One company at a time</h3>
 <ul>
   <li>Each account has a <strong>primary contact</strong> (fills scripts, emails, invoices) plus unlimited additional people.</li>
   <li>On an account page: 🔎 ZoomInfo / in LinkedIn buttons jump to research for that company; the <em>+ Add Contact</em> form is right below. The first person you add becomes primary automatically; ★ promotes anyone else to primary (the old primary moves down, nothing is lost).</li>
@@ -281,9 +331,9 @@ future import <em>can</em> add that company again.</div>
         direct dial becomes their work phone.</li>
     </ul>
   </li>
-  <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name with legal suffixes (LLC, Inc, LP, Corp, P.C.) and punctuation ignored, so “Hartman Income REIT, Inc.” finds your “Hartman Income REIT LP”. Words like Partners, Holdings and Group count as part of the name, so “ABC Partners” and “ABC Holdings” stay separate. First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped.</li>
+  <li><strong>How names match on upload:</strong> legal suffixes (LLC, Inc, LP, Corp, P.C.) and punctuation are ignored, so “Hartman Income REIT, Inc.” finds your “Hartman Income REIT LP”. Words like Partners, Holdings and Group count as part of the name, so “ABC Partners” and “ABC Holdings” stay separate. When a primary's direct dial replaces the company main line, the main line is kept in Notes.</li>
   <li><strong>Companies you don't have yet:</strong> tick <em>“Open a new account for any company I don't have yet”</em> on the upload and those rows become new prospecting accounts instead of being listed back as unmatched. Archived companies are never re-created.</li>
-  <li><strong>Columns read automatically</strong> from a stock ZoomInfo export: Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number, Mobile phone, LinkedIn Contact Profile URL and Management Level. The import summary lists exactly which column it read for each field.</li>
+  <li><strong>Columns read automatically</strong> from a stock ZoomInfo export: Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number, Mobile phone, LinkedIn Contact Profile URL, Management Level, Website, Email Domain and Company HQ Phone. The rest of ZoomInfo's 70-odd columns are ignored. The import summary lists exactly which column it read for each field.</li>
   <li>LinkedIn URLs become a clickable link on the contact; Management Level shows as a badge (C-Level, VP-Level, Director, Manager) and is guessed from the job title when the file doesn't have it. Both are searchable and both go into the Excel export.</li>
 </ul>
 

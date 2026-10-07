@@ -3183,6 +3183,239 @@ _rs.execute("DELETE FROM accounts WHERE company_name IN ('Worked Single Co','Wor
             "'Start Anyway Progress Co')")
 _rs.commit(); _rs.close()
 
+# ---- 60. ZoomInfo batch loop: a REAL contact export, domain matching, pacing
+# Own database, so accounts made by earlier sections can't match by accident.
+import csv as _csv
+_keep_db3 = db.DB_PATH
+db.DB_PATH = Path(tempfile.mkdtemp(prefix="crm_zi_")) / "crm.db"
+db.init_db()
+_FIX = Path(__file__).resolve().parent / "fixtures" / "zoominfo_contacts_export.csv"
+_zc = db.get_db()
+_zts = db.now_iso()
+
+def _acct(name, website="", notes="", start="", matching=None, archived=""):
+    return _zc.execute(
+        "INSERT INTO accounts (company_name, website, notes, matching_properties, "
+        "preferred_contact, prospecting_status, pipeline_milestone, cadence_start, "
+        "archived_at, created_at, updated_at) VALUES (?,?,?,?,'Unknown','Prospecting',"
+        "'None / In Cadence',?,?,?,?)",
+        (name, website, notes, matching, start, archived, _zts, _zts)).lastrowid
+
+def _zupload(data=None, **form):
+    payload = {"file": (io.BytesIO(data if data is not None else _FIX.read_bytes()),
+                        "export.csv")}
+    payload.update(form)
+    return client.post("/import/contacts", data=payload,
+                       content_type="multipart/form-data", follow_redirects=True)
+
+check("domain: website, URL and email reduce to the bare domain",
+      importer.domain_of("https://www.HarlowEnterprises.com/about?x=1") == "harlowenterprises.com"
+      and importer.domain_of("harlowenterprises.com") == "harlowenterprises.com"
+      and importer.domain_of("danny@harlowenterprises.com") == "harlowenterprises.com"
+      and importer.domain_of("www.harlowenterprises.com:443") == "harlowenterprises.com")
+check("domain: free mail and junk give nothing",
+      importer.domain_of("bob@gmail.com") == "" and importer.domain_of("n/a") == ""
+      and importer.domain_of("") == "" and importer.domain_of(None) == "")
+
+# The CoStar-style name shares no words ZoomInfo would use; only the site ties them.
+_harlow = _acct("HARLOW ENT HOLDINGS LTD", website="http://www.HarlowEnterprises.com/",
+               notes="Address: 4400 Harbor Blvd, Houston, TX 77006", matching=7)
+_zc.commit()
+_r = _zupload()
+_b = _zc.execute("SELECT * FROM accounts WHERE id=?", (_harlow,)).fetchone()
+_bc = {r["first_name"]: dict(r) for r in _zc.execute(
+    "SELECT * FROM contacts WHERE account_id=?", (_harlow,))}
+check("real export: all four people attach to the account by domain",
+      _b["first_name"] == "Danny" and set(_bc) == {"Gerald", "Jason", "Marco"},
+      (_b["first_name"], list(_bc)))
+check("real export: the domain match is shown so it can be checked",
+      b"Matched by website/email domain" in _r.data and b"HARLOW ENT HOLDINGS LTD" in _r.data)
+check("real export: primary gets title, level, email, mobile and LinkedIn",
+      _b["title"] == "Director, Asset Management" and _b["seniority"] == "Director"
+      and _b["email"] == "danny@harlowenterprises.com" and _b["mobile_phone"] == "(281) 555-0103"
+      and _b["linkedin_url"] == "https://www.linkedin.com/in/dannysevers")
+check("real export: the direct line keeps its extension",
+      _b["work_phone"] == "(713) 555-0100 ext. 32", _b["work_phone"])
+check("real export: the company main line goes to Notes",
+      "Company main line: (713) 555-0100" in _b["notes"], _b["notes"])
+check("real export: 'Gerald W. Hayes Jr.' is first Gerald, last Hayes",
+      _bc["Gerald"]["last_name"] == "Hayes" and _bc["Gerald"]["title"] == "Director, Construction")
+check("real export: a contact with no LinkedIn just has none",
+      _bc["Jason"]["linkedin_url"] == "" and _bc["Jason"]["seniority"] == "C-Level")
+check("real export: the account leaves Research today",
+      _b["cadence_start"] == cadence.today().isoformat())
+check("real export: Company Division / Company ID don't steal the company column",
+      b"Company Name</code>" in _r.data and b"Company Division Name</code>" not in _r.data)
+_page = client.get(f"/accounts/{_harlow}").data
+check("ext dialing: the call link pauses then keys the extension",
+      b'href="tel:7135550100,32"' in _page)
+from app import clean_tel, clean_sms
+check("ext dialing: x / Ext / # forms too, plain numbers untouched",
+      clean_tel("713-555-1234 x12") == "7135551234,12"
+      and clean_tel("+1 713 555 1234 Ext 9") == "+17135551234,9"
+      and clean_tel("713.555.1234#77") == "7135551234,77"
+      and clean_tel("(713) 555-0100") == "7135550100" and clean_tel("") == "")
+check("ext dialing: a text goes to the number without the extension",
+      clean_sms("(713) 555-0100 ext. 32") == "7135550100")
+
+# Undo puts everything back, Research included.
+client.post("/undo/" + str(_zc.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]))
+_b = _zc.execute("SELECT * FROM accounts WHERE id=?", (_harlow,)).fetchone()
+check("upload undo: the people it added are gone",
+      _zc.execute("SELECT COUNT(*) FROM contacts WHERE account_id=?", (_harlow,)).fetchone()[0] == 0
+      and _b["first_name"] == "" and _b["email"] == "" and _b["notes"].startswith("Address:")
+      and "main line" not in _b["notes"])
+check("upload undo: the account is back in Research", _b["cadence_start"] == "")
+_zupload()          # re-upload for what follows
+check("re-upload after undo works the same",
+      _zc.execute("SELECT first_name FROM accounts WHERE id=?", (_harlow,)).fetchone()[0] == "Danny")
+_r = _zupload()
+check("re-upload: everyone is skipped as already on the account",
+      _zc.execute("SELECT COUNT(*) FROM contacts WHERE account_id=?", (_harlow,)).fetchone()[0] == 3
+      and b"4 skipped (person already on the account)" in _r.data)
+
+# Name wins; a domain shared by two accounts matches neither; archived stays out.
+ZH = ["Company Name", "First Name", "Last Name", "Email Address", "Email Domain",
+      "Website", "Company HQ Phone", "Direct Phone Number", "Mobile phone"]
+def _zcsv(rows):
+    b = io.StringIO(); w = _csv.writer(b); w.writerow(ZH); w.writerows(rows)
+    return b.getvalue().encode()
+
+_named = _acct("Name Wins Co")
+_other = _acct("Elsewhere LLC", website="namewins.com")
+_twin1 = _acct("Twin Owner A", website="twins.com")
+_twin2 = _acct("Twin Owner B", website="https://twins.com")
+_gone = _acct("Old Archived Inc", website="gone.com", archived=_zts)
+_zc.commit()
+_zupload(_zcsv([
+    ["Name Wins Co", "Nia", "Wu", "nia@namewins.com", "namewins.com", "namewins.com", "", "", "713-555-0101"],
+    ["Twin Holdings", "Tom", "Tee", "tom@twins.com", "twins.com", "twins.com", "", "", "713-555-0102"],
+    ["Archived By Another Name", "Ann", "Ark", "ann@gone.com", "gone.com", "gone.com", "", "", "713-555-0103"],
+    ["Free Mail Owner", "Fay", "Free", "fay@gmail.com", "gmail.com", "", "", "", "713-555-0104"],
+]))
+_first = lambda i: _zc.execute("SELECT first_name FROM accounts WHERE id=?", (i,)).fetchone()[0]
+check("domain match: the company name still wins over a domain",
+      _first(_named) == "Nia" and _first(_other) == "")
+check("domain match: a domain two accounts share matches neither",
+      _first(_twin1) == "" and _first(_twin2) == "")
+check("domain match: a domain that's only on an archived account is left alone",
+      _first(_gone) == "" and not _zc.execute(
+          "SELECT 1 FROM accounts WHERE company_name='Archived By Another Name'").fetchone())
+
+# create_missing: HQ phone as the dial line, website saved onto the new account
+_zupload(_zcsv([["Fresh Owner LP", "Hal", "Hq", "hal@freshowner.com", "freshowner.com",
+                 "www.freshowner.com", "(281) 555-0000", "", ""]]), create_missing="1")
+_fresh = _zc.execute("SELECT * FROM accounts WHERE company_name='Fresh Owner LP'").fetchone()
+check("create missing: no direct line -> the company HQ phone is dialed",
+      _fresh["work_phone"] == "(281) 555-0000", _fresh["work_phone"])
+check("create missing: the website is saved on the new account",
+      _fresh["website"] == "www.freshowner.com")
+check("create missing: and it starts its cadence (named + phone)",
+      _fresh["cadence_start"] == cadence.today().isoformat())
+# ...and the next upload finds it by domain even under another name
+_zupload(_zcsv([["Fresh Owner Management", "Ivy", "Two", "ivy@freshowner.com",
+                 "freshowner.com", "", "", "", "832-555-0001"]]))
+check("domain match: a later upload finds it by the website it was given",
+      _zc.execute("SELECT COUNT(*) FROM contacts WHERE account_id=? AND first_name='Ivy'",
+                  (_fresh["id"],)).fetchone()[0] == 1)
+
+# People's emails never act as an account's domain (management firms)
+_owner = _acct("Owner Managed By Firm")
+_zc.execute("UPDATE accounts SET first_name='Pat', email='pat@bigmgmtfirm.com' WHERE id=?",
+            (_owner,))
+_zc.commit()
+_zupload(_zcsv([["Big Mgmt Firm", "Sam", "Staff", "sam@bigmgmtfirm.com", "bigmgmtfirm.com",
+                 "bigmgmtfirm.com", "", "", "713-555-0199"]]))
+check("domain match: a contact's email domain doesn't pull a firm's staff onto an owner",
+      _zc.execute("SELECT COUNT(*) FROM contacts WHERE account_id=?", (_owner,)).fetchone()[0] == 0)
+
+# Pacing: N accounts per business day, weekends skipped
+cadence.today = lambda: date(2026, 10, 15)       # a Thursday
+_pace = [_acct(f"Pace Co {i}") for i in range(5)]
+_zc.commit()
+_r = _zupload(_zcsv([[f"Pace Co {i}", f"P{i}", "Pace", f"p{i}@pace{i}.com", "", "", "", "",
+                      "713-555-02%02d" % i] for i in range(5)]), per_day="2")
+_starts = [_zc.execute("SELECT cadence_start FROM accounts WHERE id=?", (i,)).fetchone()[0]
+           for i in _pace]
+check("pacing: 2 per business day — Thu, Thu, Fri, Fri, Mon",
+      _starts == ["2026-10-15", "2026-10-15", "2026-10-16", "2026-10-16", "2026-10-19"], _starts)
+check("pacing: the summary says when the last one starts", b"2026-10-19" in _r.data)
+cadence.today = _real_cadence_today
+
+# Big unpaced upload warns
+_many = [_acct(f"Many Co {i}") for i in range(31)]
+_zc.commit()
+_r = _zupload(_zcsv([[f"Many Co {i}", "M", f"N{i}", f"m{i}@many{i}.com", "", "", "", "", ""]
+                     for i in range(31)]))
+check("pacing: a big unpaced upload warns about the Day-1 pile",
+      b"31 accounts started their cadence today" in _r.data)
+
+# CRM -> ZoomInfo: the Research list as a company list
+_zc.execute("DELETE FROM accounts WHERE company_name LIKE 'Many Co %' OR company_name LIKE 'Pace Co %'")
+_rsch = _acct("Research Big Owner", website="bigowner.com",
+              notes="Big flat roofs\nAddress: 55 Elm, Suite 4, Dallas, TX 75201", matching=9)
+_acct("Research Small Owner", notes="Address: Houston, Texas", matching=1)
+_acct("Already Working Co", start="2026-10-01", matching=50)
+_zc.commit()
+_dl = client.get("/accounts/zoominfo.csv")
+_rows = list(_csv.reader(io.StringIO(_dl.data.decode("utf-8-sig"))))
+_names = [r[0] for r in _rows[1:]]
+check("zoominfo list: a CSV download with ZoomInfo's column names",
+      _dl.status_code == 200 and "attachment" in _dl.headers.get("Content-Disposition", "")
+      and _rows[0] == ["Company Name", "Website", "Street", "City", "State", "Zip Code", "Country"])
+check("zoominfo list: Research accounts only, biggest portfolios first",
+      "Already Working Co" not in _names and _names.index("Research Big Owner")
+      < _names.index("Research Small Owner"), _names)
+check("zoominfo list: website and the address from Notes split into columns",
+      ["Research Big Owner", "bigowner.com", "55 Elm, Suite 4", "Dallas", "TX", "75201",
+       "United States"] in _rows)
+check("zoominfo list: a partial address fills what it can",
+      ["Research Small Owner", "", "", "Houston", "Texas", "", "United States"] in _rows)
+_names = [r[0] for r in _csv.reader(io.StringIO(client.get(
+    "/accounts/zoominfo.csv?view=research&min_matching=5").data.decode("utf-8-sig")))][1:]
+check("zoominfo list: the page's filters narrow the file", _names == ["Research Big Owner"], _names)
+_ap = client.get("/accounts?view=research").data
+check("zoominfo list: the Research list offers the download",
+      b"/accounts/zoominfo.csv" in _ap and b"Download for ZoomInfo" in _ap)
+check("zoominfo list: the guide explains the batch loop",
+      b'id="zoominfo-batch"' in client.get("/guide").data)
+
+# Account import fills the website field; the edit form saves it
+_imp = importer.import_accounts(_zc, _sheet(
+    [["Site Field Co", "", "", "www.sitefield.com"]],
+    ["Company Name", "First Name", "Last Name", "Website"]))
+_sf = _zc.execute("SELECT * FROM accounts WHERE company_name='Site Field Co'").fetchone()
+check("website: account import stores it in its own field, not Notes",
+      _sf["website"] == "www.sitefield.com" and "Website:" not in (_sf["notes"] or ""))
+client.post(f"/accounts/{_sf['id']}/edit", data={"company_name": "Site Field Co",
+                                                  "website": "sitefield.net"})
+check("website: editable on the account",
+      _zc.execute("SELECT website FROM accounts WHERE id=?", (_sf["id"],)).fetchone()[0]
+      == "sitefield.net")
+check("website: searchable", b"Site Field Co" in client.get("/accounts?q=sitefield.net").data)
+_zc.close()
+
+# Older databases: the website is lifted out of the Notes line
+db.DB_PATH = Path(tempfile.mkdtemp(prefix="crm_web_")) / "crm.db"
+_raw = _sq.connect(db.DB_PATH)
+_raw.executescript("""
+CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, company_name TEXT NOT NULL,
+  notes TEXT DEFAULT '', prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
+  pipeline_milestone TEXT NOT NULL DEFAULT 'None / In Cadence',
+  cadence_start TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+INSERT INTO accounts (company_name, notes, cadence_start, created_at, updated_at)
+  VALUES ('Has Site', 'Address: Houston, TX\nWebsite: www.hassite.com\nPortfolio SF: 9', '', 'x', 'x'),
+         ('No Site', 'just a note', '', 'x', 'x');
+""")
+_raw.commit(); _raw.close()
+db.init_db()
+_wm = db.get_db()
+check("website migration: lifted out of Notes on upgrade",
+      [r[0] for r in _wm.execute("SELECT website FROM accounts ORDER BY id")]
+      == ["www.hassite.com", ""])
+_wm.close()
+db.DB_PATH = _keep_db3
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

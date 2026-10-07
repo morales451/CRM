@@ -77,9 +77,11 @@ def has_contact(acct) -> bool:
     return named and reachable
 
 
-def start_cadence_if_ready(conn, account_id) -> bool:
+def start_cadence_if_ready(conn, account_id, start: str | None = None) -> bool:
     """Start an account's clock today if it was waiting in Research and now
     has someone to contact. Call after anything that adds contact details.
+    `start` (ISO date) overrides today — a bulk contact upload uses it to
+    stagger a big batch instead of starting them all at once.
 
     Only ever starts a clock — never stops or moves one that's running.
     Returns True when it started one. The caller commits.
@@ -94,7 +96,7 @@ def start_cadence_if_ready(conn, account_id) -> bool:
     if not has_contact(acct):
         return False
     conn.execute("UPDATE accounts SET cadence_start = ? WHERE id = ?",
-                 (today().isoformat(), account_id))
+                 (start or today().isoformat(), account_id))
     return True
 
 

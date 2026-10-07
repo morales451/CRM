@@ -18,12 +18,13 @@
       {% if in_cadence %}<span class="badge text-bg-primary ms-1">In Cadence</span>{% endif %}
       {% if account.matching_properties %}<span class="badge text-bg-warning ms-1">🎯 {{ account.matching_properties }} matching propert{{ 'y' if account.matching_properties == 1 else 'ies' }}</span>{% endif %}
       {% if account.num_properties %}<span class="badge text-bg-light border ms-1">{{ account.num_properties }} total</span>{% endif %}
+      {% if account.website %}· <a href="{{ account.website if '://' in account.website else 'https://' + account.website }}" target="_blank" rel="noopener">{{ account.website|replace('https://', '')|replace('http://', '') }}</a>{% endif %}
     </div>
   </div>
   <div class="text-nowrap">
     {% set phone = account.mobile_phone or account.work_phone %}
     {% if phone %}<a href="tel:{{ phone|tel }}" class="btn btn-sm btn-success">📞 Call</a>
-    <a href="sms:{{ phone|tel }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
+    <a href="sms:{{ phone|sms }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
     {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
     <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-warning" title="Personalized call & email scripts">📄 Scripts</a>
     <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ account.company_name)|urlencode }}"
@@ -40,9 +41,13 @@
       <h5>Account Info</h5>
       <form method="post" action="{{ url_for('edit_account', account_id=account.id) }}">
         <div class="row g-2">
-          <div class="col-12">
+          <div class="col-7">
             <label class="form-label small mb-0">Company Name *</label>
             <input name="company_name" class="form-control form-control-sm" required value="{{ account.company_name }}">
+          </div>
+          <div class="col-5">
+            <label class="form-label small mb-0" title="Contact uploads match people to this account by its web domain">Website</label>
+            <input name="website" class="form-control form-control-sm" value="{{ account.website or '' }}" placeholder="company.com">
           </div>
           <div class="col-6">
             <label class="form-label small mb-0">First Name</label>

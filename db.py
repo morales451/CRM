@@ -5,6 +5,7 @@ e.g. 2026-09-17T14:03:22-05:00.
 """
 
 import os
+import re
 import shutil
 import sqlite3
 from datetime import datetime, date
@@ -183,6 +184,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     mobile_phone TEXT DEFAULT '',
     linkedin_url TEXT DEFAULT '',          -- ZoomInfo/LinkedIn profile of the primary contact
     seniority TEXT DEFAULT '',             -- ZoomInfo "Management Level" (C-Level, VP-Level, ...)
+    website TEXT DEFAULT '',               -- company website; contact imports match on its domain
     preferred_contact TEXT NOT NULL DEFAULT 'Unknown',
     notes TEXT DEFAULT '',
     prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
@@ -534,6 +536,17 @@ def _migrate(conn) -> None:
     for name in ("linkedin_url", "seniority"):
         if name not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} TEXT DEFAULT ''")
+    if "website" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN website TEXT DEFAULT ''")
+        # Imports used to file the website as a "Website: ..." line in Notes.
+        # Lift it into the field so contact imports can match on its domain.
+        notes_rows = [] if "notes" not in cols else conn.execute(
+            "SELECT id, notes FROM accounts WHERE notes LIKE '%Website:%'").fetchall()
+        for row in notes_rows:
+            m = re.search(r"^Website:\s*(\S+)", row[1] or "", re.M)
+            if m:
+                conn.execute("UPDATE accounts SET website=? WHERE id=?",
+                             (m.group(1), row[0]))
     interaction_cols = {row[1] for row in conn.execute("PRAGMA table_info(interactions)")}
     if interaction_cols and "outcome" not in interaction_cols:
         conn.execute("ALTER TABLE interactions ADD COLUMN outcome TEXT DEFAULT ''")

@@ -209,9 +209,11 @@
     <a href="{{ url_for('accounts', view='research') }}" class="small fw-normal">Research list →</a>
   </div>
   <div class="card-body py-2 small text-muted">
-    These aren't on the clock. Find a decision-maker in ZoomInfo, add them
-    (paste their page, or a company's employee list), and the cadence starts
-    that day. Biggest portfolios first:
+    These aren't on the clock. Find a decision-maker in ZoomInfo, add them,
+    and the cadence starts that day. Doing many at once?
+    <a href="{{ url_for('zoominfo_list') }}">⬇ Download them for ZoomInfo</a>,
+    export the people there, and upload that file on the Import page
+    (<a href="{{ url_for('guide') }}#zoominfo-batch">how</a>). Biggest portfolios first:
   </div>
   <ul class="list-group list-group-flush">
     {% for a in research_top %}

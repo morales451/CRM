@@ -82,6 +82,13 @@
   so they aren't on the cadence clock. Biggest portfolios are at the top. Open one,
   find a decision-maker in ZoomInfo, add them — and that account's cadence starts the
   same day. <em>Restart cadence from today</em> in the bulk actions starts one anyway.
+  <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
+    <a href="{{ url_for('zoominfo_list', **filters) }}" class="btn btn-sm btn-primary">⬇ Download for ZoomInfo ({{ total }})</a>
+    <span><strong>Doing a lot at once?</strong> Upload this file to ZoomInfo as a company list,
+      search contacts at those companies by level, export them, and upload that file on the
+      <a href="{{ url_for('import_page') }}#contacts">Import page</a>. Uses your current
+      search and filters. <a href="{{ url_for('guide') }}#zoominfo-batch">How →</a></span>
+  </div>
 </div>
 {% endif %}
 

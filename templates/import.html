@@ -31,21 +31,30 @@
   </div>
 </div>
 
-<div class="card p-3 mb-3">
+<div class="card p-3 mb-3" id="contacts">
   <h5>Import Contacts <span class="text-muted fs-6">(ZoomInfo export)</span></h5>
-  <p class="mb-2 small">Export contacts from ZoomInfo (or any list with <strong>Company Name</strong> +
-    <strong>First/Last Name</strong> columns) and upload it here. Each person is matched to your existing
-    accounts by company name — legal suffixes like LLC/Inc/LP/REIT are ignored when matching.
-    The first person added to an account becomes its primary contact; more people stack under
-    the account's Contacts list. Duplicate people are skipped, so re-uploads are safe.
-    Archived companies are never touched.</p>
+  <p class="mb-2 small">Upload a ZoomInfo contact export as it comes — no editing. Each person is
+    matched to your accounts by company name (LLC/Inc/LP and the like are ignored), and when the
+    name doesn't match, by web domain: the export's Email Domain/Website against each account's
+    website. The first person on an account becomes its primary
+    contact; the rest stack under Contacts. Accounts in Research start their cadence. Duplicate
+    people are skipped, so re-uploads are safe, archived companies are never touched, and the
+    whole upload can be undone.
+    <a href="{{ url_for('accounts', view='research') }}">Get the company list to search in ZoomInfo →</a></p>
   <p class="mb-2 small text-muted">Picked up automatically from a stock ZoomInfo export:
-    Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number,
-    Mobile phone, <strong>LinkedIn Contact Profile URL</strong> and
-    <strong>Management Level</strong>.</p>
+    Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number (extensions
+    included), Mobile phone, <strong>LinkedIn Contact Profile URL</strong>,
+    <strong>Management Level</strong>, Website, Email Domain and Company HQ Phone (dialed when
+    a person has no direct line).</p>
   <form method="post" action="{{ url_for('import_contacts_route') }}" enctype="multipart/form-data">
     <div class="d-flex gap-2 flex-wrap align-items-center">
       <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
+      <div class="input-group input-group-sm" style="max-width: 300px;"
+           title="Accounts leaving Research start their cadence this many per business day">
+        <span class="input-group-text">Start</span>
+        <input type="number" name="per_day" min="1" class="form-control" placeholder="all today">
+        <span class="input-group-text">/business day</span>
+      </div>
       <button class="btn btn-primary">Upload Contacts</button>
     </div>
     <label class="small mt-2 d-block">
@@ -120,7 +129,13 @@
   <ul class="mb-2">
     <li><strong>{{ contact_result.attached }}</strong> contact(s) attached to {{ contact_result.companies_matched }} account(s)</li>
     {% if contact_result.cadence_started %}
-    <li><strong>{{ contact_result.cadence_started }}</strong> account(s) left Research — they have someone to contact now, so their cadence starts today</li>
+    <li><strong>{{ contact_result.cadence_started }}</strong> account(s) left Research — they have someone to contact now, so their cadence
+      {% if contact_result.per_day %}starts at {{ contact_result.per_day }}/business day, the last on {{ contact_result.last_start_date }}{% else %}starts today{% endif %}</li>
+    {% endif %}
+    {% if contact_result.domain_matches %}
+    <li>Matched by website/email domain instead of name — check these look right:
+      <ul>{% for file_name, acct_name in contact_result.domain_matches %}
+        <li>“{{ file_name }}” → <strong>{{ acct_name }}</strong></li>{% endfor %}</ul></li>
     {% endif %}
     {% if contact_result.accounts_created %}
     <li><strong>{{ contact_result.accounts_created }}</strong> new account(s) opened for companies you didn't have</li>

@@ -231,6 +231,9 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         def row_int(name):
             return _clean_int(row.get(mapping[name])) if name in mapping else None
 
+        def ctx(name):
+            return _clean(row.get(context_mapping[name])) if name in context_mapping else ""
+
         key = normalize_company(company)
         if key in archived and key not in active_keys:
             # Deliberately removed from the working list — don't resurrect it.
@@ -258,6 +261,11 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
                 (row_int("num_properties"), row_int("matching_properties"), ts,
                  acct_id, row_int("num_properties"),
                  row_int("matching_properties"))).rowcount
+            if ctx("website"):
+                updated += conn.execute(
+                    "UPDATE accounts SET website=?, updated_at=? "
+                    "WHERE id=? AND COALESCE(website, '') = ''",
+                    (ctx("website"), ts, acct_id)).rowcount
             if updated:
                 backfilled += 1
             skipped_dupe += 1
@@ -266,9 +274,6 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         def field(name):
             return _clean(row.get(mapping[name])) if name in mapping else ""
 
-        def ctx(name):
-            return _clean(row.get(context_mapping[name])) if name in context_mapping else ""
-
         # Keep useful location/context columns by appending them to Notes.
         notes = field("notes")
         addr_parts = [p for p in (ctx("address"), ctx("city"), ctx("state")) if p]
@@ -276,8 +281,6 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         extras = []
         if addr:
             extras.append(f"Address: {addr}")
-        if ctx("website"):
-            extras.append(f"Website: {ctx('website')}")
         sf = _clean_int(row.get(context_mapping["portfolio_sf"])) if "portfolio_sf" in context_mapping else None
         if sf:
             extras.append(f"Portfolio SF: {sf:,}")
@@ -297,14 +300,14 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             """INSERT INTO accounts
                (company_name, first_name, last_name, title, num_properties,
                 matching_properties, email, work_phone, mobile_phone,
-                linkedin_url, seniority,
+                linkedin_url, seniority, website,
                 preferred_contact, notes, prospecting_status,
                 pipeline_milestone, cadence_start, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (company, person["first_name"], person["last_name"], field("title"),
              row_int("num_properties"), row_int("matching_properties"),
              person["email"], person["work_phone"], person["mobile_phone"],
-             field("linkedin_url"), field("seniority"),
+             field("linkedin_url"), field("seniority"), ctx("website"),
              "Unknown", notes,
              "Prospecting", "None / In Cadence", start if ready else "", ts, ts),
         )
@@ -390,23 +393,83 @@ _company_key = normalize_company
 PERSON_FIELDS = ("first_name", "last_name", "title", "email",
                  "work_phone", "mobile_phone", "linkedin_url", "seniority")
 
+# Company-level columns a contact export carries alongside each person.
+# Matched only against columns the person fields didn't already claim.
+CONTACT_COMPANY_SYNONYMS = {
+    "website": ["website", "companywebsite", "companyurl", "web", "url",
+                "domain", "companydomain"],
+    "email_domain": ["emaildomain"],
+    "hq_phone": ["companyhqphone", "hqphone", "companyphone", "mainphone",
+                 "companymainphone"],
+}
 
-def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
+# Free mailbox providers. Two people on gmail.com are not colleagues, so
+# these never tie a contact to a company.
+_PUBLIC_MAIL_DOMAINS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "hotmail.com",
+    "outlook.com", "live.com", "msn.com", "aol.com", "icloud.com", "me.com",
+    "mac.com", "comcast.net", "att.net", "sbcglobal.net", "verizon.net",
+    "bellsouth.net", "cox.net", "charter.net", "protonmail.com", "proton.me",
+}
+
+
+def domain_of(value) -> str:
+    """The bare domain in a website, URL or email address — "" if none.
+
+    "https://www.HarlowEnterprises.com/about", "harlowenterprises.com" and
+    "danny@harlowenterprises.com" all give "harlowenterprises.com". Free
+    mailbox domains (gmail.com, ...) give "" because they say nothing about
+    which company someone works for.
+    """
+    v = _clean(value).lower()
+    if not v:
+        return ""
+    if "@" in v:
+        v = v.rsplit("@", 1)[1]
+    v = re.sub(r"^[a-z][a-z0-9+.-]*://", "", v)
+    v = re.split(r"[/?#:\s]", v, 1)[0].strip(".")
+    if v.startswith("www."):
+        v = v[4:]
+    if not re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)+", v):
+        return ""
+    return "" if v in _PUBLIC_MAIL_DOMAINS else v
+
+
+# Account columns a contact import can change, snapshotted for its undo.
+_UNDO_ACCOUNT_COLS = ("first_name", "last_name", "title", "email", "work_phone",
+                      "mobile_phone", "linkedin_url", "seniority", "notes",
+                      "website", "cadence_start", "updated_at")
+
+
+def import_contacts(conn, file_storage, create_missing: bool = False,
+                    per_day: int | None = None, record_undo=None) -> dict:
     """Attach a contact export (e.g. from ZoomInfo) to accounts.
 
-    Rows are matched to accounts by normalized company name (see
-    normalize_company). The first contact for an account with no primary
-    contact becomes the primary (filling the account's own contact fields);
-    the rest become contacts rows. Duplicate people (same email, or same
-    first+last name) on an account are skipped.
+    Each row is matched to an account by normalized company name (see
+    normalize_company); failing that, by web domain — the export's Email
+    Domain / Website columns or the person's email, against each account's
+    website. A domain shared by two of your accounts matches neither, and
+    every domain match is listed back.
+
+    The first contact for an account with no primary contact becomes the
+    primary (filling the account's own contact fields); the rest become
+    contacts rows. Duplicate people (same email, or same first+last name) on
+    an account are skipped.
 
     create_missing=True opens a new account for any company in the file you
     don't already have, so a ZoomInfo pull can seed accounts instead of
     reporting them as unmatched. Archived companies are NEVER re-created or
     attached to — archiving means "stop showing me this company".
+
+    per_day staggers the cadence starts of accounts leaving Research, so a
+    300-company upload doesn't land 300 Day-1 tasks on one morning.
+    record_undo(ops) is called before the commit with what undoes it all.
     """
     df = read_file(file_storage)
     mapping = map_columns(df.columns)
+    company_cols = map_columns(
+        [c for c in df.columns if c not in mapping.values()],
+        CONTACT_COMPANY_SYNONYMS)
 
     if "company_name" not in mapping:
         raise ValueError(
@@ -419,20 +482,39 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
 
     accounts_by_key: dict[str, int] = {}
     archived: dict[str, str] = {}
+    names: dict[int, str] = {}
+    active_domains: dict[str, set[int]] = {}
+    archived_domains: dict[str, str] = {}
+    # Domains come from each account's WEBSITE only. The emails of people on
+    # an account aren't trusted for this: an owner's property manager often
+    # works for a management firm, and that firm's domain would pull the
+    # firm's own staff onto the owner's account.
     for row in conn.execute(
-            "SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
-            "FROM accounts"):
+            "SELECT id, company_name, COALESCE(website, '') AS website, "
+            "COALESCE(archived_at, '') AS archived_at FROM accounts"):
         key = normalize_company(row["company_name"])
+        d = domain_of(row["website"])
         if row["archived_at"]:
             archived.setdefault(key, row["company_name"])
+            if d:
+                archived_domains.setdefault(d, row["company_name"])
         else:
             accounts_by_key.setdefault(key, row["id"])
+            names[row["id"]] = row["company_name"]
+            if d:
+                active_domains.setdefault(d, set()).add(row["id"])
 
     attached = skipped_dupe = skipped_blank = skipped_archived = 0
     accounts_created = 0
     unmatched: dict[str, int] = {}
     archived_names: list[str] = []
-    matched_accounts: set[int] = set()
+    # (name in the file, account it was attached to) for every match made on
+    # the web domain rather than the name — never silent, easy to spot.
+    domain_matches: list[tuple[str, str]] = []
+    matched_accounts: list[int] = []      # first-match order, for pacing
+    before: dict[int, dict] = {}          # undo snapshots of changed accounts
+    new_contacts: list[int] = []
+    new_accounts: list[int] = []
     ts = now_iso()
 
     for _, row in df.iterrows():
@@ -444,6 +526,9 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
         def field(name):
             return _clean(row.get(mapping[name])) if name in mapping else ""
 
+        def company_field(name):
+            return _clean(row.get(company_cols[name])) if name in company_cols else ""
+
         person = {f: field(f) for f in PERSON_FIELDS}
         person["work_phone"] = (_clean_phone(row.get(mapping["work_phone"]))
                                 if "work_phone" in mapping else "")
@@ -452,17 +537,34 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
         if not (person["first_name"] or person["last_name"]):
             skipped_blank += 1
             continue
+        website = company_field("website")
+        row_domains = [d for d in (domain_of(company_field("email_domain")),
+                                   domain_of(website), domain_of(person["email"]))
+                       if d]
 
         key = normalize_company(company)
-        # An active account for the company wins; only refuse when the company
-        # exists solely as an archived record.
-        if key in archived and key not in accounts_by_key:
-            skipped_archived += 1
-            if archived[key] not in archived_names and len(archived_names) < 25:
-                archived_names.append(archived[key])
-            continue
-
         account_id = accounts_by_key.get(key)
+        if account_id is None:
+            for d in row_domains:
+                ids = active_domains.get(d, set())
+                if len(ids) == 1:
+                    account_id = next(iter(ids))
+                    pair = (company, names.get(account_id, ""))
+                    if pair not in domain_matches and len(domain_matches) < 50:
+                        domain_matches.append(pair)
+                    break
+                if ids:
+                    break                 # shared by several accounts: ambiguous
+        if account_id is None:
+            # Only an archived record has this name or domain: leave it alone.
+            gone = archived.get(key) or next(
+                (archived_domains[d] for d in row_domains if d in archived_domains),
+                None)
+            if gone:
+                skipped_archived += 1
+                if gone not in archived_names and len(archived_names) < 25:
+                    archived_names.append(gone)
+                continue
         if account_id is None:
             if not create_missing:
                 unmatched[company] = unmatched.get(company, 0) + 1
@@ -470,12 +572,17 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
             # Opened in Research; the contact attached below starts its clock.
             cur = conn.execute(
                 """INSERT INTO accounts
-                   (company_name, preferred_contact, prospecting_status,
+                   (company_name, website, preferred_contact, prospecting_status,
                     pipeline_milestone, cadence_start, created_at, updated_at)
-                   VALUES (?, 'Unknown', 'Prospecting', 'None / In Cadence', '', ?, ?)""",
-                (company, ts, ts))
+                   VALUES (?, ?, 'Unknown', 'Prospecting', 'None / In Cadence', '', ?, ?)""",
+                (company, website, ts, ts))
             account_id = cur.lastrowid
             accounts_by_key[key] = account_id
+            names[account_id] = company
+            d = domain_of(website)
+            if d:
+                active_domains.setdefault(d, set()).add(account_id)
+            new_accounts.append(account_id)
             accounts_created += 1
 
         acct = conn.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
@@ -491,16 +598,27 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
             skipped_dupe += 1
             continue
 
+        if account_id not in before and account_id not in new_accounts:
+            before[account_id] = {"id": account_id,
+                                  **{c: acct[c] for c in _UNDO_ACCOUNT_COLS}}
+        if website and not (acct["website"] or "").strip():
+            conn.execute("UPDATE accounts SET website=? WHERE id=?",
+                         (website, account_id))
+            if domain_of(website):
+                active_domains.setdefault(domain_of(website), set()).add(account_id)
         has_primary = any(acct[c] for c in ("first_name", "last_name", "email"))
         if not has_primary:
             # The person's direct phone beats the company main line; keep the
-            # main line in Notes so it isn't lost.
-            work_phone = person["work_phone"] or acct["work_phone"]
+            # main line in Notes so it isn't lost. No direct line -> dial the
+            # main line (the account's, else the export's HQ phone).
+            main_line = acct["work_phone"] or _clean_phone(company_field("hq_phone"))
+            work_phone = person["work_phone"] or main_line
             notes = acct["notes"]
-            if person["work_phone"] and acct["work_phone"] \
-                    and person["work_phone"] != acct["work_phone"]:
+            if person["work_phone"] and main_line \
+                    and person["work_phone"] != main_line \
+                    and main_line not in (notes or ""):
                 notes = (notes + "\n" if notes else "") \
-                    + f"Company main line: {acct['work_phone']}"
+                    + f"Company main line: {main_line}"
             conn.execute(
                 "UPDATE accounts SET first_name=?, last_name=?, title=?, email=?, "
                 "work_phone=?, mobile_phone=?, linkedin_url=?, seniority=?, "
@@ -510,31 +628,100 @@ def import_contacts(conn, file_storage, create_missing: bool = False) -> dict:
                  person["linkedin_url"], person["seniority"], notes,
                  ts, account_id))
         else:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO contacts (account_id, first_name, last_name, title, "
                 "email, work_phone, mobile_phone, linkedin_url, seniority, "
                 "created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (account_id, *(person[f] for f in PERSON_FIELDS), ts))
-        matched_accounts.add(account_id)
+            new_contacts.append(cur.lastrowid)
+        if account_id not in matched_accounts:
+            matched_accounts.append(account_id)
         attached += 1
 
-    # Anyone who just got a reachable contact leaves Research today.
-    cadence_started = sum(1 for a in matched_accounts
-                          if cadence.start_cadence_if_ready(conn, a))
+    # Anyone who just got a reachable contact leaves Research — today, or
+    # per_day at a time across the coming business days.
+    day = _next_business_day(cadence.today())
+    on_day = cadence_started = 0
+    last_start = ""
+    for a in matched_accounts:
+        if per_day and on_day == per_day:
+            day = _next_business_day(day + timedelta(days=1))
+            on_day = 0
+        start = day.isoformat() if per_day else cadence.today().isoformat()
+        if cadence.start_cadence_if_ready(conn, a, start):
+            cadence_started += 1
+            on_day += 1
+            last_start = start
+    if record_undo is not None:
+        record_undo([
+            # Created accounts go first; their contacts go with them (cascade).
+            {"op": "delete", "table": "accounts",
+             "rows": [{"id": i} for i in new_accounts]},
+            {"op": "delete", "table": "contacts",
+             "rows": [{"id": i} for i in new_contacts]},
+            {"op": "update", "table": "accounts", "rows": list(before.values())},
+        ])
     conn.commit()
     return {
         "attached": attached,
         "companies_matched": len(matched_accounts),
         "accounts_created": accounts_created,
         "cadence_started": cadence_started,
+        "per_day": per_day,
+        "last_start_date": last_start,
+        "domain_matches": domain_matches,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "skipped_archived": skipped_archived,
         "archived_names": archived_names,
         "unmatched": unmatched,          # {company name: row count}
         "total_rows": len(df),
-        "mapped_columns": {f: str(c) for f, c in mapping.items()},
+        "mapped_columns": {f: str(c) for f, c in
+                           {**mapping, **company_cols}.items()},
     }
+
+
+_US_STATES = {
+    "alabama", "alaska", "arizona", "arkansas", "california", "colorado",
+    "connecticut", "delaware", "florida", "georgia", "hawaii", "idaho",
+    "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine",
+    "maryland", "massachusetts", "michigan", "minnesota", "mississippi",
+    "missouri", "montana", "nebraska", "nevada", "new hampshire",
+    "new jersey", "new mexico", "new york", "north carolina", "north dakota",
+    "ohio", "oklahoma", "oregon", "pennsylvania", "rhode island",
+    "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont",
+    "virginia", "washington", "west virginia", "wisconsin", "wyoming",
+    "district of columbia",
+}
+
+
+def _is_state(part: str) -> bool:
+    p = part.strip().lower()
+    return bool(re.fullmatch(r"[a-z]{2}", p)) or p in _US_STATES
+
+
+def address_from_notes(notes: str) -> dict:
+    """Street / city / state / zip from the "Address: ..." line an account
+    import writes into Notes ("123 Main St, Houston, TX 77002" — any part
+    may be missing). Best effort; blanks where it can't tell."""
+    out = {"street": "", "city": "", "state": "", "zip": ""}
+    m = re.search(r"^Address:\s*(.+?)\s*$", notes or "", re.M)
+    if not m:
+        return out
+    line = m.group(1)
+    z = re.search(r"\s(\d{5}(?:-\d{4})?)$", line)
+    if z:
+        out["zip"] = z.group(1)
+        line = line[:z.start()]
+    parts = [p.strip() for p in line.split(",") if p.strip()]
+    if parts and _is_state(parts[-1]):
+        out["state"] = parts.pop()
+        if parts:
+            out["city"] = parts.pop()
+    elif len(parts) >= 2:
+        out["city"] = parts.pop()
+    out["street"] = ", ".join(parts)
+    return out
 
 
 # --------------------------------------------------------- Paste a profile

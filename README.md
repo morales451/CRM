@@ -149,15 +149,32 @@ computer's firewall (Windows will usually prompt you the first time — choose
     decision-makers* selects every C-Level, VP-Level and Director at once, a
     direct dial beats the company switchboard, and people already on the
     account are greyed out.
-  - **Bulk upload** a ZoomInfo export on the Import page. People are matched
-    to accounts by company name with legal suffixes (LLC, Inc, LP, Corp, P.C.)
-    and punctuation ignored; the first person on an empty account
-    becomes its primary contact and duplicates are skipped. Tick *"Open a new
-    account for any company I don't have yet"* and unmatched companies become
-    new prospects instead of a list of misses.
-  - A stock ZoomInfo export maps with no editing, **LinkedIn Contact Profile
-    URL** and **Management Level** included; management level is guessed from
-    the job title when the file doesn't carry it.
+  - **Batch loop (the main way)** — the Research list's **⬇ Download for
+    ZoomInfo** button saves those companies (name, website, address; current
+    search and 🎯 filter applied) as a CSV. Upload it to ZoomInfo as a
+    company list, search contacts at those companies filtered to your
+    management levels, export them, and upload the export on the Import page.
+    People are matched to accounts by company name (legal suffixes like LLC,
+    Inc, LP, Corp, P.C. and punctuation ignored), then by **web domain**:
+    Email Domain/Website against each account's website (never the emails
+    of people on it, since a management firm's domain would pull in its own
+    staff). Every domain match is listed back, a domain shared by two
+    accounts matches neither, and free mail domains never count. The first
+    person on an empty account becomes primary, duplicates are skipped, and
+    archived companies are left alone. Accounts leaving Research start their
+    cadence today, or **N per business day** when you set a pace. The whole
+    upload is **undoable**. Tick *"Open a new account for any company I don't
+    have yet"* and unmatched companies become new prospects.
+  - A stock ZoomInfo export maps with no editing, including **LinkedIn
+    Contact Profile URL**, **Management Level**, Website, Email Domain and
+    Company HQ Phone (the dial line for people with no direct number).
+    Management level is guessed from the job title when the file doesn't
+    carry it. Extensions like `ext. 32` dial as a pause plus the extension.
+    The fixture `tests/fixtures/zoominfo_contacts_export.csv` is a real
+    export.
+  - Accounts have a **Website** field. Account imports fill it from a
+    Website column, and older databases lift it out of the "Website:" line
+    in Notes.
 - **Outreach Templates & Scripts** — your cold call script, voicemail,
   text message, and three cadence emails live in the app (Templates page)
   and are fully editable, with placeholders like `{first_name}`, `{company}`,
@@ -302,4 +319,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-582 checks, about two seconds.
+622 checks, about two seconds.

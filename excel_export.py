@@ -168,22 +168,22 @@ def build_workbook(conn) -> io.BytesIO:
     _add_sheet(wb, "Accounts",
                ["Company", "Matching (🎯)", "Total properties", "First name",
                 "Last name", "Title", "Level", "Email", "Work phone",
-                "Mobile phone", "LinkedIn",
+                "Mobile phone", "LinkedIn", "Website",
                 "Preferred contact", "Prospecting status", "Pipeline milestone",
                 "Cadence start", "Next follow-up", "Follow-up note", "Touches",
                 "Last activity", "Archived", "Archive reason", "Notes", "Created"],
                [[r["company_name"], r["matching_properties"], r["num_properties"],
                  r["first_name"], r["last_name"], r["title"], r["seniority"],
                  r["email"], r["work_phone"], r["mobile_phone"], r["linkedin_url"],
-                 r["preferred_contact"],
+                 r["website"], r["preferred_contact"],
                  r["prospecting_status"], r["pipeline_milestone"], r["cadence_start"],
                  r["next_follow_up"], r["follow_up_note"], r["touches"],
                  r["last_activity"], "Yes" if r["archived_at"] else "",
                  r["archive_reason"], (r["notes"] or "").replace("\n", " · "),
                  r["created_at"]] for r in rows],
-               widths=[34, 12, 12, 14, 14, 20, 12, 26, 16, 16, 30, 12, 22, 20,
+               widths=[34, 12, 12, 14, 14, 20, 12, 26, 16, 16, 30, 24, 12, 22, 20,
                        12, 12, 24, 9, 14, 10, 20, 46, 12],
-               int_cols=(2, 3, 18))
+               int_cols=(2, 3, 19))
 
     # --- Contacts -----------------------------------------------------
     rows = conn.execute(

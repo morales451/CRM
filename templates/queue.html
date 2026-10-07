@@ -60,7 +60,7 @@
     <div class="text-nowrap">
       {% set phone = account.mobile_phone or account.work_phone %}
       {% if phone %}<a href="tel:{{ phone|tel }}" class="btn btn-sm btn-success">📞 Call</a>
-      <a href="sms:{{ phone|tel }}" class="btn btn-sm btn-info">💬</a>{% endif %}
+      <a href="sms:{{ phone|sms }}" class="btn btn-sm btn-info">💬</a>{% endif %}
       {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️</a>{% endif %}
     </div>
   </div>

@@ -55,8 +55,24 @@ def format_datetime(iso_str):
 
 @app.template_filter("tel")
 def clean_tel(phone):
-    """Phone number as dialable digits for tel:/sms: links."""
-    return re.sub(r"[^\d+]", "", phone or "")
+    """Phone number as dialable digits for tel:/sms: links.
+
+    An extension ("(713) 555-0100 ext. 32", as ZoomInfo writes direct lines)
+    becomes a pause — "7135550100,32" — so the phone dials the main number,
+    waits for the pickup, then keys the extension. Run together, the digits
+    would dial a number that doesn't exist.
+    """
+    m = re.match(r"(?i)(.*?\d.*?)\s*(?:ext\.?|extension|x|#)\s*(\d+)\s*$",
+                 phone or "")
+    number, ext = (m.group(1), m.group(2)) if m else (phone or "", "")
+    digits = re.sub(r"[^\d+]", "", number)
+    return f"{digits},{ext}" if digits and ext else digits
+
+
+@app.template_filter("sms")
+def clean_sms(phone):
+    """Phone number for sms: links — a text can't dial an extension."""
+    return clean_tel(phone).split(",")[0]
 
 
 _last_backup_date = None
@@ -263,6 +279,7 @@ def _account_fields_from_form(form, previous=None):
         "mobile_phone": form.get("mobile_phone", "").strip(),
         "linkedin_url": form.get("linkedin_url", "").strip(),
         "seniority": form.get("seniority", "").strip(),
+        "website": form.get("website", "").strip(),
         "preferred_contact": form.get("preferred_contact", "Unknown"),
         "notes": form.get("notes", "").strip(),
         "prospecting_status": form.get("prospecting_status", "Prospecting"),
@@ -1696,7 +1713,7 @@ def _search_clause(q: str):
     """
     like = f"%{q}%"
     cols = ["a.company_name", "a.first_name", "a.last_name", "a.email",
-            "a.title", "a.notes", "a.seniority"]
+            "a.title", "a.notes", "a.seniority", "a.website"]
     parts = [f"{c} LIKE ?" for c in cols]
     params = [like] * len(cols)
 
@@ -1760,22 +1777,21 @@ def _contact_match_hints(conn, q: str, rows) -> dict:
     return hints
 
 
-@app.route("/accounts")
-def accounts():
-    status = request.args.get("status", "")
-    milestone = request.args.get("milestone", "")
-    q = request.args.get("q", "").strip()
-    min_matching_raw = request.args.get("min_matching", "").strip()
+def _account_filters(args) -> dict:
+    """The Accounts list's filters, read from the query string, as a SQL
+    WHERE fragment over alias `a` plus the values the template echoes back.
+    Shared with the ZoomInfo download so it exports exactly what's listed."""
+    status = args.get("status", "")
+    milestone = args.get("milestone", "")
+    q = args.get("q", "").strip()
+    min_matching_raw = args.get("min_matching", "").strip()
     min_matching = int(min_matching_raw) if min_matching_raw.isdigit() else None
-    sort = request.args.get("sort", "priority")
+    sort = args.get("sort", "priority")
     if sort not in ACCOUNT_SORTS:
         sort = "priority"
-    view = request.args.get("view", "")
+    view = args.get("view", "")
     if view not in ("archived", "research"):
         view = "active"
-
-    page = _parse_int(request.args.get("page", "1"), on_error=1) or 1
-    page = max(1, page)
 
     if view == "archived":
         where = " AND COALESCE(a.archived_at, '') != ''"
@@ -1799,6 +1815,20 @@ def accounts():
         clause, search_params = _search_clause(q)
         where += " AND " + clause
         params += search_params
+    return {"status": status, "milestone": milestone, "q": q,
+            "min_matching_raw": min_matching_raw, "sort": sort, "view": view,
+            "where": where, "params": params}
+
+
+@app.route("/accounts")
+def accounts():
+    f = _account_filters(request.args)
+    status, milestone, q = f["status"], f["milestone"], f["q"]
+    min_matching_raw, sort, view = f["min_matching_raw"], f["sort"], f["view"]
+    where, params = f["where"], f["params"]
+
+    page = _parse_int(request.args.get("page", "1"), on_error=1) or 1
+    page = max(1, page)
 
     conn = get_db()
     try:
@@ -1838,6 +1868,36 @@ def accounts():
                            match_hints=match_hints,
                            total=total, page=page, pages=pages,
                            per_page=ACCOUNTS_PER_PAGE)
+
+
+# Columns ZoomInfo's company-list upload recognizes on its own.
+ZOOMINFO_LIST_HEADERS = ["Company Name", "Website", "Street", "City", "State",
+                         "Zip Code", "Country"]
+
+
+@app.route("/accounts/zoominfo.csv")
+def zoominfo_list():
+    """The accounts on screen (Research by default) as a company list to
+    upload to ZoomInfo: find the people there in one search, export them,
+    and upload that file back on the Import page."""
+    args = request.args.to_dict()
+    args.setdefault("view", "research")
+    f = _account_filters(args)
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            f"SELECT a.company_name, a.website, a.notes FROM accounts a "
+            f"WHERE 1=1{f['where']} ORDER BY {ACCOUNT_SORTS[f['sort']]}",
+            f["params"]).fetchall()
+    finally:
+        conn.close()
+    data = []
+    for r in rows:
+        addr = importer.address_from_notes(r["notes"])
+        data.append([r["company_name"], r["website"] or "", addr["street"],
+                     addr["city"], addr["state"], addr["zip"], "United States"])
+    return _csv_response(data, ZOOMINFO_LIST_HEADERS,
+                         f"zoominfo-companies-{today_iso()}.csv")
 
 
 @app.route("/accounts/new", methods=["GET", "POST"])
@@ -3044,6 +3104,8 @@ def import_contacts_route():
     """Bulk-attach a ZoomInfo (or similar) contact export to existing accounts."""
     file = request.files.get("file")
     create_missing = bool(request.form.get("create_missing"))
+    per_day_raw = request.form.get("per_day", "").strip()
+    per_day = int(per_day_raw) if per_day_raw.isdigit() and int(per_day_raw) > 0 else None
     contact_result = None
     duplicates = []
     conn = get_db()
@@ -3053,13 +3115,25 @@ def import_contacts_route():
         else:
             try:
                 contact_result = importer.import_contacts(
-                    conn, file, create_missing=create_missing)
+                    conn, file, create_missing=create_missing, per_day=per_day,
+                    record_undo=lambda ops: _offer_undo(
+                        conn, f"Contact upload ({file.filename})", ops))
                 msg = (f"Attached {contact_result['attached']} contact(s) to "
                        f"{contact_result['companies_matched']} account(s).")
                 if contact_result["accounts_created"]:
                     msg += (f" Opened {contact_result['accounts_created']} new "
                             f"account(s) for companies you didn't have.")
+                started = contact_result["cadence_started"]
+                if started and per_day:
+                    msg += (f" {started} cadence(s) start at {per_day}/business day, "
+                            f"the last on {contact_result['last_start_date']}.")
+                elif started:
+                    msg += f" {started} cadence(s) start today."
                 flash(msg, "success")
+                if not per_day and started > UNPACED_WARNING:
+                    flash(f"{started} accounts started their cadence today — that's "
+                          f"{started} Day-1 tasks at once. Undo, then upload again "
+                          f"with a per-day number, or use Re-Pace below.", "warning")
             except ValueError as e:
                 flash(str(e), "danger")
             except Exception as e:
