@@ -2181,27 +2181,50 @@ def parse_contact(account_id):
         flash("Paste something into the box first.", "warning")
         return redirect(url_for("account_detail", account_id=account_id))
     parsed = importer.parse_contact_blob(paste)
+
+    # Anything already typed into the form wins — pressing "Read the paste"
+    # after typing the name must not wipe the name.
+    typed = {c: request.form.get(c, "").strip() for c in CONTACT_COLS}
+    for c in CONTACT_COLS:
+        if typed[c]:
+            parsed[c] = typed[c]
+
+    guessed_name = False
+    if not (parsed["first_name"] or parsed["last_name"]) and parsed["email"]:
+        # Last resort: michael.delacruz@ gives up a name; mdelacruz@ doesn't,
+        # and name_from_email leaves it alone rather than inventing one.
+        first, last = importer.name_from_email(parsed["email"])
+        if first or last:
+            parsed["first_name"], parsed["last_name"] = first, last
+            guessed_name = True
+    if not parsed["seniority"] and parsed["title"]:
+        parsed["seniority"] = importer.seniority_from_title(parsed["title"])
+
     found = [c for c in CONTACT_COLS if parsed.get(c)]
     label = lambda c: c.replace("_", " ").replace("linkedin url", "LinkedIn")
     if not found:
         flash("Nothing recognisable in that paste — no name, email or phone "
-              "number. Try selecting the contact's details again, or just type "
-              "them in below.", "warning")
+              "number. Try selecting the whole ZoomInfo page (Ctrl+A, Ctrl+C), "
+              "or just type the details in below.", "warning")
     elif not (parsed["first_name"] or parsed["last_name"]):
         # ZoomInfo's "Contact Details" panel has no name in it — the name sits
         # higher up the page. Say what came through so it's clear what's left.
         flash("Got the " + ", ".join(label(c) for c in found)
-              + " — but no name, which ZoomInfo keeps above the Contact "
-                "Details panel. Type the name below (or copy from higher up "
-                "the page) and press Add Contact.", "warning")
+              + " — but no name. ZoomInfo keeps the name at the top of the "
+                "page, above the Contact Details panel: select the whole page "
+                "(Ctrl+A, Ctrl+C) and it comes through with everything else. "
+                "Or just type the name below.", "warning")
     else:
+        msg = "Read: " + ", ".join(label(c) for c in found) + "."
+        if guessed_name:
+            msg += (" The name came from the email address, so check the "
+                    "spelling.")
         missing = [label(c) for c in ("email", "work_phone", "title")
                    if not parsed.get(c)]
-        msg = "Read: " + ", ".join(label(c) for c in found) + "."
         if missing:
             msg += " Didn't find: " + ", ".join(missing) + " — add below if you have it."
         msg += " Check it over, then press Add Contact."
-        flash(msg, "info")
+        flash(msg, "warning" if guessed_name else "info")
     return _render_account_detail(account_id, contact_prefill=parsed,
                                   contact_paste=paste)
 

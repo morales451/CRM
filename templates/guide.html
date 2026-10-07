@@ -168,7 +168,35 @@ future import <em>can</em> add that company again.</div>
 <ul>
   <li>Each account has a <strong>primary contact</strong> (fills scripts, emails, invoices) plus unlimited additional people.</li>
   <li>On an account page: 🔎 ZoomInfo / in LinkedIn buttons jump to research for that company; the <em>+ Add Contact</em> form is right below. The first person you add becomes primary automatically; ★ promotes anyone else to primary (the old primary moves down, nothing is lost).</li>
-  <li><strong>Paste a profile instead of typing it.</strong> Open <em>+ Add Contact</em>, copy a ZoomInfo profile and drop it into the paste box. Name, title, email, direct line, mobile and LinkedIn are read out of it and fill any field you left blank; the flash message says exactly what it picked up. It copes with a plain stack of lines, “Label: value” lines, or a row copied out of a spreadsheet.</li>
+  <li><strong>Paste a whole ZoomInfo page instead of typing anything.</strong>
+    On the contact's page press <kbd>Ctrl</kbd>+<kbd>A</kbd> then
+    <kbd>Ctrl</kbd>+<kbd>C</kbd>. In the CRM open <em>+ Add Contact</em>, paste into
+    the box and press <strong>📋 Read the paste</strong>. The boxes below fill in so
+    you can check them before pressing Add Contact.
+    <ul>
+      <li>No careful selecting needed — menus, buttons and the colleagues listed
+        further down the page (Similar Contacts, Org Chart, People Also Viewed) are
+        thrown away.</li>
+      <li><strong>It works out which name is the contact by matching it against the
+        email address</strong>, so when a page lists several people nobody else gets
+        mixed in.</li>
+      <li>The <em>Contact Details</em> panel's headings are ignored and its type tags
+        are read: <code>(B)</code> business, <code>(HQ)</code> head office,
+        <code>(D)</code> direct, <code>(M)</code> mobile. That's what decides which
+        number is the mobile and which is the work line — and a direct dial beats the
+        HQ switchboard.</li>
+      <li>Copying <em>only</em> the Contact Details panel gives you the email and
+        phones but no name, because ZoomInfo keeps the name at the top of the page.
+        Grab the whole page instead, or type the name first — anything you've typed
+        is kept when you press Read the paste.</li>
+      <li>If there's still no name and the email is in <code>first.last@</code> form,
+        the name is taken from the address and flagged so you check the spelling. A
+        run-together address like <code>mdelacruz@</code> is left alone rather than
+        guessed at.</li>
+      <li>A "Label: value" list and a row copied out of a spreadsheet work too. A
+        paste with no contact in it is refused rather than half-filled.</li>
+    </ul>
+  </li>
   <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings / Group and punctuation ignored, so “Hartman Income REIT, Inc.” finds your “Hartman Income REIT LP”. First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped.</li>
   <li><strong>Companies you don't have yet:</strong> tick <em>“Open a new account for any company I don't have yet”</em> on the upload and those rows become new prospecting accounts instead of being listed back as unmatched. Archived companies are never re-created.</li>
   <li><strong>Columns read automatically</strong> from a stock ZoomInfo export: Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number, Mobile phone, LinkedIn Contact Profile URL and Management Level. The import summary lists exactly which column it read for each field.</li>

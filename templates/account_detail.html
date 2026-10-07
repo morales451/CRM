@@ -310,7 +310,7 @@
                 Paste from ZoomInfo <span class="text-muted fw-normal">(optional — or just type below)</span>
               </label>
               <textarea name="paste" rows="4" class="form-control form-control-sm" id="pastebox"
-                        placeholder="Select the contact's details on the ZoomInfo page, copy, and paste here.">{{ contact_paste | default('') }}</textarea>
+                        placeholder="On the ZoomInfo contact page press Ctrl+A then Ctrl+C, and paste the whole page here.">{{ contact_paste | default('') }}</textarea>
               <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
                 <button class="btn btn-sm btn-outline-primary"
                         formaction="{{ url_for('parse_contact', account_id=account.id) }}"
@@ -320,13 +320,17 @@
               <details class="small mt-2">
                 <summary class="text-muted" style="cursor:pointer">What exactly do I copy?</summary>
                 <div class="mt-1">
-                  <p class="mb-1"><strong>Start at the person's name</strong>, drag down past
-                    the job title and through the <em>Contact Details</em> panel, press
-                    <kbd>Ctrl</kbd>+<kbd>C</kbd> and paste here. Grabbing extra text is fine —
-                    anything it can't place is ignored.</p>
-                  <p class="mb-1">ZoomInfo's Contact Details panel pastes like this, and the
-                    <code>(B)</code> / <code>(HQ)</code> / <code>(D)</code> / <code>(M)</code>
-                    tags are read too — that's how it knows which number is the mobile:</p>
+                  <p class="mb-1"><strong>The whole page.</strong> On the ZoomInfo contact,
+                    press <kbd>Ctrl</kbd>+<kbd>A</kbd> then <kbd>Ctrl</kbd>+<kbd>C</kbd> and
+                    paste it here. You don't have to select carefully — menus, buttons and
+                    the colleagues listed further down are all thrown away.</p>
+                  <p class="mb-1">It works out which name on the page is the contact by
+                    matching it against the email address, so other people listed on the
+                    same page can't get mixed in.</p>
+                  <p class="mb-1">Smaller selections work too. The <em>Contact Details</em>
+                    panel pastes like this, and the <code>(B)</code> / <code>(HQ)</code> /
+                    <code>(D)</code> / <code>(M)</code> tags are read — that's how it knows
+                    which number is the mobile:</p>
                   <pre class="bg-light border rounded p-2 mb-1" style="white-space:pre-wrap">Michael Delacruz
 Director of Facilities
 Harlow Enterprises
@@ -339,15 +343,11 @@ Phone numbers
 (HQ)
 (409) 555-0102
 (M)</pre>
-                  <p class="mb-1">If you only copy the Contact Details panel you'll get the
-                    email and phones but no name — the name lives higher up the page. Just
-                    type it in below.</p>
+                  <p class="mb-1">Copying <em>only</em> the Contact Details panel gives you
+                    the email and phones but no name — ZoomInfo keeps the name at the top of
+                    the page. Either grab the whole page, or type the name in the boxes
+                    below and press Read the paste; anything you've typed is kept.</p>
                   <p class="mb-1">These also work:</p>
-                  <pre class="bg-light border rounded p-2 mb-1" style="white-space:pre-wrap">Jane Doe
-Vice President of Asset Management
-jane.doe@hartman.com
-Direct: (713) 555-0142
-Mobile: (713) 555-9981</pre>
                   <pre class="bg-light border rounded p-2 mb-1" style="white-space:pre-wrap">Name: Robert Chen
 Job Title: Director of Facilities
 Email Address: rchen@boxer.com

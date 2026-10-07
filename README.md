@@ -112,14 +112,17 @@ computer's firewall (Windows will usually prompt you the first time — choose
   unlimited additional people. Add them on the account detail page, promote
   anyone to primary with ★, and use the 🔎 ZoomInfo / LinkedIn buttons to
   jump straight to research for that company.
-  - **Paste a profile** — copy a ZoomInfo profile into the paste box, press
-    **Read the paste**, and the name, title, email, direct line, mobile and
-    LinkedIn URL fill the form so you can check them before saving. It reads
-    ZoomInfo's **Contact Details** panel directly, including the `(B)` / `(HQ)`
-    / `(D)` / `(M)` type tags that say which number is the mobile and which is
-    the work line — plus plain copies, "Label: value" lines, and spreadsheet
-    rows. Extra text you grabbed by accident is ignored, and a paste with no
-    contact in it is refused rather than guessed at.
+  - **Paste a whole ZoomInfo page** — on the contact's page press Ctrl+A,
+    Ctrl+C, paste into the box and press **Read the paste**. Name, title,
+    company, email, direct line, mobile and LinkedIn fill the form so you can
+    check them before saving. Menus, buttons and the colleagues listed further
+    down (Similar Contacts, Org Chart) are discarded, and the contact is
+    identified by matching the names on the page against the email address, so
+    other people on the same page can't get mixed in. The **Contact Details**
+    panel's `(B)` / `(HQ)` / `(D)` / `(M)` tags decide which number is the
+    mobile and which is the work line. Smaller selections, "Label: value"
+    lists and spreadsheet rows work too; a paste with no contact in it is
+    refused rather than guessed at.
   - **Bulk upload** a ZoomInfo export on the Import page. People are matched
     to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings /
     Group and punctuation ignored; the first person on an empty account
@@ -243,4 +246,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-382 checks, about two seconds.
+394 checks, about two seconds.

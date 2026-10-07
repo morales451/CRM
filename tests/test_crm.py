@@ -2027,6 +2027,98 @@ _html = client.post(f"/accounts/{_t}/contacts/parse",
 check("preview: an unusable paste says so plainly",
       "Nothing recognisable" in _html or "Nothing recognisable" in _html)
 
+# ---- 38. A whole ZoomInfo page, pasted as-is
+_PAGE = """ZoomInfo
+Home
+Search
+Lists
+Export
+Michael Delacruz
+Director of Facilities
+Harlow Enterprises
+Houston, Texas, United States
+View Profile
+Save to List
+Contact Details
+Emails
+mdelacruz@harlowenterprises.com
+(B)
+Phone numbers
+(713) 555-0100
+(HQ)
+(409) 555-0102
+(M)
+Last Updated
+Verified
+Similar Contacts
+Sandra Perez
+Vice President of Operations
+sperez@harlowenterprises.com
+(713) 555-0199
+(D)
+Kevin Tran
+Chief Financial Officer
+ktran@harlowenterprises.com
+"""
+_r = importer.parse_contact_blob(_PAGE)
+check("page: picks the contact the page is about",
+      _r["first_name"] == "Michael" and _r["last_name"] == "Delacruz", _r)
+check("page: title and company come with it",
+      _r["title"] == "Director of Facilities"
+      and _r["company"] == "Harlow Enterprises", _r)
+check("page: the contact's own email and phones",
+      _r["email"] == "mdelacruz@harlowenterprises.com"
+      and _r["work_phone"] == "(713) 555-0100"
+      and _r["mobile_phone"] == "(409) 555-0102", _r)
+check("page: nobody from Similar Contacts leaks in",
+      "sperez" not in str(_r) and "ktran" not in str(_r)
+      and "555-0199" not in str(_r), _r)
+check("page: buttons and menus are not mistaken for data",
+      "ZoomInfo" not in _r["company"] and _r["title"] != "Home", _r)
+
+# the name is chosen by agreement with the email, not by position
+_r = importer.parse_contact_blob("""Harlow Enterprises
+Commercial Real Estate
+Michael Delacruz
+Director of Facilities
+Contact Details
+Emails
+mdelacruz@harlowenterprises.com
+(B)""")
+check("page: the company appearing first doesn't become the contact",
+      _r["first_name"] == "Michael" and _r["last_name"] == "Delacruz"
+      and _r["company"] == "Harlow Enterprises", _r)
+
+# email-derived names: only where it is actually unambiguous
+check("email name: first.last is read",
+      importer.name_from_email("michael.delacruz@x.com") == ("Michael", "Delacruz"))
+check("email name: an initial gives only the surname",
+      importer.name_from_email("m.delacruz@x.com") == ("", "Delacruz"))
+check("email name: a run-together local part is NOT guessed",
+      importer.name_from_email("mdelacruz@x.com") == ("", ""))
+check("email name: role mailboxes are ignored",
+      importer.name_from_email("info@x.com") == ("", "")
+      and importer.name_from_email("leasing@x.com") == ("", ""))
+
+# typing into the form then pressing Read the paste must keep what you typed
+_conn = db.get_db()
+_t2 = _conn.execute("SELECT id FROM accounts WHERE COALESCE(archived_at,'')='' "
+                    "LIMIT 1").fetchone()["id"]
+_conn.close()
+_html = client.post(f"/accounts/{_t2}/contacts/parse", data={
+    "paste": "Contact Details\nEmails\nmdelacruz@harlowenterprises.com\n(B)\n"
+             "Phone numbers\n(713) 555-0100\n(HQ)",
+    "first_name": "Michael", "last_name": "Delacruz"},
+    follow_redirects=True).data.decode()
+check("preview: a name you typed survives Read the paste",
+      'value="Michael"' in _html and 'value="Delacruz"' in _html
+      and 'value="mdelacruz@harlowenterprises.com"' in _html)
+_html = client.post(f"/accounts/{_t2}/contacts/parse", data={
+    "paste": "Contact Details\nEmails\nsarah.obrien@x.com\n(B)"},
+    follow_redirects=True).data.decode()
+check("preview: a name taken from the email is flagged for checking",
+      'value="Sarah"' in _html and "came from the email" in _html)
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

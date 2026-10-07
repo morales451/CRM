@@ -625,6 +625,82 @@ def seniority_from_title(title: str) -> str:
     return ""
 
 
+# Everything below one of these headings belongs to OTHER people or to
+# unrelated sections, so a whole-page copy is cut off here. Without this, a
+# colleague's phone number from "Similar Contacts" could land on your contact.
+_PAGE_STOP_MARKERS = {
+    _normalize(h) for h in (
+        "Similar Contacts", "Similar Profiles", "People Also Viewed",
+        "People also viewed", "Related Contacts", "Other Contacts",
+        "Org Chart", "Organizational Chart", "Colleagues", "Coworkers",
+        "Employees", "Company Contacts", "Contacts at", "More Contacts",
+        "Recommended Contacts", "Frequently Viewed", "Similar Companies",
+        "Competitors", "Related Companies", "News", "Recent News",
+        "Scoops", "Funding", "Technologies Used", "Intent",
+    )
+}
+
+# ZoomInfo's own buttons, tabs and labels. Dropped from a whole-page copy so
+# they can't be mistaken for a name, a title or a company.
+_UI_CHROME = {
+    _normalize(c) for c in (
+        "Home", "Search", "Advanced Search", "Lists", "My Lists", "Export",
+        "Exports", "Save", "Saved", "Save to List", "Add to List", "Share",
+        "Copy", "Copied", "Print", "Edit", "Delete", "View Profile",
+        "View Full Profile", "See More", "Show More", "Show Less", "More",
+        "Less", "Back", "Next", "Previous", "Close", "Cancel", "Done",
+        "Upgrade", "Upgrade Now", "Request", "Request Contact", "Feedback",
+        "Report an Issue", "Report Inaccuracy", "Suggest an Edit",
+        "Settings", "Help", "Support", "Log Out", "Sign Out", "Profile",
+        "Dashboard", "Notifications", "Filters", "Filter", "Sort", "Clear",
+        "Select All", "Actions", "Enrich", "Engage", "Connect", "Follow",
+        "Following", "Verified", "Last Updated", "Updated", "Accuracy",
+        "Confidence", "Premium", "Add Note", "Notes", "Tags", "Add Tag",
+        "ZoomInfo", "Copy to Clipboard", "Reveal", "Click to Reveal",
+    )
+}
+
+
+# Addresses that belong to a company, not a person.
+_ROLE_MAILBOXES = {
+    "info", "sales", "admin", "administration", "contact", "contactus",
+    "office", "leasing", "support", "hello", "team", "accounting",
+    "accountspayable", "accountsreceivable", "ap", "ar", "billing", "hr",
+    "careers", "jobs", "noreply", "nореply", "donotreply", "help", "service",
+    "services", "main", "mail", "enquiries", "inquiries", "general",
+    "maintenance", "property", "management", "operations", "reception",
+}
+
+
+def name_from_email(email: str) -> tuple[str, str]:
+    """Best-effort first and last name from an email address.
+
+    Only the cases that are actually unambiguous: a local part separated by
+    ".", "_" or "-", like michael.delacruz@ (first and last) or
+    m.delacruz@ (an initial, so only the last name).
+
+    A run-together local part is deliberately NOT guessed at. "mdelacruz"
+    looks like M. Delacruz, but "delacruz" looks identical to a machine, and
+    filling in "Elacruz" is worse than leaving the box empty.
+
+    Returns ("", "") whenever it isn't sure.
+    """
+    local = str(email or "").split("@")[0].strip().lower()
+    local = re.sub(r"\d+$", "", local)                   # trailing jsmith2
+    if not local or local.replace(".", "").replace("_", "").replace("-", "") \
+            in _ROLE_MAILBOXES:
+        return "", ""
+    parts = [p for p in re.split(r"[._-]+", local) if p]
+    if len(parts) < 2:
+        return "", ""
+    first, last = parts[0], parts[-1]
+    if not last.isalpha() or len(last) < 2:
+        return "", ""
+    # A single leading letter is an initial, not a first name.
+    first_name = first.title() if first.isalpha() and len(first) > 1 else ""
+    return first_name, last.title()
+
+
 def parse_contact_blob(text: str) -> dict:
     """Pull a contact out of text copied from a ZoomInfo profile.
 
@@ -654,7 +730,16 @@ def parse_contact_blob(text: str) -> dict:
     raw_lines = [l.strip() for l in text.replace("\r", "").split("\n")]
     if len([l for l in raw_lines if l]) == 1 and "\t" in text:
         raw_lines = [c.strip() for c in text.split("\t")]
-    lines = [l for l in raw_lines if l]
+    lines = []
+    for line in raw_lines:
+        if not line:
+            continue
+        key = _normalize(line)
+        if key in _PAGE_STOP_MARKERS:
+            break                      # the rest of the page is other people
+        if key in _UI_CHROME:
+            continue                   # a button, not data
+        lines.append(line)
 
     emails: list[list] = []   # [[address, tag], ...]
     phones: list[list] = []   # [[number, tag], ...]
@@ -732,6 +817,7 @@ def parse_contact_blob(text: str) -> dict:
         leftovers.append(line)
         last = None
 
+
     # --- pick the best of each ------------------------------------------
     if not out["email"] and emails:
         # A business address beats a personal one.
@@ -751,12 +837,44 @@ def parse_contact_blob(text: str) -> dict:
             out["mobile_phone"] = mobile_order[0]
 
     # Unlabeled lines, in ZoomInfo's own order: name, then title, then company.
+    #
+    # A whole-page copy contains several name-like lines — the contact, the
+    # company, section headings, sometimes colleagues. The email settles it:
+    # the person whose surname shows up in the address is the one the page is
+    # about. mdelacruz@harlowenterprises.com picks "Michael Delacruz" out of
+    # the page and ignores everything else that merely looks like a name.
     if not (out["first_name"] or out["last_name"]):
-        for i, line in enumerate(leftovers):
-            if _looks_like_name(line):
-                out["first_name"], out["last_name"] = _split_name(line)
-                leftovers.pop(i)
-                break
+        candidates = [(i, l) for i, l in enumerate(leftovers) if _looks_like_name(l)]
+        chosen = None
+        local = out["email"].split("@")[0].lower() if out["email"] else ""
+        local_letters = re.sub(r"[^a-z]", "", local)
+        if local_letters:
+            best = 0
+            for i, line in candidates:
+                first, last = _split_name(line)
+                score = 0
+                surname = re.sub(r"[^a-z]", "", last.lower())
+                if surname and len(surname) > 1 and surname in local_letters:
+                    score += 2
+                    # ...and the initial in front of it seals it.
+                    if first and local_letters.startswith(first[0].lower()):
+                        score += 1
+                given = re.sub(r"[^a-z]", "", first.lower())
+                if given and len(given) > 1 and given in local_letters:
+                    score += 1
+                if score > best:
+                    best, chosen = score, (i, line)
+        if chosen is None and candidates:
+            chosen = candidates[0]
+        if chosen:
+            i, line = chosen
+            out["first_name"], out["last_name"] = _split_name(line)
+            # The job title is the line directly under the name.
+            nxt = leftovers[i + 1] if i + 1 < len(leftovers) else ""
+            if nxt and not out["title"] and not _looks_like_name(nxt):
+                out["title"] = nxt
+                leftovers.pop(i + 1)
+            leftovers.pop(i)
     # Only read a title or company out of the leftovers once the paste has
     # proved it really is a contact. Otherwise a stray line — an address, a
     # mis-selected paragraph — would quietly become somebody's job title.
