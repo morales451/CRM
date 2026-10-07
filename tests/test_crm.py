@@ -2360,6 +2360,58 @@ r = client.post(f"/accounts/{_eid}/contacts/roster",
 check("expanded: a collapsed paste says to expand the rows first",
       b"expand" in r.data.lower() and b"before copying" in r.data.lower())
 
+# ---- 43. A crash explains itself instead of showing a blank 500
+import app as _app_mod
+
+_prev_log = db.ERROR_LOG
+db.ERROR_LOG = Path(tempfile.mkdtemp(prefix="crm_err_")) / "error.log"
+_real_reminders = cadence.get_due_reminders
+import logging as _logging
+_app_mod.app.logger.setLevel(_logging.CRITICAL)   # the crash below is on purpose
+
+
+def _explode(*a, **k):
+    raise ValueError("a deliberately broken page")
+
+
+cadence.get_due_reminders = _explode
+try:
+    r = client.get("/")
+    _html = r.data.decode()
+finally:
+    cadence.get_due_reminders = _real_reminders
+
+check("error page: returns 500 with a readable page", r.status_code == 500)
+check("error page: names the actual error",
+      "ValueError" in _html and "deliberately broken page" in _html, _html[:300])
+check("error page: says the data is safe", "Your data is safe" in _html)
+check("error page: offers a way back", "Dashboard" in _html and "Accounts" in _html)
+check("error page: the details can be copied", "Copy details" in _html)
+check("error page: the traceback is written to the log",
+      db.ERROR_LOG.exists()
+      and "deliberately broken page" in db.ERROR_LOG.read_text())
+check("error page: the log records which page failed",
+      "GET /" in db.ERROR_LOG.read_text())
+check("error page: the dashboard works again once the fault clears",
+      client.get("/").status_code == 200)
+check("error page: a missing page is still a plain 404, not an error report",
+      client.get("/no-such-page").status_code == 404)
+check("error page: a wrong method is still 405",
+      client.get("/accounts/1/log").status_code == 405)
+
+# the log is rotated rather than growing for ever
+db.ERROR_LOG.write_text("x" * (_app_mod.MAX_ERROR_LOG_BYTES + 1000))
+cadence.get_due_reminders = _explode
+try:
+    client.get("/")
+finally:
+    cadence.get_due_reminders = _real_reminders
+check("error page: an oversized log is rotated, not appended to for ever",
+      db.ERROR_LOG.stat().st_size < _app_mod.MAX_ERROR_LOG_BYTES
+      and db.ERROR_LOG.with_suffix(".log.old").exists())
+db.ERROR_LOG = _prev_log
+_app_mod.app.logger.setLevel(_logging.NOTSET)
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

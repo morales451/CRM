@@ -247,6 +247,13 @@ when copying your data to a new machine. Deleted photos wait in
 `uploads/trash/` for 7 days so an Undo can put them back, then they're
 cleared automatically on startup.
 
+## When a page errors
+
+A crash shows the actual error on the page, with a **Copy details** button,
+and appends the full traceback to `Documents/RoofCRM/error.log` (the startup
+window prints the path). The rest of the app keeps working and your data is
+untouched. Send that text on and it says exactly which line failed.
+
 ## Tests
 
 The end-to-end test suite lives in `tests/test_crm.py` and covers imports,
@@ -257,4 +264,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-449 checks, about two seconds.
+460 checks, about two seconds.

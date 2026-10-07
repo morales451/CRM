@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Something went wrong — Roof CRM{% endblock %}
+{% block content %}
+<div class="card p-4">
+  <h1 class="mb-2">Something went wrong on this page</h1>
+  <p class="text-muted">
+    Your data is safe — nothing was changed by this error, and the database is
+    untouched in its own folder. Everything else in the app still works.
+  </p>
+
+  <div class="alert alert-danger">
+    <strong>{{ error_type }}</strong>: {{ error }}
+  </div>
+
+  <h5 class="mt-2">What to do</h5>
+  <ol class="mb-3">
+    <li>Use the buttons below to carry on — most of the time only this one page
+      is affected.</li>
+    <li>If it keeps happening, copy the details below and send them on. That text
+      says exactly which line failed.</li>
+  </ol>
+
+  <details class="mb-3">
+    <summary class="fw-semibold" style="cursor:pointer">Show the full details (for copying)</summary>
+    <textarea class="form-control font-monospace mt-2" rows="14" readonly
+              id="errdetail">{{ detail }}</textarea>
+    <button class="btn btn-sm btn-outline-secondary mt-1"
+            onclick="const t=document.getElementById('errdetail');t.select();
+                     try{document.execCommand('copy')}catch(e){}
+                     if(navigator.clipboard)navigator.clipboard.writeText(t.value).catch(()=>{});
+                     this.textContent='Copied ✓';
+                     setTimeout(()=>{this.textContent='Copy details'},1500);
+                     return false;">Copy details</button>
+    <div class="form-text">Also saved to <code>{{ log_path }}</code></div>
+  </details>
+
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-primary">← Dashboard</a>
+    <a href="{{ url_for('accounts') }}" class="btn btn-outline-secondary">Accounts</a>
+    <a href="{{ url_for('import_page') }}" class="btn btn-outline-secondary">Import &amp; Backup</a>
+  </div>
+</div>
+{% endblock %}

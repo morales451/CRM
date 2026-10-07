@@ -113,6 +113,43 @@ def format_money(value):
     return f"${value:,.0f}" if value == int(value) else f"${value:,.2f}"
 
 
+# ------------------------------------------------------------ Error reporting
+
+MAX_ERROR_LOG_BYTES = 512 * 1024
+
+
+@app.errorhandler(Exception)
+def handle_error(err):
+    """Show what actually went wrong, and write it down.
+
+    This runs on one computer for one person, so hiding the error behind
+    "Internal Server Error" helps nobody — it just means the terminal window
+    has to be hunted down before anything can be fixed. The page names the
+    error and points at the log; the log holds the full traceback.
+    """
+    from werkzeug.exceptions import HTTPException
+    if isinstance(err, HTTPException):
+        return err                      # 404s and the like are not crashes
+
+    import traceback
+    detail = traceback.format_exc()
+    try:
+        log = db_module.ERROR_LOG
+        log.parent.mkdir(parents=True, exist_ok=True)
+        if log.exists() and log.stat().st_size > MAX_ERROR_LOG_BYTES:
+            log.rename(log.with_suffix(".log.old"))
+        with log.open("a", encoding="utf-8") as fh:
+            fh.write(f"\n{'=' * 70}\n{now_iso()}  {request.method} "
+                     f"{request.full_path}\n{'=' * 70}\n{detail}\n")
+    except OSError:
+        pass
+    app.logger.error("Unhandled error on %s\n%s", request.full_path, detail)
+    return render_template("error.html", error=err,
+                           error_type=type(err).__name__,
+                           detail=detail,
+                           log_path=str(db_module.ERROR_LOG)), 500
+
+
 # ---------------------------------------------------------------------- Undo
 #
 # Every destructive action snapshots what it changed into the undo_log table,
@@ -2716,6 +2753,7 @@ if __name__ == "__main__":
     moved = db_module.migrate_legacy_data()
     init_db()
     print(f"\n  Your data:  {db_module.DATA_DIR}")
+    print(f"  If a page errors: {db_module.ERROR_LOG}")
     print("  (kept outside this folder, so updating the app never touches it)")
     if moved:
         print("  Moved from the old location:")

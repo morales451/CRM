@@ -43,6 +43,10 @@ TRASH_DIR = DATA_DIR / "uploads" / "trash"
 # How long an undone-able action (and its trashed photos) stays recoverable.
 UNDO_RETENTION_DAYS = 7
 
+# Crashes are appended here so there's something concrete to look at (and to
+# send on) instead of the browser's bare "Internal Server Error".
+ERROR_LOG = DATA_DIR / "error.log"
+
 
 def migrate_legacy_data():
     """Move data left in the app folder by older versions into DATA_DIR.
