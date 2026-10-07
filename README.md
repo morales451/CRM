@@ -124,6 +124,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
     mobile and which is the work line. Smaller selections, "Label: value"
     lists and spreadsheet rows work too; a paste with no contact in it is
     refused rather than guessed at.
+  - **Pick people off a company's employee list** — paste ZoomInfo's company
+    *Employees* tab (Ctrl+A, Ctrl+C) and press **Find people**. Everyone is
+    listed with their job title and management level, nothing pre-selected;
+    tick the few that fit, optionally mark one as primary, and press Add
+    Selected. *Tick decision-makers* selects every C-Level, VP-Level and
+    Director at once. People already on the account are greyed out. Contact
+    details aren't on that page, so this brings names, titles and levels —
+    use the ZoomInfo export when emails and phones are needed too.
   - **Bulk upload** a ZoomInfo export on the Import page. People are matched
     to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings /
     Group and punctuation ignored; the first person on an empty account
@@ -247,4 +255,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-415 checks, about two seconds.
+433 checks, about two seconds.

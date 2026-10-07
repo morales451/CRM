@@ -297,6 +297,84 @@
         <li class="list-group-item px-0 text-muted small">No contacts yet — use the 🔎 ZoomInfo button above to find decision-makers, then add them here.</li>
         {% endif %}
       </ul>
+      {# ---- Pick people off a pasted company employee list ---- #}
+      {% if roster %}
+      <form method="post" action="{{ url_for('roster_add', account_id=account.id) }}"
+            class="mt-2 border rounded p-2 bg-light" id="rosterform">
+        <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-1 mb-1">
+          <strong>{{ roster|length }} people on this company</strong>
+          <span>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="pickdm"
+                    title="C-Level, VP-Level and Director">Tick decision-makers</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="picknone">Clear</button>
+          </span>
+        </div>
+        <div class="small text-muted mb-2">Tick only the ones that fit — nothing is
+          selected to start with. Emails and phones aren't on the company page;
+          add them per person afterwards.</div>
+        <table class="table table-sm mb-2">
+          <thead><tr><th style="width:2rem"></th><th>Name</th><th>Title</th>
+            <th style="width:5rem">Primary</th></tr></thead>
+          <tbody>
+          {% for person in roster %}
+            {% set idx = loop.index0 %}
+            <tr class="{{ 'text-muted' if person.already }}">
+              <td>
+                <input type="checkbox" class="form-check-input rosterpick" name="pick"
+                       value="{{ idx }}" data-level="{{ person.seniority }}"
+                       {{ 'disabled' if person.already }}>
+              </td>
+              <td>
+                <strong>{{ person.first_name }} {{ person.last_name }}</strong>
+                {% if person.seniority %}
+                <span class="badge text-bg-{{ 'primary' if person.seniority in ('C-Level', 'VP-Level') else 'secondary' }}">{{ person.seniority }}</span>
+                {% endif %}
+                {% if person.already %}<span class="badge text-bg-light border">already added</span>{% endif %}
+              </td>
+              <td class="small">{{ person.title }}</td>
+              <td>
+                {% if not person.already %}
+                <input type="radio" name="primary" value="{{ idx }}"
+                       class="form-check-input" title="Make this the primary contact">
+                {% endif %}
+              </td>
+            </tr>
+            {% for col in ['first_name', 'last_name', 'title', 'seniority',
+                           'email', 'work_phone', 'mobile_phone', 'linkedin_url'] %}
+            <input type="hidden" name="p{{ idx }}_{{ col }}" value="{{ person.get(col, '') }}">
+            {% endfor %}
+          {% endfor %}
+          </tbody>
+        </table>
+        <button class="btn btn-sm btn-success" id="rosteradd" disabled>+ Add Selected</button>
+        <a href="{{ url_for('account_detail', account_id=account.id) }}"
+           class="btn btn-sm btn-outline-secondary">Cancel</a>
+      </form>
+      <script>
+      (function () {
+        const picks = () => Array.from(document.querySelectorAll('.rosterpick:not(:disabled)'));
+        const add = document.getElementById('rosteradd');
+        const refresh = () => {
+          const n = picks().filter(c => c.checked).length;
+          add.disabled = n === 0;
+          add.textContent = n ? '+ Add ' + n + ' Selected' : '+ Add Selected';
+        };
+        picks().forEach(c => c.addEventListener('change', refresh));
+        document.getElementById('pickdm').addEventListener('click', () => {
+          picks().forEach(c => {
+            c.checked = ['C-Level', 'VP-Level', 'Director'].includes(c.dataset.level);
+          });
+          refresh();
+        });
+        document.getElementById('picknone').addEventListener('click', () => {
+          picks().forEach(c => { c.checked = false; });
+          refresh();
+        });
+        refresh();
+      })();
+      </script>
+      {% endif %}
+
       {% set pre = contact_prefill | default({}) %}
       <details class="mt-2" {{ 'open' if pre or not (account.first_name or account.last_name or account.email) }}>
         <summary class="fw-semibold" style="cursor:pointer">+ Add Contact</summary>
@@ -355,6 +433,19 @@ Direct Phone: 713-555-0199</pre>
                   <p class="mb-0">…or a row copied straight out of a ZoomInfo export in Excel.</p>
                 </div>
               </details>
+              <hr class="my-2">
+              <label class="form-label small mb-1 fw-semibold">
+                Or paste a company employee list
+                <span class="text-muted fw-normal">(adds several people at once)</span>
+              </label>
+              <textarea name="roster_paste" rows="2" class="form-control form-control-sm"
+                        placeholder="On the company's Employees tab in ZoomInfo press Ctrl+A then Ctrl+C, and paste here."></textarea>
+              <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
+                <button class="btn btn-sm btn-outline-primary"
+                        formaction="{{ url_for('roster_contacts', account_id=account.id) }}"
+                        formnovalidate>👥 Find people</button>
+                <span class="small text-muted">lists everyone so you can tick the few that fit</span>
+              </div>
               <hr class="my-2">
             </div>
             <div class="col-6"><input name="first_name" class="form-control form-control-sm" placeholder="First name" value="{{ pre.get('first_name', '') }}"></div>

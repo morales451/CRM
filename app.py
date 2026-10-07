@@ -2229,6 +2229,98 @@ def parse_contact(account_id):
                                   contact_paste=paste)
 
 
+@app.route("/accounts/<int:account_id>/contacts/roster", methods=["POST"])
+def roster_contacts(account_id):
+    """Find everyone on a pasted ZoomInfo employee list, to pick from.
+
+    Nothing is saved here. A company's Employees tab lists the whole org, but
+    only a handful fit the ICP — so this shows the list with the management
+    level beside each name and you tick the three or four worth having.
+    """
+    paste = request.form.get("roster_paste", "").strip()
+    if not paste:
+        flash("Paste the ZoomInfo employee list into the box first.", "warning")
+        return redirect(url_for("account_detail", account_id=account_id))
+    people = importer.parse_contact_roster(paste)
+    if not people:
+        flash("No people found in that paste. On the company's Employees tab, "
+              "press Ctrl+A then Ctrl+C and paste the whole page — each person "
+              "is picked out by their ZoomInfo profile link.", "warning")
+        return redirect(url_for("account_detail", account_id=account_id))
+
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        existing = {(r["first_name"].lower(), r["last_name"].lower())
+                    for r in conn.execute(
+                        "SELECT first_name, last_name FROM contacts WHERE account_id=?",
+                        (account_id,))}
+        existing.add((acct["first_name"].lower(), acct["last_name"].lower()))
+    finally:
+        conn.close()
+    for person in people:
+        person["already"] = (person["first_name"].lower(),
+                             person["last_name"].lower()) in existing
+    fresh = sum(1 for p in people if not p["already"])
+    flash(f"Found {len(people)} people"
+          + (f", {len(people) - fresh} already on this account" if fresh < len(people) else "")
+          + ". Tick the ones worth contacting and press Add Selected.", "info")
+    return _render_account_detail(account_id, roster=people)
+
+
+@app.route("/accounts/<int:account_id>/contacts/roster/add", methods=["POST"])
+def roster_add(account_id):
+    """Create a contact for each person ticked on the roster preview."""
+    picked = request.form.getlist("pick")
+    if not picked:
+        flash("Tick at least one person first.", "warning")
+        return redirect(url_for("account_detail", account_id=account_id))
+    primary_pick = request.form.get("primary", "")
+
+    conn = get_db()
+    added, skipped = [], 0
+    try:
+        acct = _account_or_404(conn, account_id)
+        existing = {(r["first_name"].lower(), r["last_name"].lower())
+                    for r in conn.execute(
+                        "SELECT first_name, last_name FROM contacts WHERE account_id=?",
+                        (account_id,))}
+        existing.add((acct["first_name"].lower(), acct["last_name"].lower()))
+        ts = now_iso()
+        for idx in picked:
+            person = {c: request.form.get(f"p{idx}_{c}", "").strip()
+                      for c in CONTACT_COLS}
+            if not (person["first_name"] or person["last_name"]):
+                continue
+            key = (person["first_name"].lower(), person["last_name"].lower())
+            if key in existing:
+                skipped += 1
+                continue
+            existing.add(key)
+            make_primary = (idx == primary_pick) or not _has_primary_contact(acct)
+            if make_primary:
+                _demote_primary_to_contact(conn, acct)
+                _set_primary_contact(conn, account_id, person)
+                acct = _account_or_404(conn, account_id)   # it has one now
+            else:
+                conn.execute(
+                    f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
+                    f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
+                    (account_id, *(person[c] for c in CONTACT_COLS), ts))
+            added.append(f"{person['first_name']} {person['last_name']}".strip())
+        conn.commit()
+    finally:
+        conn.close()
+    if added:
+        flash(f"Added {len(added)} contact(s): " + ", ".join(added) + "."
+              + (f" {skipped} were already on the account." if skipped else "")
+              + " Emails and phones aren't on the company page — add them from "
+                "each person's own ZoomInfo page.", "success")
+    else:
+        flash("Nothing added — those people are already on this account.", "warning")
+    return redirect(url_for("account_detail", account_id=account_id))
+
+
 @app.route("/accounts/<int:account_id>/contacts/<int:contact_id>/promote", methods=["POST"])
 def promote_contact(account_id, contact_id):
     """Swap a contact with the account's primary-contact fields."""

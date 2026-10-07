@@ -615,7 +615,11 @@ def _split_name(full: str) -> tuple[str, str]:
     parts = full.split()
     if len(parts) == 1:
         return parts[0], ""
-    return parts[0], " ".join(parts[1:])
+    # Drop a middle initial: "Gerald W. Hayes" is Gerald Jones, not
+    # Gerald "W. Hayes". Particles like "de" and "van" are kept.
+    middles = [p for p in parts[1:-1]
+               if not re.fullmatch(r"[A-Za-z]\.?", p)]
+    return parts[0], " ".join(middles + [parts[-1]])
 
 
 def seniority_from_title(title: str) -> str:
@@ -1004,6 +1008,77 @@ def parse_contact_blob(text: str) -> dict:
     if not out["seniority"]:
         out["seniority"] = seniority_from_title(out["title"])
     return out
+
+
+# --------------------------------------------- A whole roster in one paste
+
+# Lines that follow a name but are never a job title.
+_NOT_A_TITLE = {_normalize(t) for t in (
+    "View Profile", "Save", "Export", "Add to List", "Email", "Phone",
+    "Mobile", "Direct", "Show More", "Show Less", "Contact", "Connect",
+    "Verified", "LinkedIn", "Twitter", "Facebook",
+)}
+
+
+def parse_contact_roster(text: str) -> list[dict]:
+    """Every person on a pasted ZoomInfo company page, in one go.
+
+    The company's Employees tab lists the whole org — name, job title and
+    management level — without expanding anybody. Each person there is a link
+    to /profile/person/, which makes them unambiguous to pick out: the link
+    text is the name and the line under it is the job title.
+
+    Contact details are NOT on that page (they sit behind each row's
+    expander), so this returns names, titles and inferred seniority. Use the
+    ZoomInfo export when emails and phones are needed too.
+
+    Returns [{first_name, last_name, title, seniority, linkedin_url}], in page
+    order, without repeats.
+    """
+    if not text or not text.strip():
+        return []
+    records = _expand_lines([l.strip() for l in text.replace("\r", "").split("\n")])
+
+    people, seen = [], set()
+    for i, rec in enumerate(records):
+        if _PERSON_LINK not in (rec["url"] or ""):
+            continue
+        name = rec["text"].strip()
+        if not name or not _looks_like_name(name):
+            continue
+        first, last = _split_name(name)
+        key = (first.lower(), last.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        # The job title is the next line that could plausibly be one — look a
+        # few rows ahead so an avatar initial or a button doesn't stop it.
+        title = ""
+        for nxt in records[i + 1:i + 5]:
+            cand = nxt["text"].strip()
+            if not cand:
+                continue
+            if _PERSON_LINK in (nxt["url"] or ""):
+                break                      # the next person already
+            key_n = _normalize(cand)
+            if key_n in _UI_CHROME or key_n in _NOT_A_TITLE:
+                continue
+            if len(cand) <= 2 and cand.isalpha():
+                continue                   # avatar initial
+            if _EMAIL_RE.search(cand) or len(re.sub(r"\D", "", cand)) >= 10:
+                break                      # into contact details, not a title
+            title = cand
+            break
+
+        people.append({
+            "first_name": first,
+            "last_name": last,
+            "title": title,
+            "seniority": seniority_from_title(title),
+            "linkedin_url": "",
+        })
+    return people
 
 
 # ------------------------------------------------------ Duplicate accounts

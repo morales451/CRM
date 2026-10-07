@@ -2193,6 +2193,94 @@ check("tabs off: a longer company URL still anchors",
           "%2Fcontact-tabs&titleText=Homepage&profileId=1000001)"]))
       == ("Glen Harlow", "President", "Harlow Enterprises"))
 
+# ---- 41. Pick a few people off a company's employee list
+_roster_text = (Path(__file__).resolve().parent / "fixtures"
+                / "zoominfo_employees.txt").read_text()
+_people = importer.parse_contact_roster(_roster_text)
+check("roster: every person on the page is found", len(_people) == 7, len(_people))
+check("roster: names, titles and levels come through",
+      _people[0] == {"first_name": "Glen", "last_name": "Harlow",
+                     "title": "President", "seniority": "C-Level",
+                     "linkedin_url": ""}, _people[0])
+check("roster: a middle initial isn't part of the surname",
+      any(p["first_name"] == "Gerald" and p["last_name"] == "Hayes"
+          for p in _people), _people)
+check("roster: commas in a title survive",
+      any(p["title"] == "Director, Leasing & Brokerage" for p in _people), _people)
+check("roster: company chrome and headings aren't people",
+      not any(p["last_name"] in ("Enterprises", "Executives") for p in _people))
+check("roster: nothing is returned for a page with no people",
+      importer.parse_contact_roster("Harlow Enterprises\nReal Estate") == [])
+check("roster: the same person listed twice appears once",
+      len(importer.parse_contact_roster(_roster_text + _roster_text)) == 7)
+
+_conn = db.get_db()
+_rid = _conn.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+    "pipeline_milestone, cadence_start, created_at, updated_at) VALUES "
+    "('Roster Test Holdings','Unknown','Prospecting','None / In Cadence',?,?,?)",
+    (db.today_iso(), db.now_iso(), db.now_iso())).lastrowid
+_conn.commit(); _conn.close()
+
+r = client.post(f"/accounts/{_rid}/contacts/roster",
+                data={"roster_paste": _roster_text}, follow_redirects=True)
+_html = r.data.decode()
+check("roster: the preview lists everyone without saving anything",
+      "7 people on this company" in _html and "Glen Harlow" in _html
+      and db.get_db().execute("SELECT COUNT(*) c FROM contacts WHERE account_id=?",
+                              (_rid,)).fetchone()["c"] == 0)
+check("roster: nothing is pre-selected", 'class="form-check-input rosterpick" name="pick"'
+      in _html.replace('\n', ' ') or 'rosterpick' in _html)
+check("roster: levels are shown so the ICP picks are obvious",
+      "C-Level" in _html and "Director" in _html and "VP-Level" in _html)
+
+# pick three of the seven, and make one of them primary
+def _row(i, person):
+    return {f"p{i}_{k}": person.get(k, "") for k in
+            ("first_name", "last_name", "title", "seniority", "email",
+             "work_phone", "mobile_phone", "linkedin_url")}
+_form = {"pick": ["2", "4", "5"], "primary": "2"}
+for _i, _p in enumerate(_people):
+    _form.update(_row(_i, _p))
+r = client.post(f"/accounts/{_rid}/contacts/roster/add", data=_form,
+                follow_redirects=True)
+_conn = db.get_db()
+_acct = _conn.execute("SELECT * FROM accounts WHERE id=?", (_rid,)).fetchone()
+_contacts = [dict(c) for c in _conn.execute(
+    "SELECT * FROM contacts WHERE account_id=?", (_rid,))]
+_conn.close()
+check("roster: only the ticked people are created", len(_contacts) + 1 == 3,
+      [(c["first_name"], c["last_name"]) for c in _contacts])
+check("roster: the one marked primary becomes the primary contact",
+      _acct["first_name"] == "Jason" and _acct["last_name"] == "Pratt"
+      and _acct["seniority"] == "C-Level", dict(_acct))
+check("roster: the others become contacts, titles intact",
+      {(c["first_name"], c["title"]) for c in _contacts}
+      == {("Danny", "Director, Asset Management"),
+          ("Gerald", "Director, Construction")}, _contacts)
+check("roster: people not ticked are not created",
+      not any(c["first_name"] == "Glen" for c in _contacts))
+
+# a second pass must not duplicate anybody
+r = client.post(f"/accounts/{_rid}/contacts/roster",
+                data={"roster_paste": _roster_text}, follow_redirects=True)
+check("roster: people already on the account are marked, not offered again",
+      b"already added" in r.data)
+r = client.post(f"/accounts/{_rid}/contacts/roster/add", data=_form,
+                follow_redirects=True)
+check("roster: re-adding the same people changes nothing",
+      b"already on this account" in r.data
+      and db.get_db().execute("SELECT COUNT(*) c FROM contacts WHERE account_id=?",
+                              (_rid,)).fetchone()["c"] == 2)
+r = client.post(f"/accounts/{_rid}/contacts/roster/add", data={},
+                follow_redirects=True)
+check("roster: adding with nothing ticked is a friendly no-op",
+      b"Tick at least one person" in r.data)
+r = client.post(f"/accounts/{_rid}/contacts/roster",
+                data={"roster_paste": "just some words"}, follow_redirects=True)
+check("roster: a paste with no people explains what to copy",
+      b"No people found" in r.data and b"Employees tab" in r.data)
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)
