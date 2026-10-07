@@ -309,12 +309,19 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" id="picknone">Clear</button>
           </span>
         </div>
-        <div class="small text-muted mb-2">Tick only the ones that fit — nothing is
-          selected to start with. Emails and phones aren't on the company page;
-          add them per person afterwards.</div>
+        <div class="small text-muted mb-2">
+          Tick only the ones that fit — nothing is selected to start with.
+          {% if roster_detailed %}
+          <strong>{{ roster_detailed }}</strong> of them came with contact details.
+          {% else %}
+          None of them came with contact details: expand those rows on the ZoomInfo
+          page (the ▾ on each person) <em>before</em> you copy, and their email and
+          phone numbers come through in the same paste.
+          {% endif %}
+        </div>
         <table class="table table-sm mb-2">
           <thead><tr><th style="width:2rem"></th><th>Name</th><th>Title</th>
-            <th style="width:5rem">Primary</th></tr></thead>
+            <th>Contact details</th><th style="width:5rem">Primary</th></tr></thead>
           <tbody>
           {% for person in roster %}
             {% set idx = loop.index0 %}
@@ -332,6 +339,15 @@
                 {% if person.already %}<span class="badge text-bg-light border">already added</span>{% endif %}
               </td>
               <td class="small">{{ person.title }}</td>
+              <td class="small">
+                {% if person.has_details %}
+                  {% if person.email %}<div>{{ person.email }}</div>{% endif %}
+                  {% if person.work_phone %}<div>{{ person.work_phone }} <span class="text-muted">work</span></div>{% endif %}
+                  {% if person.mobile_phone %}<div>{{ person.mobile_phone }} <span class="text-muted">mobile</span></div>{% endif %}
+                {% else %}
+                  <span class="text-muted">— row not expanded —</span>
+                {% endif %}
+              </td>
               <td>
                 {% if not person.already %}
                 <input type="radio" name="primary" value="{{ idx }}"

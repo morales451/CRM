@@ -746,6 +746,32 @@ def name_from_email(email: str) -> tuple[str, str]:
     return first_name, last.title()
 
 
+def _best_values(out: dict, emails: list, phones: list) -> None:
+    """Choose which of the addresses and numbers found actually go on the
+    contact. Tags decide it: a business address beats a personal one, and a
+    direct dial beats the company switchboard."""
+    if not out["email"] and emails:
+        out["email"] = next((e[0] for e in emails if e[1] == "work"), emails[0][0])
+    if not phones:
+        return
+    mobiles = [p[0] for p in phones if p[1] == "mobile"]
+    direct = [p[0] for p in phones if p[1] == "direct"]
+    work = [p[0] for p in phones if p[1] in ("work", "hq")]
+    untagged = [p[0] for p in phones if not p[1]]
+    work_order = direct + work + untagged
+    if not out["work_phone"] and work_order:
+        out["work_phone"] = work_order[0]
+    mobile_order = mobiles + [p for p in untagged if p != out["work_phone"]]
+    if not out["mobile_phone"] and mobile_order:
+        out["mobile_phone"] = mobile_order[0]
+
+
+def _tag_of(line: str) -> str:
+    """The type tag on a line of its own: "(M)", "[HQ]", "D"."""
+    return (_TYPE_TAGS.get(re.sub(r"[^a-z]", "", line.lower()))
+            if _TAG_ONLY_RE.match(line) else "") or ""
+
+
 def _expand_lines(raw_lines):
     """Turn pasted page text into records: {"text", "url", "bullet"}.
 
@@ -938,23 +964,7 @@ def parse_contact_blob(text: str) -> dict:
         last = None
 
 
-    # --- pick the best of each ------------------------------------------
-    if not out["email"] and emails:
-        # A business address beats a personal one.
-        out["email"] = next((e[0] for e in emails if e[1] == "work"), emails[0][0])
-
-    if phones:
-        mobiles = [p[0] for p in phones if p[1] == "mobile"]
-        direct = [p[0] for p in phones if p[1] == "direct"]
-        work = [p[0] for p in phones if p[1] in ("work", "hq")]
-        untagged = [p[0] for p in phones if not p[1]]
-        # A direct dial is worth more than the company switchboard.
-        work_order = direct + work + untagged
-        if not out["work_phone"] and work_order:
-            out["work_phone"] = work_order[0]
-        mobile_order = mobiles + [p for p in untagged if p != out["work_phone"]]
-        if not out["mobile_phone"] and mobile_order:
-            out["mobile_phone"] = mobile_order[0]
+    _best_values(out, emails, phones)
 
     # Unlabeled lines, in ZoomInfo's own order: name, then title, then company.
     #
@@ -1020,64 +1030,128 @@ _NOT_A_TITLE = {_normalize(t) for t in (
 )}
 
 
+def _person_block(records) -> dict:
+    """Read one person's rows off a company employee list.
+
+    A row shows the name and title, and — once that row is expanded — their
+    email and phone numbers too. Everything between one person's profile link
+    and the next belongs to that person, so expanding the few rows you care
+    about and copying the page once gets their details as well as their names.
+    """
+    out = {f: "" for f in PERSON_FIELDS}
+    emails, phones = [], []
+    last = None
+
+    for rec in records:
+        line, url = rec["text"].strip(), rec["url"] or ""
+        if not line:
+            continue
+        # The URL is worth looking at before the text is judged: the link
+        # labelled "LinkedIn" is on the not-a-title list, but its address is
+        # exactly what we want.
+        if "linkedin.com" in url.lower():
+            out["linkedin_url"] = out["linkedin_url"] or url
+            continue
+
+        key = _normalize(line)
+        if key in _UI_CHROME or key in _NOT_A_TITLE:
+            last = None
+            continue
+        if len(line) <= 2 and line.isalpha():
+            continue                               # avatar initial
+
+        tag = _tag_of(line)
+        if tag:
+            if last:
+                last[1] = last[1] or tag           # belongs to the line above
+            continue
+
+        inline = _INLINE_TAG_RE.search(line)
+        inline_tag = ""
+        if inline:
+            found = _TYPE_TAGS.get(re.sub(r"[^a-z]", "", inline.group(1).lower()))
+            if found:
+                inline_tag = found
+                line = line[:inline.start()].strip()
+
+        li = _LINKEDIN_RE.search(line)
+        if li:
+            out["linkedin_url"] = out["linkedin_url"] or li.group(0).rstrip(".,;")
+            line = _remainder(line.replace(li.group(0), ""))
+            if not line:
+                continue
+
+        em = _EMAIL_RE.search(line)
+        if em:
+            emails.append([em.group(0), inline_tag])
+            last = emails[-1]
+            continue
+
+        digits = re.sub(r"\D", "", line)
+        if len(digits) >= 10 and len(re.sub(r"[\d\s().+\-x/]", "", line)) <= 12:
+            low = line.lower()
+            phones.append([_clean_phone(line), inline_tag or (
+                "mobile" if ("mobile" in low or "cell" in low)
+                else "direct" if "direct" in low else "")])
+            last = phones[-1]
+            continue
+
+        if not out["title"]:
+            out["title"] = line                    # the line under the name
+        last = None
+
+    _best_values(out, emails, phones)
+    return out
+
+
 def parse_contact_roster(text: str) -> list[dict]:
-    """Every person on a pasted ZoomInfo company page, in one go.
+    """Everyone on a pasted ZoomInfo company page, in one go.
 
     The company's Employees tab lists the whole org — name, job title and
-    management level — without expanding anybody. Each person there is a link
-    to /profile/person/, which makes them unambiguous to pick out: the link
-    text is the name and the line under it is the job title.
+    management level — without opening anybody's profile. Each person there is
+    a link to /profile/person/, which makes them unambiguous to pick out, and
+    everything up to the next person's link belongs to them.
 
-    Contact details are NOT on that page (they sit behind each row's
-    expander), so this returns names, titles and inferred seniority. Use the
-    ZoomInfo export when emails and phones are needed too.
+    Contact details are collapsed on that page by default. **Expand the rows
+    you want before copying** and their email and phone numbers come through
+    in the same single paste — which is the whole point: pick four people,
+    expand four rows, copy once.
 
-    Returns [{first_name, last_name, title, seniority, linkedin_url}], in page
-    order, without repeats.
+    Returns a list in page order, without repeats, each with the contact
+    fields plus "has_details" saying whether anything beyond the title came
+    through for that person.
     """
     if not text or not text.strip():
         return []
     records = _expand_lines([l.strip() for l in text.replace("\r", "").split("\n")])
 
+    # Where each person starts, and where the roster itself ends.
+    starts = [i for i, rec in enumerate(records)
+              if _PERSON_LINK in (rec["url"] or "")
+              and rec["text"].strip() and _looks_like_name(rec["text"].strip())]
+    if not starts:
+        return []
+    end = len(records)
+    for i in range(starts[-1] + 1, len(records)):
+        rec = records[i]
+        if not rec["bullet"] and _normalize(rec["text"]) in _PAGE_STOP_MARKERS:
+            end = i
+            break
+
     people, seen = [], set()
-    for i, rec in enumerate(records):
-        if _PERSON_LINK not in (rec["url"] or ""):
-            continue
-        name = rec["text"].strip()
-        if not name or not _looks_like_name(name):
-            continue
-        first, last = _split_name(name)
-        key = (first.lower(), last.lower())
+    for n, i in enumerate(starts):
+        stop = starts[n + 1] if n + 1 < len(starts) else end
+        first, last_name = _split_name(records[i]["text"].strip())
+        key = (first.lower(), last_name.lower())
         if key in seen:
             continue
         seen.add(key)
-
-        # The job title is the next line that could plausibly be one — look a
-        # few rows ahead so an avatar initial or a button doesn't stop it.
-        title = ""
-        for nxt in records[i + 1:i + 5]:
-            cand = nxt["text"].strip()
-            if not cand:
-                continue
-            if _PERSON_LINK in (nxt["url"] or ""):
-                break                      # the next person already
-            key_n = _normalize(cand)
-            if key_n in _UI_CHROME or key_n in _NOT_A_TITLE:
-                continue
-            if len(cand) <= 2 and cand.isalpha():
-                continue                   # avatar initial
-            if _EMAIL_RE.search(cand) or len(re.sub(r"\D", "", cand)) >= 10:
-                break                      # into contact details, not a title
-            title = cand
-            break
-
-        people.append({
-            "first_name": first,
-            "last_name": last,
-            "title": title,
-            "seniority": seniority_from_title(title),
-            "linkedin_url": "",
-        })
+        person = _person_block(records[i + 1:stop])
+        person["first_name"], person["last_name"] = first, last_name
+        person["seniority"] = person["seniority"] or seniority_from_title(person["title"])
+        person["has_details"] = bool(person["email"] or person["work_phone"]
+                                     or person["mobile_phone"])
+        people.append(person)
     return people
 
 

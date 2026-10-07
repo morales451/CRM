@@ -2262,10 +2262,17 @@ def roster_contacts(account_id):
         person["already"] = (person["first_name"].lower(),
                              person["last_name"].lower()) in existing
     fresh = sum(1 for p in people if not p["already"])
-    flash(f"Found {len(people)} people"
-          + (f", {len(people) - fresh} already on this account" if fresh < len(people) else "")
-          + ". Tick the ones worth contacting and press Add Selected.", "info")
-    return _render_account_detail(account_id, roster=people)
+    detailed = sum(1 for p in people if p["has_details"])
+    msg = (f"Found {len(people)} people"
+           + (f", {len(people) - fresh} already on this account" if fresh < len(people) else "")
+           + ". Tick the ones worth contacting and press Add Selected.")
+    if not detailed:
+        msg += (" None of the rows were expanded, so no emails or phone numbers "
+                "came through — expand the few you want on ZoomInfo before "
+                "copying and they'll come with.")
+    flash(msg, "info" if detailed else "warning")
+    return _render_account_detail(account_id, roster=people,
+                                  roster_detailed=detailed)
 
 
 @app.route("/accounts/<int:account_id>/contacts/roster/add", methods=["POST"])
@@ -2278,7 +2285,7 @@ def roster_add(account_id):
     primary_pick = request.form.get("primary", "")
 
     conn = get_db()
-    added, skipped = [], 0
+    added, bare, skipped = [], [], 0
     try:
         acct = _account_or_404(conn, account_id)
         existing = {(r["first_name"].lower(), r["last_name"].lower())
@@ -2307,15 +2314,21 @@ def roster_add(account_id):
                     f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
                     f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
                     (account_id, *(person[c] for c in CONTACT_COLS), ts))
-            added.append(f"{person['first_name']} {person['last_name']}".strip())
+            who = f"{person['first_name']} {person['last_name']}".strip()
+            added.append(who)
+            if not (person["email"] or person["work_phone"] or person["mobile_phone"]):
+                bare.append(who)
         conn.commit()
     finally:
         conn.close()
     if added:
-        flash(f"Added {len(added)} contact(s): " + ", ".join(added) + "."
-              + (f" {skipped} were already on the account." if skipped else "")
-              + " Emails and phones aren't on the company page — add them from "
-                "each person's own ZoomInfo page.", "success")
+        msg = (f"Added {len(added)} contact(s): " + ", ".join(added) + "."
+               + (f" {skipped} were already on the account." if skipped else ""))
+        if bare:
+            msg += (f" {len(bare)} came with no email or phone "
+                    f"({', '.join(bare)}) — expand those rows on ZoomInfo and "
+                    f"paste again, or add the details by hand.")
+        flash(msg, "success")
     else:
         flash("Nothing added — those people are already on this account.", "warning")
     return redirect(url_for("account_detail", account_id=account_id))

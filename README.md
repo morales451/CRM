@@ -124,14 +124,16 @@ computer's firewall (Windows will usually prompt you the first time — choose
     mobile and which is the work line. Smaller selections, "Label: value"
     lists and spreadsheet rows work too; a paste with no contact in it is
     refused rather than guessed at.
-  - **Pick people off a company's employee list** — paste ZoomInfo's company
-    *Employees* tab (Ctrl+A, Ctrl+C) and press **Find people**. Everyone is
-    listed with their job title and management level, nothing pre-selected;
-    tick the few that fit, optionally mark one as primary, and press Add
-    Selected. *Tick decision-makers* selects every C-Level, VP-Level and
-    Director at once. People already on the account are greyed out. Contact
-    details aren't on that page, so this brings names, titles and levels —
-    use the ZoomInfo export when emails and phones are needed too.
+  - **Several people in one paste** — on ZoomInfo's company *Employees* tab,
+    expand the few rows you want (the ▾ on each person reveals their email and
+    phones inline), then Ctrl+A, Ctrl+C the page once and press **Find
+    people**. Everyone is listed with title, management level and — for the
+    rows you expanded — email, work phone and mobile. Nothing is pre-selected;
+    tick your three or four, optionally mark one primary, press Add Selected.
+    They're created complete without opening a single profile. *Tick
+    decision-makers* selects every C-Level, VP-Level and Director at once, a
+    direct dial beats the company switchboard, and people already on the
+    account are greyed out.
   - **Bulk upload** a ZoomInfo export on the Import page. People are matched
     to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings /
     Group and punctuation ignored; the first person on an empty account
@@ -255,4 +257,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-433 checks, about two seconds.
+449 checks, about two seconds.

@@ -2199,9 +2199,11 @@ _roster_text = (Path(__file__).resolve().parent / "fixtures"
 _people = importer.parse_contact_roster(_roster_text)
 check("roster: every person on the page is found", len(_people) == 7, len(_people))
 check("roster: names, titles and levels come through",
-      _people[0] == {"first_name": "Glen", "last_name": "Harlow",
-                     "title": "President", "seniority": "C-Level",
-                     "linkedin_url": ""}, _people[0])
+      _people[0]["first_name"] == "Glen" and _people[0]["last_name"] == "Harlow"
+      and _people[0]["title"] == "President"
+      and _people[0]["seniority"] == "C-Level", _people[0])
+check("roster: a collapsed row has no contact details to give",
+      all(not p["has_details"] for p in _people), _people)
 check("roster: a middle initial isn't part of the surname",
       any(p["first_name"] == "Gerald" and p["last_name"] == "Hayes"
           for p in _people), _people)
@@ -2280,6 +2282,83 @@ r = client.post(f"/accounts/{_rid}/contacts/roster",
                 data={"roster_paste": "just some words"}, follow_redirects=True)
 check("roster: a paste with no people explains what to copy",
       b"No people found" in r.data and b"Employees tab" in r.data)
+
+# ---- 42. Expand a few rows first and one paste carries their details
+_exp = (Path(__file__).resolve().parent / "fixtures"
+        / "zoominfo_employees_expanded.txt").read_text()
+_rows = importer.parse_contact_roster(_exp)
+_by = {f"{p['first_name']} {p['last_name']}": p for p in _rows}
+check("expanded: the whole roster still comes through", len(_rows) == 7, len(_rows))
+check("expanded: only the rows that were opened carry details",
+      sum(1 for p in _rows if p["has_details"]) == 3,
+      [(p["first_name"], p["has_details"]) for p in _rows])
+_f = _by["Jason Pratt"]
+check("expanded: email, phones and LinkedIn land on the right person",
+      _f["email"] == "jpratt@harlowenterprises.com"
+      and _f["mobile_phone"] == "(409) 555-0102"
+      and _f["linkedin_url"] == "https://www.linkedin.com/in/jasonpratt", _f)
+check("expanded: a direct dial beats the company switchboard",
+      _f["work_phone"] == "(281) 555-0142", _f)
+check("expanded: the HQ line is used when there's no direct",
+      _by["Danny Severs"]["work_phone"] == "(713) 555-0100", _by["Danny Severs"])
+check("expanded: details never leak onto the next person down",
+      not _by["Vivian Harlow"]["email"] and not _by["Vivian Harlow"]["work_phone"]
+      and not _by["Sean Ho"]["email"], (_by["Vivian Harlow"], _by["Sean Ho"]))
+check("expanded: details never leak onto the person above",
+      not _by["Brent Harlow"]["email"], _by["Brent Harlow"])
+check("expanded: the company's own address and headcount aren't a contact",
+      not any(p["last_name"] in ("Enterprises", "Estate") for p in _rows))
+check("expanded: trailing page sections aren't swept into the last person",
+      not _by["Sean Ho"]["title"].startswith("Employees")
+      and "Operations" not in str(_by["Sean Ho"]), _by["Sean Ho"])
+
+# end to end: pick three, their details are saved with them
+_conn = db.get_db()
+_eid = _conn.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+    "pipeline_milestone, cadence_start, created_at, updated_at) VALUES "
+    "('Expanded Roster Co','Unknown','Prospecting','None / In Cadence',?,?,?)",
+    (db.today_iso(), db.now_iso(), db.now_iso())).lastrowid
+_conn.commit(); _conn.close()
+r = client.post(f"/accounts/{_eid}/contacts/roster",
+                data={"roster_paste": _exp}, follow_redirects=True)
+check("expanded: the preview shows the details it found",
+      b"jpratt@harlowenterprises.com" in r.data
+      and b"row not expanded" in r.data)
+check("expanded: it says how many rows carried details",
+      b"came with contact details" in r.data)
+
+_form = {"pick": [], "primary": ""}
+for _i, _p in enumerate(_rows):
+    if _p["has_details"]:
+        _form["pick"].append(str(_i))
+    for _k in ("first_name", "last_name", "title", "seniority", "email",
+               "work_phone", "mobile_phone", "linkedin_url"):
+        _form[f"p{_i}_{_k}"] = _p.get(_k, "")
+_form["primary"] = _form["pick"][0]
+client.post(f"/accounts/{_eid}/contacts/roster/add", data=_form, follow_redirects=True)
+_conn = db.get_db()
+_a = _conn.execute("SELECT * FROM accounts WHERE id=?", (_eid,)).fetchone()
+_cs = [dict(c) for c in _conn.execute(
+    "SELECT * FROM contacts WHERE account_id=?", (_eid,))]
+_conn.close()
+check("expanded: the primary keeps every detail from the one paste",
+      _a["first_name"] == "Jason" and _a["email"] == "jpratt@harlowenterprises.com"
+      and _a["work_phone"] == "(281) 555-0142"
+      and _a["mobile_phone"] == "(409) 555-0102"
+      and _a["linkedin_url"] == "https://www.linkedin.com/in/jasonpratt", dict(_a))
+check("expanded: the other picks keep theirs too",
+      {(c["first_name"], c["email"]) for c in _cs}
+      == {("Danny", "dsevers@harlowenterprises.com"),
+          ("Gerald", "ghayes@harlowenterprises.com")}, _cs)
+check("expanded: three people, three sets of details, one paste",
+      len(_cs) + 1 == 3 and all(c["work_phone"] for c in _cs), _cs)
+
+# and the nudge when nothing was expanded
+r = client.post(f"/accounts/{_eid}/contacts/roster",
+                data={"roster_paste": _roster_text}, follow_redirects=True)
+check("expanded: a collapsed paste says to expand the rows first",
+      b"expand" in r.data.lower() and b"before copying" in r.data.lower())
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
