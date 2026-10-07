@@ -74,6 +74,16 @@ def _daily_backup():
             backup_db()
         except OSError:
             pass
+        # Undo records and trashed photos expire after a week. Doing this only
+        # at startup meant an app left running for a month never cleared them.
+        try:
+            conn = get_db()
+            try:
+                undo_module.purge(conn)
+            finally:
+                conn.close()
+        except Exception:
+            pass
 
 
 @app.template_filter("pref")
@@ -144,10 +154,21 @@ def handle_error(err):
     except OSError:
         pass
     app.logger.error("Unhandled error on %s\n%s", request.full_path, detail)
-    return render_template("error.html", error=err,
-                           error_type=type(err).__name__,
-                           detail=detail,
-                           log_path=str(db_module.ERROR_LOG)), 500
+    try:
+        return render_template("error.html", error=err,
+                               error_type=type(err).__name__,
+                               detail=detail,
+                               log_path=str(db_module.ERROR_LOG)), 500
+    except Exception:
+        # error.html extends base.html. If the fault is in the shared page
+        # chrome, rendering this page fails too — and Flask would fall back to
+        # the bare "Internal Server Error" this handler exists to replace.
+        # Plain text always works.
+        body = (f"Roof CRM hit an error on {request.path}\n\n"
+                f"{type(err).__name__}: {err}\n\n"
+                f"Your saved data is intact. Full details are in "
+                f"{db_module.ERROR_LOG}\n\n{detail}")
+        return body, 500, {"Content-Type": "text/plain; charset=utf-8"}
 
 
 # ---------------------------------------------------------------------- Undo
@@ -158,6 +179,11 @@ def handle_error(err):
 # being put back instead of a restore-from-backup.
 
 UNDO_SESSION_KEY = "undo_id"
+
+# How long the Undo bar keeps showing after an action. It used to stay until
+# the next undoable action, which meant "Just did: removal of Jane Doe" could
+# still be on screen days and dozens of unrelated actions later.
+UNDO_BAR_SECONDS = 15 * 60
 
 
 def _offer_undo(conn, label: str, ops: list[dict]) -> None:
@@ -172,7 +198,8 @@ def _offer_undo(conn, label: str, ops: list[dict]) -> None:
         # nothing: this runs on every page render, and opening a second
         # database connection here (while the page's own is still open) made
         # every click pay for a lock it didn't need.
-        session[UNDO_SESSION_KEY] = {"id": undo_id, "label": label}
+        session[UNDO_SESSION_KEY] = {"id": undo_id, "label": label,
+                                     "at": datetime.now().timestamp()}
 
 
 @app.context_processor
@@ -181,9 +208,13 @@ def inject_undo():
     record itself is re-checked (and may be refused as used or expired) when
     the button is actually pressed."""
     pending = session.get(UNDO_SESSION_KEY)
-    if isinstance(pending, dict) and pending.get("id"):
-        return {"pending_undo": pending}
-    return {"pending_undo": None}
+    if not (isinstance(pending, dict) and pending.get("id")):
+        return {"pending_undo": None}
+    age = datetime.now().timestamp() - float(pending.get("at") or 0)
+    if age > UNDO_BAR_SECONDS:
+        session.pop(UNDO_SESSION_KEY, None)
+        return {"pending_undo": None}
+    return {"pending_undo": pending}
 
 
 @app.route("/undo/<int:undo_id>", methods=["POST"])
@@ -1958,9 +1989,14 @@ def bulk_accounts():
                    else f"Cleared the follow-up on {n} account(s)."), "success")
 
         elif action == "restart_cadence":
+            # Restarting also wipes the checked-off steps, so the undo has to
+            # carry them too — otherwise it restores the dates but not them.
             _offer_undo(conn, f"restarting the cadence on {n} account(s)",
                         snapshot("cadence_start", "prospecting_status",
-                                 "pipeline_milestone"))
+                                 "pipeline_milestone")
+                        + [undo_module.insert_op("cadence_dismissals",
+                           undo_module.capture(conn, "cadence_dismissals",
+                                               f"account_id IN ({ph})", ids))])
             conn.execute(
                 f"UPDATE accounts SET cadence_start=?, prospecting_status=?, "
                 f"pipeline_milestone=?, updated_at=? WHERE id IN ({ph})",
@@ -1971,9 +2007,21 @@ def bulk_accounts():
             flash(f"Restarted the cadence on {n} account(s) from today.", "success")
 
         elif action == "delete":
-            # Only offered on the Archived view — you have to archive a
-            # company before you can erase it, which makes this hard to do
-            # by accident. Still undoable, photos included.
+            # A company has to be archived before it can be erased — enforced
+            # here, not just by which menu shows the option, so a stray form
+            # post can't wipe a live account. Still undoable, photos included.
+            rows = [r for r in rows if r["archived_at"]]
+            if not rows:
+                flash("Only archived accounts can be deleted permanently. "
+                      "Archive them first.", "warning")
+                return redirect(back)
+            refused = n - len(rows)
+            ids = [r["id"] for r in rows]
+            ph = ",".join("?" * len(ids))
+            n = len(ids)
+            if refused:
+                flash(f"{refused} account(s) weren't archived and were left alone.",
+                      "warning")
             ops = [undo_module.insert_op("accounts", [dict(r) for r in rows])]
             for table in ("contacts", "interactions", "cadence_dismissals",
                           "bids", "projects"):
@@ -2589,6 +2637,10 @@ def _backup_dir_setting():
         conn.close()
 
 
+# An unpaced import bigger than this gets a warning pointing at Re-Pace.
+UNPACED_WARNING = 30
+
+
 @app.route("/import", methods=["GET", "POST"])
 def import_page():
     result = None
@@ -2607,6 +2659,14 @@ def import_page():
                     msg += (f" Cadence starts staggered at {per_day}/business day "
                             f"through {result['last_start_date']}.")
                 flash(msg, "success")
+                if not per_day and result["imported"] > UNPACED_WARNING:
+                    # Unpaced, every account's Day 1 lands today and the rest
+                    # of its steps land together after it — this is how a
+                    # list turns into thousands of overdue tasks.
+                    flash(f"All {result['imported']} accounts start their cadence "
+                          f"today, so they'll all come due together. Use Re-Pace "
+                          f"Cadence below to spread them out — about a quarter of "
+                          f"the touches you can do in a day, e.g. 10.", "warning")
             except ValueError as e:
                 flash(str(e), "danger")
             except Exception as e:

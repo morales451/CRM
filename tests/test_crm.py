@@ -2400,7 +2400,8 @@ finally:
 check("error page: returns 500 with a readable page", r.status_code == 500)
 check("error page: names the actual error",
       "ValueError" in _html and "deliberately broken page" in _html, _html[:300])
-check("error page: says the data is safe", "Your data is safe" in _html)
+check("error page: says saved data is intact, without overpromising",
+      "Your saved data is intact" in _html and "check it went through" in _html)
 check("error page: offers a way back", "Dashboard" in _html and "Accounts" in _html)
 check("error page: the details can be copied", "Copy details" in _html)
 check("error page: the traceback is written to the log",
@@ -2476,6 +2477,123 @@ check("pile-up: the backlog is shown rather than hidden",
 _conn = db.get_db()
 _conn.execute("DELETE FROM accounts WHERE company_name LIKE 'Untouched Import%'")
 _conn.commit(); _conn.close()
+
+# ---- 45. Fixes from the review pass
+# Company matching: legal suffixes only, and dotted forms close up.
+check("review: descriptive words are part of the name, not suffixes",
+      importer.normalize_company("ABC Partners") != importer.normalize_company("ABC Holdings")
+      and importer.normalize_company("Moody Group") != importer.normalize_company("Moody Trust"))
+check("review: dotted suffixes match their plain form",
+      importer.normalize_company("Wilson, Cribbs & Goren, P.C.")
+      == importer.normalize_company("Wilson Cribbs & Goren")
+      and importer.normalize_company("Acme L.L.C.") == importer.normalize_company("Acme LLC"))
+check("review: no non-ASCII junk in the role-mailbox list",
+      all(w.isascii() for w in importer._ROLE_MAILBOXES))
+
+_c = db.get_db()
+_c.execute("INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+           "pipeline_milestone, cadence_start, created_at, updated_at) VALUES "
+           "('Westlake Realty LLC','Unknown','Prospecting','None / In Cadence',?,?,?)",
+           (db.today_iso(), db.now_iso(), db.now_iso()))
+_c.commit()
+_res = importer.import_accounts(_c, _sheet(
+    [["Westlake Realty, Inc.", "", "", "", 3, "", "", "", "", ""],
+     ["Westlake Realty Partners", "", "", "", 2, "", "", "", "", ""]], HDR))
+check("review: a match to a differently spelled account is listed, not silent",
+      ("Westlake Realty, Inc.", "Westlake Realty LLC") in _res.get("matched_names", []), _res)
+check("review: a genuinely different name is imported, not merged",
+      _res["imported"] == 1 and _c.execute(
+          "SELECT 1 FROM accounts WHERE company_name='Westlake Realty Partners'"
+      ).fetchone() is not None, _res)
+r = client.post("/import", data={"file": (io.BytesIO(b""), "")}, follow_redirects=True)
+
+# Undo of a cadence restart puts the checked-off steps back.
+_rid = _c.execute("SELECT id FROM accounts WHERE company_name='Westlake Realty LLC'"
+                  ).fetchone()["id"]
+_c.execute("INSERT INTO cadence_dismissals (account_id, step_type, dismissed_at) "
+           "VALUES (?,?,?)", (_rid, "Email 1", db.now_iso()))
+_c.commit()
+client.post("/accounts/bulk", data={"action": "restart_cadence",
+                                    "account_ids": [str(_rid)]})
+check("review: restarting the cadence clears checked-off steps",
+      _c.execute("SELECT COUNT(*) c FROM cadence_dismissals WHERE account_id=?",
+                 (_rid,)).fetchone()["c"] == 0)
+client.post("/undo/" + str(_c.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]))
+check("review: undoing the restart brings the checked-off steps back",
+      _c.execute("SELECT COUNT(*) c FROM cadence_dismissals WHERE account_id=?",
+                 (_rid,)).fetchone()["c"] == 1)
+
+# Archive-before-delete is enforced, not just implied by the menu.
+r = client.post("/accounts/bulk", data={"action": "delete",
+                                        "account_ids": [str(_rid)]},
+                follow_redirects=True)
+check("review: an active account cannot be bulk-deleted",
+      _c.execute("SELECT 1 FROM accounts WHERE id=?", (_rid,)).fetchone() is not None
+      and b"Only archived accounts" in r.data)
+_c.execute("UPDATE accounts SET archived_at=? WHERE id=?", (db.now_iso(), _rid))
+_c.commit()
+client.post("/accounts/bulk", data={"action": "delete", "account_ids": [str(_rid)]})
+check("review: an archived one still can",
+      _c.execute("SELECT 1 FROM accounts WHERE id=?", (_rid,)).fetchone() is None)
+
+# Undo replays only real column names.
+import json as _json, undo as _undo
+_c.execute("INSERT INTO undo_log (label, payload, created_at) VALUES (?,?,?)",
+           ("tampered", _json.dumps({"ops": [{"op": "update", "table": "accounts",
+            "rows": [{"id": 1, "company_name = 'x', notes": "y"}]}]}), db.now_iso()))
+_c.commit()
+_bad = _c.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]
+check("review: a tampered undo record can't smuggle SQL in a column name",
+      _raises(lambda: _undo.restore(_c, _bad)))
+_c.rollback()
+
+# The Undo bar is offered right after the action, not for days.
+with client.session_transaction() as _s:
+    _s["undo_id"] = {"id": 1, "label": "an old thing",
+                     "at": datetime.now().timestamp() - 3600}
+check("review: an hour-old Undo bar is no longer shown",
+      b"an old thing" not in client.get("/").data)
+with client.session_transaction() as _s:
+    _s["undo_id"] = {"id": 1, "label": "a fresh thing",
+                     "at": datetime.now().timestamp()}
+check("review: a fresh one is", b"a fresh thing" in client.get("/").data)
+with client.session_transaction() as _s:
+    _s.pop("undo_id", None)
+
+# Large unpaced imports warn instead of silently stacking up.
+_big = _sheet([[f"Unpaced Co {i}", "", "", "", 1, "", "", "", "", ""]
+               for i in range(35)], HDR)
+r = client.post("/import", data={"file": (io.BytesIO(_big.getvalue()), "big.xlsx")},
+                content_type="multipart/form-data", follow_redirects=True)
+check("review: a big unpaced import warns and points at Re-Pace",
+      b"start their cadence today" in r.data and b"Re-Pace" in r.data)
+check("review: the Re-Pace form explains how to pick the number",
+      b"divided by" in client.get("/import").data)
+_c.execute("DELETE FROM accounts WHERE company_name LIKE 'Unpaced Co%' "
+           "OR company_name LIKE 'Westlake%'")
+_c.commit(); _c.close()
+
+# The error page survives a fault in the shared page chrome.
+_real_undo_cp = _app_mod.inject_undo
+def _broken_chrome():
+    raise RuntimeError("the page chrome itself is broken")
+_app_mod.app.template_context_processors[None].remove(_real_undo_cp)
+_app_mod.app.template_context_processors[None].append(_broken_chrome)
+_app_mod.app.logger.setLevel(_logging.CRITICAL)
+_prev_log2 = db.ERROR_LOG
+db.ERROR_LOG = Path(tempfile.mkdtemp(prefix="crm_err2_")) / "error.log"
+try:
+    r = client.get("/")
+finally:
+    _app_mod.app.template_context_processors[None].remove(_broken_chrome)
+    _app_mod.app.template_context_processors[None].append(_real_undo_cp)
+    db.ERROR_LOG = _prev_log2
+    _app_mod.app.logger.setLevel(_logging.NOTSET)
+check("review: a broken page chrome still produces a readable error",
+      r.status_code == 500 and b"page chrome itself is broken" in r.data
+      and b"Internal Server Error" not in r.data, r.data[:200])
+check("review: the app recovers once the chrome is fixed",
+      client.get("/").status_code == 200)
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

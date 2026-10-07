@@ -10,7 +10,8 @@
     <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
     <div class="input-group input-group-sm" style="max-width: 260px;">
       <span class="input-group-text">Start</span>
-      <input type="number" name="per_day" min="1" class="form-control" placeholder="all at once">
+      <input type="number" name="per_day" min="1" class="form-control" placeholder="all at once"
+             title="Leave empty to start every account today. For a big list, use about a quarter of the touches you can do in a day.">
       <span class="input-group-text">/business day</span>
     </div>
     <button class="btn btn-primary">Upload & Import</button>
@@ -61,15 +62,31 @@
     This re-staggers the cadence start dates of all <strong>untouched</strong> in-cadence accounts
     (no interactions logged, no steps checked off) at N per business day starting tomorrow.
     Accounts you've already contacted keep their dates.</p>
+  <p class="small mb-2"><strong>Pick N from the number of touches you can do in a day, divided by
+    four.</strong> Each account brings five touches over ten days, so new starts stack up: at
+    25 a day you'd settle at around 100 tasks a day, more on Mondays. If you can manage 40 a
+    day, start 10.</p>
   <form method="post" action="{{ url_for('repace') }}" class="d-flex gap-2 flex-wrap align-items-center"
         onsubmit="return confirm('Re-stagger cadence start dates for all untouched in-cadence accounts?')">
     <div class="input-group input-group-sm" style="max-width: 260px;">
       <span class="input-group-text">Start</span>
-      <input type="number" name="per_day" min="1" class="form-control" placeholder="e.g. 25" required>
+      <input type="number" name="per_day" min="1" class="form-control" placeholder="e.g. 10" required
+             id="repace-n">
       <span class="input-group-text">/business day</span>
     </div>
     <button class="btn btn-outline-primary btn-sm">Re-Pace</button>
+    <span class="small text-muted" id="repace-hint"></span>
   </form>
+  <script>
+  (function () {
+    const n = document.getElementById('repace-n');
+    const hint = document.getElementById('repace-hint');
+    n.addEventListener('input', () => {
+      const v = parseInt(n.value, 10);
+      hint.textContent = v > 0 ? '≈ ' + (v * 4) + ' tasks a day once it settles' : '';
+    });
+  })();
+  </script>
 </div>
 
 <div class="card p-3 mb-3">
@@ -144,6 +161,21 @@
     <li><strong>{{ result.imported }}</strong> account(s) imported</li>
     {% if result.backfilled %}<li><strong>{{ result.backfilled }}</strong> existing account(s) backfilled with property counts</li>{% endif %}
     <li>{{ result.skipped_duplicates }} skipped (company already exists)</li>
+    {% if result.matched_names %}
+    <li>
+      <details>
+        <summary>{{ result.matched_names|length }} matched to an account spelled differently — check these</summary>
+        <ul class="small mb-0">
+          {% for row_name, known in result.matched_names %}
+          <li>“{{ row_name }}” → counted as your existing “{{ known }}”</li>
+          {% endfor %}
+        </ul>
+        <div class="small text-muted">Legal suffixes (LLC, Inc, LP, Corp, P.C.) and
+          punctuation are ignored when matching. If one of these is really a
+          different company, add it by hand from + Add.</div>
+      </details>
+    </li>
+    {% endif %}
     {% if result.skipped_archived %}
     <li><strong>{{ result.skipped_archived }}</strong> skipped because you archived them
       <span class="text-muted">(they stay off your list)</span>

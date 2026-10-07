@@ -96,9 +96,9 @@ computer's firewall (Windows will usually prompt you the first time — choose
 - **Bulk actions** — tick any number of accounts (or the whole filtered
   list) and set a status or milestone, set/clear a follow-up, restart the
   cadence, or archive them in one click. Restore and permanent delete on
-  the Archived view. Every bulk action is undoable.
+  the Archived view — only archived accounts can be deleted. Every bulk action is undoable.
 - **Undo** — deletes and bulk changes put an ↶ Undo bar at the top of the
-  page. Undoing an account delete brings back its contacts, history, bids,
+  page for 15 minutes. Undoing an account delete brings back its contacts, history, bids,
   projects, invoices **and photo files** (deleted photos wait in a trash
   folder for 7 days). Logged interactions can also be edited — type, notes
   and date — or deleted; correcting a date corrects the cadence with it.
@@ -135,8 +135,8 @@ computer's firewall (Windows will usually prompt you the first time — choose
     direct dial beats the company switchboard, and people already on the
     account are greyed out.
   - **Bulk upload** a ZoomInfo export on the Import page. People are matched
-    to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings /
-    Group and punctuation ignored; the first person on an empty account
+    to accounts by company name with legal suffixes (LLC, Inc, LP, Corp, P.C.)
+    and punctuation ignored; the first person on an empty account
     becomes its primary contact and duplicates are skipped. Tick *"Open a new
     account for any company I don't have yet"* and unmatched companies become
     new prospects instead of a list of misses.
@@ -180,7 +180,8 @@ computer's firewall (Windows will usually prompt you the first time — choose
   Import page.
   Imported accounts default to **Prospecting / None / In Cadence** and enter
   the cadence immediately — or use the **pacing option** to stagger starts
-  (e.g. 25 accounts per business day) so a big list becomes a steady daily
+  (about a quarter of your daily touch capacity, e.g. 10 a business day — each
+  account brings five touches over ten days, so starts stack up) so a big list becomes a steady daily
   routine instead of hundreds of Day-1 tasks at once. Forgot to pace? The
   **Re-Pace Cadence** tool on the Import page re-staggers all untouched
   in-cadence accounts after the fact.
@@ -235,7 +236,7 @@ Rules:
   current step brings the next one forward.
 - Importing a big list without pacing puts every account on the same clock,
   so they all come due together. Use **Re-Pace Cadence** on the Import page
-  to stagger untouched accounts (e.g. 25 per business day) — it never moves
+  to stagger untouched accounts — pick about a quarter of the touches you can do in a day — each account brings five touches over ten days, so at 10 a day you settle around 40 tasks a day. It never moves
   anyone you have already contacted.
 - "Restart Cadence" on an account's detail page resets the clock to today —
   useful for re-engaging a cold prospect.
@@ -272,4 +273,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-471 checks, about two seconds.
+487 checks, about two seconds.

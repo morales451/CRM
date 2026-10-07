@@ -195,18 +195,22 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
     # Matched on the NORMALIZED name so "Boxer Property Corp" and
     # "Boxer Property, Corp." are the same company — otherwise a re-pull from
     # CoStar silently creates duplicates and un-archives companies you removed.
-    existing, archived = {}, {}
+    existing, archived, existing_names = {}, {}, {}
     for row in conn.execute(
             "SELECT id, company_name, COALESCE(archived_at, '') AS archived_at "
             "FROM accounts"):
         key = normalize_company(row["company_name"])
         existing.setdefault(key, row["id"])
+        existing_names.setdefault(key, row["company_name"])
         if row["archived_at"]:
             archived.setdefault(key, row["company_name"])
 
     imported = skipped_dupe = skipped_blank = backfilled = 0
     skipped_archived = 0
     archived_names = []
+    # Rows matched to an account spelled differently — listed back so a match
+    # is never silent and a wrong one can be spotted.
+    matched_names: list[tuple[str, str]] = []
     ts = now_iso()
     start_date = _next_business_day(date.today()) if per_day else date.today()
     start = start_date.isoformat()
@@ -231,6 +235,10 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             # Duplicate: don't re-import, but fill in property counts the
             # account doesn't have yet (lets a re-upload backfill new columns).
             acct_id = existing[key]
+            known = existing_names.get(key, "")
+            if (known and known.strip().lower() != company.strip().lower()
+                    and len(matched_names) < 50):
+                matched_names.append((company, known))
             updated = conn.execute(
                 """UPDATE accounts SET
                      num_properties = COALESCE(num_properties, ?),
@@ -286,6 +294,7 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
              "Prospecting", "None / In Cadence", start, ts, ts),
         )
         existing[key] = cur.lastrowid
+        existing_names.setdefault(key, company)
         imported += 1
         if per_day and imported % per_day == 0:
             start_date = _next_business_day(start_date + timedelta(days=1))
@@ -297,6 +306,7 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
         "backfilled": backfilled,
         "skipped_archived": skipped_archived,
         "archived_names": archived_names,
+        "matched_names": matched_names,
         "skipped_duplicates": skipped_dupe,
         "skipped_blank": skipped_blank,
         "total_rows": len(df),
@@ -312,17 +322,21 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
 
 _FILLER_WORDS = {"the", "a", "an", "of", "and"}
 
-_LEGAL_SUFFIXES = (r"\b(llc|llp|lp|inc|incorporated|corp|corporation|co|company"
-                   r"|ltd|limited|lllp|plc|pllc|trust|reit|partners|partnership"
-                   r"|holdings|group)\b")
+# Legal-entity suffixes ONLY. Descriptive words like Partners, Holdings, Group,
+# Trust and REIT are part of a company's name — stripping them made "ABC
+# Partners" and "ABC Holdings" the same company, and on import the second one
+# was silently skipped as a duplicate. A missed duplicate shows up on the
+# Import page's duplicates list; a false merge just quietly loses an account.
+_LEGAL_SUFFIXES = (r"\b(llc|llp|lllp|lp|inc|incorporated|corp|corporation|co"
+                   r"|company|ltd|limited|plc|pllc|pc)\b")
 
 
 def normalize_company(name: str) -> str:
     """The key two spellings of the same company have in common.
 
-    Lowercases, drops punctuation and strips common legal/entity suffixes, so
+    Lowercases, drops punctuation and strips legal-entity suffixes, so
     "Hartman Income REIT, Inc.", "Hartman Income Reit Inc" and "HARTMAN
-    INCOME REIT LP" all collapse to "hartman income".
+    INCOME REIT LP" all collapse to "hartman income reit".
 
     Used for EVERY company match in the app — account import duplicates, the
     archived-account block list, and attaching ZoomInfo contacts — so a
@@ -333,7 +347,12 @@ def normalize_company(name: str) -> str:
     nothing distinctive — "The Group" and "The Trust" must not collapse into
     each other just because "group" and "trust" are entity words.
     """
-    base = re.sub(r"[^a-z0-9 ]", " ", str(name).lower())
+    # Periods go first so dotted abbreviations close up — "P.C." and
+    # "L.L.C." must become "pc" and "llc", not "p c" and "l l c", or the
+    # suffix list never sees them. Other punctuation becomes a space, so
+    # "Smith,Jones" stays two words.
+    base = str(name).lower().replace(".", "")
+    base = re.sub(r"[^a-z0-9 ]", " ", base)
     base = re.sub(r"\s+", " ", base).strip()
     stripped = re.sub(r"\s+", " ", re.sub(_LEGAL_SUFFIXES, "", base)).strip()
     # Nothing but filler left ("The Group" -> "the") means the entity word WAS
@@ -711,7 +730,7 @@ _ROLE_MAILBOXES = {
     "info", "sales", "admin", "administration", "contact", "contactus",
     "office", "leasing", "support", "hello", "team", "accounting",
     "accountspayable", "accountsreceivable", "ap", "ar", "billing", "hr",
-    "careers", "jobs", "noreply", "nореply", "donotreply", "help", "service",
+    "careers", "jobs", "noreply", "donotreply", "help", "service",
     "services", "main", "mail", "enquiries", "inquiries", "general",
     "maintenance", "property", "management", "operations", "reception",
 }
@@ -883,7 +902,7 @@ def parse_contact_blob(text: str) -> dict:
             continue                   # somebody else's profile
         if len(line) <= 2 and line.isalpha():
             continue                   # avatar initials ("A", "AM")
-        if _EMAIL_RE.search(line) or re.sub(r"\D", "", line)[:10].__len__() >= 10:
+        if _EMAIL_RE.search(line) or len(re.sub(r"\D", "", line)) >= 10:
             seen_detail = True
         lines.append(line)
 

@@ -104,7 +104,7 @@ while you're typing in a box.</p>
 <h2 id="import">5. Importing lists (CoStar etc.)</h2>
 <ul>
   <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
-  <li><strong>Pacing:</strong> set "Start N /business day" (e.g. 25) so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
+  <li><strong>Pacing:</strong> set "Start N /business day" — about a quarter of the touches you can do in a day — each account brings five touches over ten days, so at 10 a day you settle around 40 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
   <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, missing property counts are backfilled onto existing accounts, and anything you <a href="#archive">archived</a> stays out.</li>
   <li>Imported accounts capture address/city/zip/website into Notes, the criteria-matching property count (🎯), and total properties owned. Defaults: Prospecting / None-In Cadence → straight into the cadence.</li>
 </ul>
@@ -142,7 +142,7 @@ future import <em>can</em> add that company again.</div>
 
 <h2 id="bulk">6c. Bulk actions &amp; search</h2>
 <ul>
-  <li><strong>Tick and apply.</strong> Every row on the Accounts page has a checkbox, and the header box selects the whole filtered list. Once anything is ticked an action bar appears: set Prospecting Status, set Pipeline Milestone, set or clear a follow-up date, restart the cadence from today, or archive — all in one click. On the Archived view the actions become Restore and Delete permanently.</li>
+  <li><strong>Tick and apply.</strong> Every row on the Accounts page has a checkbox, and the header box selects the whole filtered list. Once anything is ticked an action bar appears: set Prospecting Status, set Pipeline Milestone, set or clear a follow-up date, restart the cadence from today, or archive — all in one click. On the Archived view the actions become Restore and Delete permanently — and only archived accounts can be deleted, so a live account can't be erased by mistake.</li>
   <li>Every bulk action is <strong>undoable</strong> — see section 14b.</li>
   <li><strong>Search looks everywhere.</strong> The search box matches the company name, the primary contact, <em>every other contact on the account</em>, job titles, management level, the notes, and phone numbers typed in any format (search 5557777 and it finds “(713) 555-7777”). When a row matched because of someone in its contact list, the list says which person.</li>
 </ul>
@@ -156,7 +156,7 @@ future import <em>can</em> add that company again.</div>
     "+N more steps behind".</li>
   <li><strong>If everything is due at once</strong>, it's because a big import put
     every account on the same clock. <strong>Re-Pace Cadence</strong> on the Import
-    page re-staggers the untouched ones (say 25 a business day) and never moves an
+    page re-staggers the untouched ones — pick about a quarter of the touches you can do in a day — each account brings five touches over ten days, so at 10 a day you settle around 40 tasks a day — and never moves an
     account you've already contacted.</li>
 </ul>
 <table class="table table-sm w-auto">
@@ -243,7 +243,7 @@ future import <em>can</em> add that company again.</div>
         direct dial becomes their work phone.</li>
     </ul>
   </li>
-  <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name with LLC / Inc / LP / Corp / REIT / Holdings / Group and punctuation ignored, so “Hartman Income REIT, Inc.” finds your “Hartman Income REIT LP”. First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped.</li>
+  <li><strong>Bulk import:</strong> upload a ZoomInfo contact export on the Import page. People are matched to accounts by company name with legal suffixes (LLC, Inc, LP, Corp, P.C.) and punctuation ignored, so “Hartman Income REIT, Inc.” finds your “Hartman Income REIT LP”. Words like Partners, Holdings and Group count as part of the name, so “ABC Partners” and “ABC Holdings” stay separate. First person on an empty account becomes primary — their direct dial replaces the company main line, which is preserved in Notes. Duplicates skipped.</li>
   <li><strong>Companies you don't have yet:</strong> tick <em>“Open a new account for any company I don't have yet”</em> on the upload and those rows become new prospecting accounts instead of being listed back as unmatched. Archived companies are never re-created.</li>
   <li><strong>Columns read automatically</strong> from a stock ZoomInfo export: Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number, Mobile phone, LinkedIn Contact Profile URL and Management Level. The import summary lists exactly which column it read for each field.</li>
   <li>LinkedIn URLs become a clickable link on the contact; Management Level shows as a badge (C-Level, VP-Level, Director, Manager) and is guessed from the job title when the file doesn't have it. Both are searchable and both go into the Excel export.</li>
@@ -298,10 +298,10 @@ future import <em>can</em> add that company again.</div>
 
 <h2 id="undo">14b. Undo &amp; fixing mistakes</h2>
 <ul>
-  <li><strong>Undo bar.</strong> Delete an account, contact, roof report, photo, project, task or invoice — or apply any bulk action — and a bar appears at the top of the page saying what just happened, with an <em>↶ Undo</em> button. Undo puts everything back: the account <em>and</em> its contacts, history, bids, projects, invoices and photo files. It works until you do the next undoable thing, and each record can only be replayed once.</li>
+  <li><strong>Undo bar.</strong> Delete an account, contact, roof report, photo, project, task or invoice — or apply any bulk action — and a bar appears at the top of the page saying what just happened, with an <em>↶ Undo</em> button. Undo puts everything back: the account <em>and</em> its contacts, history, bids, projects, invoices and photo files. The bar shows for 15 minutes after the action, and each record can only be replayed once.</li>
   <li>Deleted bid photos wait in a trash folder for 7 days so an undo can restore the images themselves, not just their database rows. After that they're cleared automatically on startup.</li>
   <li><strong>Fixing a logged interaction.</strong> On the account timeline, the ✎ next to any entry opens an editor: change the type, the notes, or the <strong>date</strong>, or delete the entry. The date matters — reminders are worked out from what's logged, so correcting the date corrects the cadence. Deleting a logged cadence step brings its reminder back.</li>
-  <li><strong>Duplicate accounts.</strong> Imports now treat “Boxer Property Corp” and “Boxer Property, Corp.” as the same company, so a re-pull from CoStar can't create a second account or un-archive one you removed. Any duplicates created before that are listed at the bottom of the Import page with links to each — move anything worth keeping onto the one you want and archive the other.</li>
+  <li><strong>Duplicate accounts.</strong> Imports now treat “Boxer Property Corp” and “Boxer Property, Corp.” as the same company, so a re-pull from CoStar can't create a second account or un-archive one you removed. Whenever an import row is matched to an account spelled differently, the summary lists the pair so you can check it. Any duplicates created before that are listed at the bottom of the Import page with links to each — move anything worth keeping onto the one you want and archive the other.</li>
 </ul>
 
 <h2 id="backup">15. Data safety</h2>

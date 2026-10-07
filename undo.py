@@ -97,6 +97,21 @@ def _expired(created_at: str) -> bool:
     return age > timedelta(days=db_module.UNDO_RETENTION_DAYS)
 
 
+def _columns(conn, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _checked(conn, table: str, cols) -> list[str]:
+    """Column names from a payload, refused unless the table really has them.
+    The allow-list above covers table names; this covers the column names,
+    which are interpolated into the SQL as well."""
+    real = _columns(conn, table)
+    bad = [c for c in cols if c not in real]
+    if bad:
+        raise ValueError(f"not a column of {table}: {', '.join(map(repr, bad))}")
+    return list(cols)
+
+
 def restore(conn, undo_id) -> str | None:
     """Replay an undo record. Returns its label on success, None if the
     record is missing, already used, or expired."""
@@ -115,14 +130,14 @@ def restore(conn, undo_id) -> str | None:
             raise ValueError(f"table not allowed in undo: {table}")
         if op["op"] == "insert":
             for data in op["rows"]:
-                cols = list(data)
+                cols = _checked(conn, table, data)
                 conn.execute(
                     f"INSERT OR REPLACE INTO {table} ({','.join(cols)}) "
                     f"VALUES ({','.join('?' * len(cols))})",
                     [data[c] for c in cols])
         elif op["op"] == "update":
             for data in op["rows"]:
-                cols = [c for c in data if c != "id"]
+                cols = _checked(conn, table, [c for c in data if c != "id"])
                 if not cols:
                     continue
                 conn.execute(
