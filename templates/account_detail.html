@@ -1,65 +1,216 @@
 {% extends "base.html" %}
 {% block title %}{{ account.company_name }} — Roof CRM{% endblock %}
 {% block content %}
+<style>
+  .acct-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+  .nextup { border: 2px solid var(--brand); }
+  .nextup .what { font-size: 1.2rem; font-weight: 700; }
+  .nextup .btn { min-height: 44px; font-weight: 600; }
+  .outcome-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .4rem; }
+  .outcome-grid .btn { min-height: 48px; line-height: 1.15; display: flex; flex-direction: column;
+                       justify-content: center; }
+  .outcome-grid .effect { font-size: .72rem; font-weight: 400; opacity: .85; }
+  .ttype-email { background: #e7f0fe; color: #0a3d91; }
+  .ttype-call { background: #e3f4e8; color: #0d5a2b; }
+  .ttype-door { background: #fff1d6; color: #6b4300; }
+  .ttype-note { background: #eceff3; color: #3d434b; }
+  .info-dl dt { font-weight: 600; font-size: .8rem; color: var(--bs-secondary-color); margin: 0; }
+  .info-dl dd { margin: 0 0 .5rem; }
+  .acct-bar { display: none; }
+  @media (max-width: 767.98px) {
+    .acct { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+    .acct h1 { font-size: 1.6rem; }
+    .acct .btn-sm:not(summary), .acct .acct-actions .btn { min-height: 44px; display: inline-flex; align-items: center; }
+    .acct summary.btn { padding-top: .6rem; padding-bottom: .6rem; }
+    .acct .form-control, .acct .form-select { font-size: 16px; }
+    .acct .dropdown-item { padding-top: .7rem; padding-bottom: .7rem; }
+    .acct-desk-only { display: none !important; }
+    .acct-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
+                padding: .6rem .75rem calc(.6rem + env(safe-area-inset-bottom));
+                background: #fff; border-top: 1px solid #d5dbe3; box-shadow: 0 -4px 16px rgba(26,26,46,.08); }
+    .acct-bar > * { flex: 1 1 0; }
+    .acct-bar .btn { width: 100%; min-height: 56px; font-size: 1.1rem; font-weight: 700;
+                     display: flex; align-items: center; justify-content: center; }
+  }
+  @media (min-width: 768px) { .acct-phone-only { display: none !important; } }
+</style>
+{% set phone = account.mobile_phone or account.work_phone %}
+{% set in_research = in_cadence and not (account.cadence_start or '').strip() %}
+{% set maplink = map_link(account) %}
+<div class="acct">
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
   <div>
     <h1 class="mb-1">{{ account.company_name }}</h1>
     {% if account.archived_at %}
     <div class="alert alert-warning py-2 px-3 mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <span>🗄 <strong>Archived</strong> {{ account.archived_at|dt }}{% if account.archive_reason %} — {{ account.archive_reason }}{% endif %}.
+      <span>🗄 <strong>Archived</strong> {{ account.archived_at|dt }}{% if account.archive_reason %}: {{ account.archive_reason }}{% endif %}.
         Hidden from your lists and skipped by imports.</span>
       <form method="post" action="{{ url_for('restore_account', account_id=account.id) }}">
         <button class="btn btn-sm btn-success">↩ Restore</button>
       </form>
     </div>
     {% endif %}
-    <div class="text-muted small">
-      Created {{ account.created_at|dt }}
-      {% if in_cadence %}<span class="badge text-bg-primary ms-1">In Cadence</span>{% endif %}
-      {% if account.matching_properties %}<span class="badge text-bg-warning ms-1">🎯 {{ account.matching_properties }} matching propert{{ 'y' if account.matching_properties == 1 else 'ies' }}</span>{% endif %}
-      {% if account.num_properties %}<span class="badge text-bg-light border ms-1">{{ account.num_properties }} total</span>{% endif %}
-      {% if visits %}<span class="badge text-bg-success ms-1" title="{{ visits|length }} door knock{{ 's' if visits|length != 1 }}">🚪 Visited {{ visits[0].created_at|d }}{% if visits[0].outcome %} · {{ visits[0].outcome }}{% endif %}</span>
-      {% else %}<span class="badge text-bg-light border ms-1" title="No door knock logged yet">🚪 Never visited</span>{% endif %}
-      {% if account.website %}· <a href="{{ account.website if '://' in account.website else 'https://' + account.website }}" target="_blank" rel="noopener">{{ account.website|replace('https://', '')|replace('http://', '') }}</a>{% endif %}
+    <div class="small text-body-secondary d-flex flex-wrap gap-1 align-items-center">
+      {% if in_research %}<span class="badge text-bg-info">Research</span>
+      {% elif in_cadence %}<span class="badge text-bg-primary">In cadence</span>
+      {% else %}<span class="badge text-bg-secondary">{{ account.prospecting_status }}{% if account.pipeline_milestone != 'None / In Cadence' %} · {{ account.pipeline_milestone }}{% endif %}</span>{% endif %}
+      {% if account.matching_properties %}<span class="badge text-bg-warning">{{ account.matching_properties }} matching building{{ 's' if account.matching_properties != 1 }}</span>{% endif %}
+      {% if account.num_properties %}<span class="badge text-bg-light border">{{ account.num_properties }} owned</span>{% endif %}
+      {% if visits %}<span class="badge {{ 'text-bg-success' if visits[0].outcome in ('Met decision-maker', 'Meeting booked') else 'text-bg-light border' }}"
+            title="{{ visits|length }} door knock{{ 's' if visits|length != 1 }}">🚪 Visited {{ visits[0].created_at|d }}{% if visits[0].outcome %} · {{ visits[0].outcome }}{% endif %}</span>
+      {% else %}<span class="badge text-bg-light border">🚪 Never visited</span>{% endif %}
+      <span class="ms-1">Last touch {{ last_touch|d if last_touch else 'never' }}</span>
+      {% if account.website %}<span class="ms-1"><a href="{{ account.website if '://' in account.website else 'https://' + account.website }}" target="_blank" rel="noopener">{{ account.website|replace('https://', '')|replace('http://', '') }}</a></span>{% endif %}
     </div>
   </div>
-  <div class="text-nowrap">
-    {% set phone = account.mobile_phone or account.work_phone %}
+  <div class="acct-actions">
     {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>
-    <a {{ text_to(phone) }} class="btn btn-sm btn-info">💬 Text</a>{% endif %}
-    {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary">✉️ Email</a>
-    {% else %}<span class="btn btn-sm btn-outline-secondary disabled" title="Add an email in Account Info below">✉️ No email on file</span>{% endif %}
-    <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-warning" title="Personalized call & email scripts">📄 Scripts</a>
-    {% set maplink = map_link(account) %}
-    {% if maplink %}<a {{ maplink }} class="btn btn-sm btn-outline-secondary" title="{{ account_address(account) }}">📍 Map</a>{% endif %}
+    <a {{ text_to(phone) }} class="btn btn-sm btn-outline-success">💬 Text</a>{% endif %}
     <div class="btn-group">
-      <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle" data-bs-toggle="dropdown"
-              data-bs-popper-config='{"strategy":"fixed"}' title="Log a visit to their office">🚪 Door knock</button>
+      <button type="button" class="btn btn-sm btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown"
+              data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">🚪 Door knock</button>
       <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 16rem">
         <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
           <input type="hidden" name="interaction_type" value="Door Knock">
           <div class="small fw-semibold mb-1">How did it go?</div>
           {% for o in DOOR_OUTCOMES %}
-          <div class="form-check"><input class="form-check-input" type="radio" name="outcome" value="{{ o }}" id="dk{{ loop.index }}" {{ 'checked' if loop.first }}>
-            <label class="form-check-label small" for="dk{{ loop.index }}">{{ o }}</label></div>
+          <div class="form-check py-1"><input class="form-check-input" type="radio" name="outcome" value="{{ o }}" id="dk{{ loop.index }}" {{ 'checked' if loop.first }}>
+            <label class="form-check-label" for="dk{{ loop.index }}">{{ o }}</label></div>
           {% endfor %}
           <textarea name="notes" rows="2" class="form-control form-control-sm my-2" placeholder="Who you met, what you left…"></textarea>
-          <button class="btn btn-sm btn-success w-100">Log visit</button>
+          <button class="btn btn-success w-100">Log visit</button>
         </form>
       </div>
     </div>
-    <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary" title="{{ 'Open this company in ZoomInfo' if account.zoominfo_url else 'Search ZoomInfo for this company' }}">🔎 ZoomInfo</a>
-    <a href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}"
-       target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find this company on LinkedIn">in</a>
+    {# Desktop shows the rest inline; phones tuck them under More. #}
+    <span class="acct-desk-only d-inline-flex flex-wrap gap-1">
+      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-primary">✉️ Email</a>{% endif %}
+      <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-outline-primary">📄 Scripts</a>
+      {% if maplink %}<a {{ maplink }} class="btn btn-sm btn-outline-secondary" title="{{ account_address(account) }}">📍 Map</a>{% endif %}
+      <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary">🔎 ZoomInfo</a>
+      <a href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}"
+         target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">LinkedIn</a>
+    </span>
+    <div class="btn-group acct-phone-only">
+      <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
+              data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">More</button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        {% if account.email %}<li><a class="dropdown-item" {{ mail_to(account.email) }}>✉️ Email</a></li>
+        {% else %}<li><span class="dropdown-item-text text-body-secondary">No email on file</span></li>{% endif %}
+        <li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=account.id) }}">📄 Scripts</a></li>
+        {% if maplink %}<li><a class="dropdown-item" {{ maplink }}>📍 Map</a></li>{% endif %}
+        <li><a class="dropdown-item" {{ zoominfo_link(account) }}>🔎 ZoomInfo</a></li>
+        <li><a class="dropdown-item" href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}" target="_blank" rel="noopener">LinkedIn</a></li>
+      </ul>
+    </div>
   </div>
 </div>
 
+{# ---- Next up: what to do with this account right now ---- #}
+{% if not account.archived_at %}
+<div class="card nextup p-3 mb-3" id="nextup">
+  {% if in_research %}
+    <div class="what">🔎 Find someone to contact</div>
+    <p class="mb-2 small">Nobody here can be reached yet, so the cadence hasn't started. Add a
+      decision-maker with an email or phone and it starts today.</p>
+    <div class="d-flex flex-wrap gap-2">
+      <a {{ zoominfo_link(account) }} class="btn btn-primary">🔎 Look them up in ZoomInfo</a>
+      <a href="#add-contact" class="btn btn-outline-primary"
+         onclick="document.getElementById('add-contact').open=true">+ Add a contact</a>
+      <form method="post" action="{{ url_for('start_cadence', account_id=account.id) }}">
+        <button class="btn btn-outline-secondary" title="For example, to cold-call the main line before you have a name. Anything already logged still counts.">Start the cadence anyway</button>
+      </form>
+    </div>
+  {% elif finished %}
+    <div class="what">{{ account.first_name or 'This contact' }} finished the whole cadence without a reply</div>
+    {% if finished.next %}
+    <p class="mb-2 small">Move on to the next person. Their cadence starts today, and Email 1 mentions {{ account.first_name or 'the first contact' }}.</p>
+    <form method="post" action="{{ url_for('next_contact', account_id=account.id) }}" class="d-flex gap-2 flex-wrap">
+      <select name="contact_id" class="form-select" style="max-width: 20rem" aria-label="Next contact">
+        {% for c in finished.next %}<option value="{{ c.id }}">{{ c.first_name }} {{ c.last_name }}{% if c.title %}, {{ c.title }}{% endif %}</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary">▶ Start the next person</button>
+    </form>
+    {% else %}
+    <p class="mb-2 small">Everyone on file has been tried. Rest the company, or add someone new and restart.</p>
+    <form method="post" action="{{ url_for('rest_account', account_id=account.id) }}">
+      <button class="btn btn-outline-dark">Rest {{ RECYCLE_DAYS }} days</button>
+    </form>
+    {% endif %}
+  {% elif next_step and next_step.state == 'due' %}
+    <div class="what">
+      {{ next_step.step_type }}
+      {% if next_step.days_late >= 5 %}<span class="overdue fs-6">· {{ next_step.days_late }} days late</span>
+      {% elif next_step.days_late > 0 %}<span class="overdue-soft fs-6">· {{ next_step.days_late }} day{{ 's' if next_step.days_late != 1 }} late</span>
+      {% else %}<span class="fs-6 text-body-secondary">· due today</span>{% endif %}
+    </div>
+    <div class="small mb-2">{{ account.first_name }} {{ account.last_name }}{% if account.title %}, {{ account.title }}{% endif %}{% if phone %} · {{ phone }}{% endif %}</div>
+    {% if next_step.step_type in CALL_STEPS %}
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call {{ account.first_name }}</a>{% endif %}
+        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-outline-primary">📄 Call script</a>
+      </div>
+      <form method="post" action="{{ url_for('quick_log') }}">
+        <input type="hidden" name="account_id" value="{{ account.id }}">
+        <input type="hidden" name="step_type" value="{{ next_step.step_type }}">
+        <input type="hidden" name="next" value="{{ url_for('account_detail', account_id=account.id) }}">
+        <input name="notes" class="form-control mb-2" placeholder="Notes from the call (optional)">
+        <div class="small fw-semibold mb-1">How did it go? One tap logs it.</div>
+        <div class="outcome-grid">
+          {% for o, effect, style in [('No answer', '', 'btn-outline-secondary'),
+                                      ('Voicemail', '', 'btn-outline-secondary'),
+                                      ('Gatekeeper', '', 'btn-outline-secondary'),
+                                      ('Spoke', '', 'btn-primary'),
+                                      ('Meeting booked', '→ Accepted Meeting', 'btn-success'),
+                                      ('Not interested', '→ next person', 'btn-outline-danger'),
+                                      ('Wrong person', '→ next person', 'btn-outline-secondary'),
+                                      ('Bad number', '→ back to Research', 'btn-outline-danger')] %}
+          <button name="outcome" value="{{ o }}" class="btn {{ style }}">{{ o }}{% if effect %}<span class="effect">{{ effect }}</span>{% endif %}</button>
+          {% endfor %}
+        </div>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('quick_log') }}" class="d-flex flex-wrap gap-2">
+        <input type="hidden" name="account_id" value="{{ account.id }}">
+        <input type="hidden" name="step_type" value="{{ next_step.step_type }}">
+        <input type="hidden" name="next" value="{{ url_for('account_detail', account_id=account.id) }}">
+        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-primary">✉️ Write the email</a>
+        <button class="btn btn-outline-success">✓ Log it as sent</button>
+        <button class="btn btn-outline-secondary" formaction="{{ url_for('dismiss_reminder') }}"
+                title="Clear without logging (you can undo)">Skip</button>
+      </form>
+    {% endif %}
+  {% elif next_step %}
+    <div class="what">Next: {{ next_step.step_type }} <span class="fs-6 text-body-secondary">on {{ next_step.due_date|d }}</span></div>
+    <div class="small">Nothing due today. {% if account.next_follow_up %}Follow-up set for {{ account.next_follow_up|d }}.{% endif %}</div>
+  {% elif account.next_follow_up %}
+    <div class="what">Follow-up {{ account.next_follow_up|d }}</div>
+    {% if account.follow_up_note %}<div class="small">{{ account.follow_up_note }}</div>{% endif %}
+  {% else %}
+    <div class="what">{{ account.prospecting_status }}{% if account.pipeline_milestone != 'None / In Cadence' %} · {{ account.pipeline_milestone }}{% endif %}</div>
+    <div class="small">Not in the cadence. Set a follow-up below so it comes back on your dashboard.</div>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="row g-3">
-  <!-- Left column: edit form + cadence -->
-  <div class="col-12 col-lg-6">
+  <!-- Left column (second on phones): the record -->
+  <div class="col-12 col-lg-6 order-2 order-lg-1">
     <div class="card p-3 mb-3">
-      <h5>Account Info</h5>
-      <form method="post" action="{{ url_for('edit_account', account_id=account.id) }}">
+      <h2 class="h5">Account info</h2>
+      <dl class="info-dl row mb-1">
+        <div class="col-6"><dt>Primary contact</dt><dd>{{ account.first_name }} {{ account.last_name }}{% if not (account.first_name or account.last_name) %}<span class="text-body-secondary">None yet</span>{% endif %}{% if account.title %}<br><span class="small">{{ account.title }}</span>{% endif %}</dd></div>
+        <div class="col-6"><dt>Status</dt><dd>{{ account.prospecting_status }}<br><span class="small">{{ account.pipeline_milestone }}</span></dd></div>
+        <div class="col-6"><dt>Phone</dt><dd>{% if account.work_phone %}<a {{ dial(account.work_phone) }}>{{ account.work_phone }}</a> <span class="small text-body-secondary">work</span><br>{% endif %}{% if account.mobile_phone %}<a {{ dial(account.mobile_phone) }}>{{ account.mobile_phone }}</a> <span class="small text-body-secondary">mobile</span>{% endif %}{% if not phone %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
+        <div class="col-6"><dt>Email</dt><dd class="text-break">{% if account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a>{% else %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
+        <div class="col-6"><dt>Office</dt><dd>{{ account_address(account) or '—' }}</dd></div>
+        <div class="col-6"><dt>Buildings</dt><dd>{{ account.matching_properties or 0 }} matching{% if account.num_properties %} of {{ account.num_properties }}{% endif %}</dd></div>
+        {% if account.notes %}<div class="col-12"><dt>Notes</dt><dd class="small" style="white-space: pre-line">{{ account.notes }}</dd></div>{% endif %}
+      </dl>
+      <details id="edit-info">
+        <summary class="btn btn-outline-primary btn-sm">✎ Edit account &amp; primary contact</summary>
+      <form method="post" action="{{ url_for('edit_account', account_id=account.id) }}" id="infoform" class="mt-3"
+            data-in-cadence="{{ '1' if in_cadence else '0' }}">
         <div class="row g-2">
           <div class="col-7">
             <label class="form-label small mb-0">Company Name *</label>
@@ -70,7 +221,7 @@
             <input name="website" class="form-control form-control-sm" value="{{ account.website or '' }}" placeholder="company.com">
           </div>
           <div class="col-12">
-            <label class="form-label small mb-0">Office address <span class="text-muted">(for door knocking)</span></label>
+            <label class="form-label small mb-0">Office address <span class="text-body-secondary">(for door knocking)</span></label>
             <input name="street" class="form-control form-control-sm" value="{{ account.street or '' }}" placeholder="Street">
           </div>
           <div class="col-5"><input name="city" class="form-control form-control-sm" value="{{ account.city or '' }}" placeholder="City"></div>
@@ -144,17 +295,20 @@
             <select name="pipeline_milestone" class="form-select form-select-sm">
               {% for m in MILESTONES %}<option {{ 'selected' if account.pipeline_milestone == m }}>{{ m }}</option>{% endfor %}
             </select>
-            <div class="form-text">Changing status or milestone off "Prospecting" + "None / In Cadence" stops the cadence and clears its reminders.</div>
+            <div class="form-text">Moving off "Prospecting" + "None / In Cadence" stops the cadence. You'll be asked to confirm.</div>
           </div>
           <div class="col-12">
             <label class="form-label small mb-0">Notes</label>
             <textarea name="notes" rows="3" class="form-control form-control-sm">{{ account.notes }}</textarea>
           </div>
           <div class="col-12 d-flex gap-2">
-            <button class="btn btn-sm btn-primary">Save Changes</button>
+            <button class="btn btn-primary">Save changes</button>
+            <button type="button" class="btn btn-outline-secondary"
+                    onclick="document.getElementById('infoform').reset(); document.getElementById('edit-info').open=false">Cancel</button>
           </div>
         </div>
       </form>
+      </details>
       <hr>
       <div class="d-flex gap-2 flex-wrap">
         <form method="post" action="{{ url_for('restart_cadence', account_id=account.id) }}"
@@ -185,14 +339,14 @@
     {% if project %}
     <div class="card p-3 mb-3 border-success">
       <div class="d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">🏗 Project</h5>
+        <h2 class="h5 mb-0">🏗 Project</h2>
         <a href="{{ url_for('project_detail', project_id=project.id) }}" class="btn btn-sm btn-success">Open: {{ project.name }}</a>
       </div>
-      <div class="small text-muted mt-1">Status: {{ project.status }}{% if project.contract_amount %} · Contract {{ project.contract_amount|money }}{% endif %}</div>
+      <div class="small text-body-secondary mt-1">Status: {{ project.status }}{% if project.contract_amount %} · Contract {{ project.contract_amount|money }}{% endif %}</div>
     </div>
     {% elif account.pipeline_milestone == 'Closed Won' %}
     <div class="card p-3 mb-3 border-success">
-      <h5>🏆 Deal won — start the project</h5>
+      <h2 class="h5">🏆 Deal won: start the project</h2>
       <form method="post" action="{{ url_for('new_project') }}" class="d-flex gap-2 flex-wrap align-items-center">
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <div class="input-group input-group-sm" style="max-width: 220px;">
@@ -206,7 +360,7 @@
     {% endif %}
 
     <div class="card p-3 mb-3">
-      <h5>📑 Roof Reports / Bids</h5>
+      <h2 class="h5">📑 Roof Reports / Bids</h2>
       {% if bids %}
       <ul class="list-group list-group-flush mb-2">
         {% for b in bids %}
@@ -221,21 +375,24 @@
         {% endfor %}
       </ul>
       {% endif %}
+      <details>
+      <summary class="btn btn-sm btn-outline-primary mb-2">+ New roof report</summary>
       <form method="post" action="{{ url_for('new_bid', account_id=account.id) }}" class="row g-2">
         <div class="col-12 col-md-6"><input name="roof_address" class="form-control form-control-sm" placeholder="Roof address (auto-fills from notes)"></div>
         <div class="col-6 col-md-3"><input name="roof_size_sqft" type="number" min="0" class="form-control form-control-sm" placeholder="Sq ft"></div>
         <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">+ New Report</button></div>
       </form>
       <div class="form-text">Creates a roof report with your full proposal: CEO letter, process, spec, materials quote (computed from square footage), warranty, site assessment photos, and signature page.</div>
+      </details>
     </div>
 
     <div class="card p-3 mb-3">
-      <h5>📅 Follow-Up</h5>
+      <h2 class="h5">📅 Follow-Up</h2>
       {% if account.next_follow_up %}
       <p class="mb-2">Next follow-up: <strong class="{{ 'overdue' if account.next_follow_up <= today }}">{{ account.next_follow_up|d }}</strong>
-        {% if account.follow_up_note %}<br><span class="small text-muted">{{ account.follow_up_note }}</span>{% endif %}</p>
+        {% if account.follow_up_note %}<br><span class="small text-body-secondary">{{ account.follow_up_note }}</span>{% endif %}</p>
       {% else %}
-      <p class="text-muted small mb-2">No follow-up set. Warm prospects outside the cold cadence only appear on the dashboard when a follow-up is set.</p>
+      <p class="text-body-secondary small mb-2">No follow-up set. Warm prospects outside the cold cadence only appear on the dashboard when a follow-up is set.</p>
       {% endif %}
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}">
         <div class="row g-2 align-items-center">
@@ -255,22 +412,9 @@
     </div>
 
     <div class="card p-3 mb-3">
-      {% set in_research = in_cadence and not (account.cadence_start or '').strip() %}
-      <h5>Cadence Progress <span class="text-muted small">
+      <h2 class="h5">Cadence progress <span class="text-body-secondary small fw-normal">
         {% if in_research %}(waiting for a contact){% else %}(started {{ account.cadence_start|d }}){% endif %}
-      </span></h5>
-      {% if in_research %}
-      <div class="alert alert-info py-2 small">
-        <strong>🔎 In Research.</strong> There's nobody to contact here yet, so the
-        cadence hasn't started — its first step is an email. Add a decision-maker with
-        an email or phone (paste their ZoomInfo page above) and the cadence starts today.
-        <form method="post" action="{{ url_for('start_cadence', account_id=account.id) }}" class="mt-2">
-          <button class="btn btn-sm btn-outline-primary"
-                  title="For example, to cold-call the main line before you have a name. Anything already logged still counts.">
-            ▶ Start the cadence anyway</button>
-        </form>
-      </div>
-      {% endif %}
+      </span></h2>
       <ul class="list-group list-group-flush">
         {% for s in steps %}
         <li class="list-group-item d-flex justify-content-between align-items-center px-0">
@@ -283,9 +427,10 @@
             {% else %}⚪{% endif %}
             <strong>Day {{ s.day }}:</strong> {{ s.step_type }}
           </span>
-          <span class="small text-muted">
-            {% if s.due_date %}{{ s.due_date|d }} ·{% endif %}
-            {% if s.state == 'done' %}Logged
+          <span class="small text-body-secondary">
+            {% if s.state == 'done' and s.done_on %}{{ s.done_on|d }} ·
+            {% elif s.due_date %}{{ s.due_date|d }} ·{% endif %}
+            {% if s.state == 'done' %}Done
             {% elif s.state == 'waiting' %}Starts when a contact is added
             {% elif s.state == 'skipped' %}Checked off
             {% elif s.state == 'due' %}<span class="overdue">Due</span>
@@ -296,48 +441,80 @@
         {% endfor %}
       </ul>
     </div>
+    <details class="card p-3 mb-3" {{ 'open' if in_research }}>
+      <summary class="h5 mb-0" style="cursor:pointer">Research tools</summary>
+      <div class="mt-2">
+      <form method="post" action="{{ url_for('upload_account_contacts', account_id=account.id) }}"
+            enctype="multipart/form-data" class="mb-2">
+        <label class="form-label small fw-semibold mb-1">📥 Upload a ZoomInfo export for this company</label>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+          <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control form-control-sm" style="max-width: 20rem" required>
+          <button class="btn btn-sm btn-primary">Add everyone in the file</button>
+        </div>
+        <div class="form-text">The file exactly as ZoomInfo downloaded it. Everyone goes on this account,
+          people already here are skipped, and the Undo bar takes it back.</div>
+      </form>
+
+        <div class="small">More ways to add people: <a href="#add-contact"
+          onclick="document.getElementById('add-contact').open=true">paste a ZoomInfo page or employee list</a>
+          under Add a contact, or <a href="{{ url_for('accounts', view='research') }}">download your Research list</a>
+          to look up many companies at once.</div>
+      </div>
+    </details>
   </div>
 
-  <!-- Right column: contacts + log form + timeline -->
-  <div class="col-12 col-lg-6">
-    {% if finished %}
-    <div class="alert alert-warning">
-      <strong>{{ account.first_name or 'This contact' }} finished the whole cadence without a reply.</strong>
-      {% if finished.next %}
-      Move on to the next person: their cadence starts today, and Email 1 mentions
-      {{ account.first_name or 'the first contact' }}.
-      <form method="post" action="{{ url_for('next_contact', account_id=account.id) }}" class="d-flex gap-2 flex-wrap mt-2">
-        <select name="contact_id" class="form-select form-select-sm" style="max-width: 20rem">
-          {% for c in finished.next %}<option value="{{ c.id }}">{{ c.first_name }} {{ c.last_name }}{% if c.title %}, {{ c.title }}{% endif %}</option>{% endfor %}
-        </select>
-        <button class="btn btn-sm btn-primary">▶ Start next contact</button>
+  <!-- Right column (first on phones): log, contacts, history -->
+  <div class="col-12 col-lg-6 order-1 order-lg-2">
+    {% set default_type = next_step.step_type if next_step and next_step.state == 'due' else 'General Note' %}
+    <div class="card p-3 mb-3" id="log">
+      <h2 class="h5">Log something</h2>
+      <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
+        <div class="row g-2">
+          <div class="col-12 col-sm-6">
+            <label class="form-label small mb-0" for="log-type">What happened</label>
+            <select name="interaction_type" id="log-type" class="form-select form-select-sm">
+              {% for t in INTERACTION_TYPES %}<option {{ 'selected' if t == default_type }}>{{ t }}{% if t == default_type and t != 'General Note' %} (due){% endif %}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-12 col-sm-6">
+            <label class="form-label small mb-0" for="log-outcome">Outcome</label>
+            <select name="outcome" id="log-outcome" class="form-select form-select-sm">
+              <option value="">None</option>
+              <optgroup label="Call">
+                {% for o in CALL_OUTCOMES %}<option value="{{ o }}">{{ o }}{% if o == 'Meeting booked' %} → Accepted Meeting{% elif o in ('Not interested', 'Wrong person') %} → next person{% elif o == 'Bad number' %} → back to Research{% endif %}</option>{% endfor %}
+              </optgroup>
+              <optgroup label="Door knock">{% for o in DOOR_OUTCOMES if o not in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
+            </select>
+          </div>
+          <div class="col-12">
+            <textarea name="notes" rows="2" class="form-control form-control-sm" placeholder="What happened? (optional)"></textarea>
+          </div>
+          <div class="col-12"><button class="btn btn-success">+ Log it</button></div>
+        </div>
       </form>
-      {% else %}
-      Everyone on file has been tried.
-      <form method="post" action="{{ url_for('rest_account', account_id=account.id) }}" class="d-inline">
-        <button class="btn btn-sm btn-outline-dark ms-1">Rest {{ RECYCLE_DAYS }} days</button>
-      </form>
-      <span class="small">Or add someone new below, tick Make primary, and restart the cadence.</span>
-      {% endif %}
     </div>
-    {% endif %}
     <div class="card p-3 mb-3">
-      <h5>Contacts</h5>
+      <h2 class="h5">Contacts</h2>
       <ul class="list-group list-group-flush">
         {% if account.first_name or account.last_name or account.email %}
         <li class="list-group-item px-0">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
             <div>
               <strong>{{ account.first_name }} {{ account.last_name }}</strong>
-              <span class="badge text-bg-primary">Primary</span>
+              <span class="badge text-bg-primary">Primary · in cadence</span>
               {% if account.seniority %}<span class="badge text-bg-light border">{{ account.seniority }}</span>{% endif %}
-              {% if account.title %}<div class="small text-muted">{{ account.title }}</div>{% endif %}
+              {% if account.title %}<div class="small text-body-secondary">{{ account.title }}</div>{% endif %}
               <div class="small">
                 {% if account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a><br>{% endif %}
                 {% if account.work_phone %}<a {{ dial(account.work_phone) }}>{{ account.work_phone }}</a> (work) {% endif %}
                 {% if account.mobile_phone %}<a {{ dial(account.mobile_phone) }}>{{ account.mobile_phone }}</a> (mobile){% endif %}
-                {% if account.linkedin_url %}<br><a href="{{ account.linkedin_url if '://' in account.linkedin_url else 'https://' + account.linkedin_url }}" target="_blank" rel="noopener">in/ LinkedIn profile</a>{% endif %}
+                {% if account.linkedin_url %}<br><a href="{{ account.linkedin_url if '://' in account.linkedin_url else 'https://' + account.linkedin_url }}" target="_blank" rel="noopener">LinkedIn profile</a>{% endif %}
               </div>
+            </div>
+            <div class="d-flex gap-1 flex-wrap">
+              {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>{% endif %}
+              <a href="#edit-info" class="btn btn-sm btn-outline-primary"
+                 onclick="document.getElementById('edit-info').open=true">✎ Edit</a>
             </div>
           </div>
         </li>
@@ -350,36 +527,43 @@
               {% if c.seniority %}<span class="badge text-bg-light border">{{ c.seniority }}</span>{% endif %}
               {% if c.tried_status %}<span class="badge {{ 'text-bg-danger' if c.tried_status == 'Not interested' else 'text-bg-secondary' }}"
                     title="Their turn ended {{ c.tried_at }}">Tried: {{ c.tried_status }} · {{ c.tried_at|d }}</span>
-              {% else %}<span class="badge text-bg-light border text-success">Not tried yet</span>{% endif %}
-              {% if c.title %}<div class="small text-muted">{{ c.title }}</div>{% endif %}
+              {% else %}<span class="badge text-bg-light border">Not tried yet</span>{% endif %}
+              {% if c.title %}<div class="small text-body-secondary">{{ c.title }}</div>{% endif %}
               <div class="small">
                 {% if c.email %}<a {{ mail_to(c.email) }}>{{ c.email }}</a><br>{% endif %}
                 {% if c.work_phone %}<a {{ dial(c.work_phone) }}>{{ c.work_phone }}</a> (work) {% endif %}
                 {% if c.mobile_phone %}<a {{ dial(c.mobile_phone) }}>{{ c.mobile_phone }}</a> (mobile){% endif %}
-                {% if c.linkedin_url %}<br><a href="{{ c.linkedin_url if '://' in c.linkedin_url else 'https://' + c.linkedin_url }}" target="_blank" rel="noopener">in/ LinkedIn profile</a>{% endif %}
+                {% if c.linkedin_url %}<br><a href="{{ c.linkedin_url if '://' in c.linkedin_url else 'https://' + c.linkedin_url }}" target="_blank" rel="noopener">LinkedIn profile</a>{% endif %}
               </div>
             </div>
-            <div class="text-nowrap">
-              {% if in_cadence and not c.tried_status and (account.first_name or account.last_name) %}
-              <form method="post" action="{{ url_for('next_contact', account_id=account.id) }}" class="d-inline"
-                    onsubmit="return confirm('End {{ account.first_name }}\'s turn (no reply) and start {{ c.first_name }}\'s cadence today?')">
-                <input type="hidden" name="contact_id" value="{{ c.id }}">
-                <button class="btn btn-sm btn-outline-success" title="End the current person's turn (no reply) and start this person's cadence today">▶ Next</button>
-              </form>
-              {% endif %}
-              <form method="post" action="{{ url_for('promote_contact', account_id=account.id, contact_id=c.id) }}" class="d-inline">
-                <button class="btn btn-sm btn-outline-primary" title="Make primary contact">★</button>
-              </form>
-              <form method="post" action="{{ url_for('delete_contact', account_id=account.id, contact_id=c.id) }}" class="d-inline"
-                    onsubmit="return confirm('Remove this contact?')">
-                <button class="btn btn-sm btn-outline-danger" title="Remove contact">✕</button>
-              </form>
+            <div class="d-flex gap-1 flex-wrap align-items-start">
+              {% set cphone = c.mobile_phone or c.work_phone %}
+              {% if cphone %}<a {{ dial(cphone) }} class="btn btn-sm btn-outline-success">📞 Call</a>{% endif %}
+              <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
+                        data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false"
+                        aria-label="More for {{ c.first_name }} {{ c.last_name }}">More</button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  {% if in_cadence and not c.tried_status and (account.first_name or account.last_name) %}
+                  <li><form method="post" action="{{ url_for('next_contact', account_id=account.id) }}"
+                        onsubmit="return confirm('End {{ account.first_name }}\'s turn (no reply) and start {{ c.first_name }}\'s cadence today?')">
+                    <input type="hidden" name="contact_id" value="{{ c.id }}">
+                    <button class="dropdown-item">▶ Switch the cadence to {{ c.first_name or 'them' }}</button></form></li>
+                  {% endif %}
+                  <li><form method="post" action="{{ url_for('promote_contact', account_id=account.id, contact_id=c.id) }}">
+                    <button class="dropdown-item">★ Make primary</button></form></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li><form method="post" action="{{ url_for('delete_contact', account_id=account.id, contact_id=c.id) }}"
+                        onsubmit="return confirm('Remove {{ c.first_name }} from this account?')">
+                    <button class="dropdown-item text-danger">✕ Remove contact</button></form></li>
+                </ul>
+              </div>
             </div>
           </div>
         </li>
         {% endfor %}
         {% if not contacts and not (account.first_name or account.last_name or account.email) %}
-        <li class="list-group-item px-0 text-muted small">No contacts yet — use the 🔎 ZoomInfo button above to find decision-makers, then add them here.</li>
+        <li class="list-group-item px-0 text-body-secondary small">No contacts yet — use the 🔎 ZoomInfo button above to find decision-makers, then add them here.</li>
         {% endif %}
       </ul>
       {# ---- Pick people off a pasted company employee list ---- #}
@@ -394,7 +578,7 @@
             <button type="button" class="btn btn-sm btn-outline-secondary" id="picknone">Clear</button>
           </span>
         </div>
-        <div class="small text-muted mb-2">
+        <div class="small text-body-secondary mb-2">
           Tick only the ones that fit — nothing is selected to start with.
           {% if roster_detailed %}
           <strong>{{ roster_detailed }}</strong> of them came with contact details.
@@ -410,7 +594,7 @@
           <tbody>
           {% for person in roster %}
             {% set idx = loop.index0 %}
-            <tr class="{{ 'text-muted' if person.already }}">
+            <tr class="{{ 'text-body-secondary' if person.already }}">
               <td>
                 <input type="checkbox" class="form-check-input rosterpick" name="pick"
                        value="{{ idx }}" data-level="{{ person.seniority }}"
@@ -427,10 +611,10 @@
               <td class="small">
                 {% if person.has_details %}
                   {% if person.email %}<div>{{ person.email }}</div>{% endif %}
-                  {% if person.work_phone %}<div>{{ person.work_phone }} <span class="text-muted">work</span></div>{% endif %}
-                  {% if person.mobile_phone %}<div>{{ person.mobile_phone }} <span class="text-muted">mobile</span></div>{% endif %}
+                  {% if person.work_phone %}<div>{{ person.work_phone }} <span class="text-body-secondary">work</span></div>{% endif %}
+                  {% if person.mobile_phone %}<div>{{ person.mobile_phone }} <span class="text-body-secondary">mobile</span></div>{% endif %}
                 {% else %}
-                  <span class="text-muted">— row not expanded —</span>
+                  <span class="text-body-secondary">— row not expanded —</span>
                 {% endif %}
               </td>
               <td>
@@ -476,20 +660,9 @@
       </script>
       {% endif %}
 
-      <form method="post" action="{{ url_for('upload_account_contacts', account_id=account.id) }}"
-            enctype="multipart/form-data" class="mt-2 p-2 border rounded bg-light">
-        <label class="form-label small fw-semibold mb-1">📥 Upload a ZoomInfo export for this company</label>
-        <div class="d-flex gap-2 flex-wrap align-items-center">
-          <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control form-control-sm" style="max-width: 20rem" required>
-          <button class="btn btn-sm btn-primary">Add everyone in the file</button>
-        </div>
-        <div class="form-text">The file exactly as ZoomInfo downloaded it. Everyone goes on this account,
-          people already here are skipped, and the Undo bar takes it back.</div>
-      </form>
-
       {% set pre = contact_prefill | default({}) %}
-      <details class="mt-2" {{ 'open' if pre or not (account.first_name or account.last_name or account.email) }}>
-        <summary class="fw-semibold" style="cursor:pointer">+ Add Contact</summary>
+      <details class="mt-2" id="add-contact" {{ 'open' if pre or not (account.first_name or account.last_name or account.email) }}>
+        <summary class="btn btn-sm btn-outline-primary">+ Add a contact</summary>
         <form method="post" action="{{ url_for('add_contact', account_id=account.id) }}" class="mt-2">
           {# After a preview the boxes below are the truth: don't let the paste
              re-fill something the user deliberately cleared. #}
@@ -497,7 +670,7 @@
           <div class="row g-2">
             <div class="col-12">
               <label class="form-label small mb-1 fw-semibold">
-                Paste from ZoomInfo <span class="text-muted fw-normal">(optional — or just type below)</span>
+                Paste from ZoomInfo <span class="text-body-secondary fw-normal">(optional — or just type below)</span>
               </label>
               <textarea name="paste" rows="4" class="form-control form-control-sm" id="pastebox"
                         placeholder="On the ZoomInfo contact page press Ctrl+A then Ctrl+C, and paste the whole page here.">{{ contact_paste | default('') }}</textarea>
@@ -505,10 +678,10 @@
                 <button class="btn btn-sm btn-outline-primary"
                         formaction="{{ url_for('parse_contact', account_id=account.id) }}"
                         formnovalidate>📋 Read the paste</button>
-                <span class="small text-muted">fills the boxes below so you can check it first</span>
+                <span class="small text-body-secondary">fills the boxes below so you can check it first</span>
               </div>
               <details class="small mt-2">
-                <summary class="text-muted" style="cursor:pointer">What exactly do I copy?</summary>
+                <summary class="text-body-secondary" style="cursor:pointer">What exactly do I copy?</summary>
                 <div class="mt-1">
                   <p class="mb-1"><strong>The whole page.</strong> On the ZoomInfo contact,
                     press <kbd>Ctrl</kbd>+<kbd>A</kbd> then <kbd>Ctrl</kbd>+<kbd>C</kbd> and
@@ -548,7 +721,7 @@ Direct Phone: 713-555-0199</pre>
               <hr class="my-2">
               <label class="form-label small mb-1 fw-semibold">
                 Or paste a company employee list
-                <span class="text-muted fw-normal">(adds several people at once)</span>
+                <span class="text-body-secondary fw-normal">(adds several people at once)</span>
               </label>
               <textarea name="roster_paste" rows="2" class="form-control form-control-sm"
                         placeholder="On the company's Employees tab in ZoomInfo press Ctrl+A then Ctrl+C, and paste here."></textarea>
@@ -556,7 +729,7 @@ Direct Phone: 713-555-0199</pre>
                 <button class="btn btn-sm btn-outline-primary"
                         formaction="{{ url_for('roster_contacts', account_id=account.id) }}"
                         formnovalidate>👥 Find people</button>
-                <span class="small text-muted">lists everyone so you can tick the few that fit</span>
+                <span class="small text-body-secondary">lists everyone so you can tick the few that fit</span>
               </div>
               <hr class="my-2">
             </div>
@@ -576,34 +749,9 @@ Direct Phone: 713-555-0199</pre>
       </details>
     </div>
 
-    <div class="card p-3 mb-3">
-      <h5>Log an Interaction</h5>
-      <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
-        <div class="mb-2">
-          <select name="interaction_type" class="form-select form-select-sm">
-            {% for t in INTERACTION_TYPES %}<option {{ 'selected' if t == 'General Note' }}>{{ t }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="mb-2">
-          <select name="outcome" class="form-select form-select-sm" title="For calls: how it went">
-            <option value="">Outcome (optional)…</option>
-            <optgroup label="Call">{% for o in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
-            <optgroup label="Door knock">{% for o in DOOR_OUTCOMES if o not in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
-          </select>
-          <div class="form-text">Meeting booked → Accepted Meeting · Not interested / Wrong person
-            → the next contact takes over (the company closes only when nobody's left) · Bad number
-            sends the account back to Research.</div>
-        </div>
-        <div class="mb-2">
-          <textarea name="notes" rows="3" class="form-control form-control-sm" placeholder="What happened? (optional)"></textarea>
-        </div>
-        <button class="btn btn-sm btn-success">+ Log Interaction</button>
-      </form>
-    </div>
-
     <div class="card p-3">
-      <h5 class="d-flex justify-content-between align-items-baseline flex-wrap gap-1">
-        <span>History Timeline</span>
+      <h2 class="h5 d-flex justify-content-between align-items-baseline flex-wrap gap-1">
+        <span>History</span>
         {% if history_total > interactions|length %}
         <a class="small fw-normal" href="{{ url_for('account_detail', account_id=account.id, history='all') }}">
           showing {{ interactions|length }} of {{ history_total }} — show all</a>
@@ -611,14 +759,17 @@ Direct Phone: 713-555-0199</pre>
         <a class="small fw-normal" href="{{ url_for('account_detail', account_id=account.id) }}">
           show recent only</a>
         {% endif %}
-      </h5>
+      </h2>
       {% if interactions %}
       <div class="timeline mt-2">
         {% for i in interactions %}
         <div class="timeline-item">
           <div class="d-flex justify-content-between flex-wrap gap-1">
             <span>
-              <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
+              <span class="badge {{ 'ttype-door' if i.interaction_type == 'Door Knock'
+                                   else 'ttype-call' if i.interaction_type in CALL_STEPS
+                                   else 'ttype-email' if 'Email' in i.interaction_type
+                                   else 'ttype-note' }}">{{ i.interaction_type }}</span>
               {% if i.outcome %}
               <span class="badge {{ 'text-bg-success' if i.outcome == 'Meeting booked'
                                    else 'text-bg-primary' if i.outcome in ('Spoke', 'Met decision-maker')
@@ -626,10 +777,10 @@ Direct Phone: 713-555-0199</pre>
                                    else 'text-bg-light border' }}">{{ i.outcome }}</span>
               {% endif %}
             </span>
-            <small class="text-muted">
+            <small class="text-body-secondary">
               {{ i.created_at|dt }}
-              <a href="#" class="ms-1 text-decoration-none" title="Edit this entry"
-                 onclick="document.getElementById('edit-{{ i.id }}').toggleAttribute('open');return false">✎</a>
+              <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-decoration-none" aria-label="Edit this entry"
+                 onclick="document.getElementById('edit-{{ i.id }}').toggleAttribute('open')">✎ Edit</button>
             </small>
           </div>
           {% if i.notes %}<div class="small mt-1">{{ i.notes }}</div>{% endif %}
@@ -664,9 +815,48 @@ Direct Phone: 713-555-0199</pre>
         {% endfor %}
       </div>
       {% else %}
-      <p class="text-muted mb-0">No interactions yet.</p>
+      <p class="text-body-secondary mb-0">No interactions yet.</p>
       {% endif %}
     </div>
   </div>
 </div>
+{# Thumb bar (phones): call and log without scrolling. #}
+<nav class="acct-bar" aria-label="Quick actions">
+  {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call</a>{% endif %}
+  {% if next_step and next_step.state == 'due' and not in_research and not account.archived_at %}
+  <a href="#nextup" class="btn btn-outline-success"
+     onclick="document.getElementById('nextup').scrollIntoView({behavior:'smooth'}); return false;">✓ Log {{ 'outcome' if next_step.step_type in CALL_STEPS else 'it' }}</a>
+  {% else %}
+  <a href="#log" class="btn btn-outline-success"
+     onclick="document.getElementById('log').scrollIntoView({behavior:'smooth'}); return false;">✓ Log</a>
+  {% endif %}
+</nav>
+</div>{# /.acct #}
+<script>
+(function () {
+  // Never lose edits silently: unsaved Account info changes are flagged before
+  // any other form on the page submits, and moving off the cadence is confirmed.
+  const form = document.getElementById('infoform');
+  if (!form) return;
+  let dirty = false;
+  form.addEventListener('input', () => { dirty = true; });
+  form.addEventListener('submit', e => {
+    const st = form.querySelector('[name=prospecting_status]').value;
+    const ms = form.querySelector('[name=pipeline_milestone]').value;
+    if (form.dataset.inCadence === '1' && (st !== 'Prospecting' || ms !== 'None / In Cadence')
+        && !confirm('This takes the account out of the cadence and clears its reminders. Save anyway?')) {
+      e.preventDefault(); return;
+    }
+    dirty = false;
+  });
+  document.querySelectorAll('form').forEach(f => {
+    if (f === form) return;
+    f.addEventListener('submit', e => {
+      if (dirty && !confirm('You have unsaved changes in Account info. Continue without saving them?')) {
+        e.preventDefault();
+      }
+    });
+  });
+})();
+</script>
 {% endblock %}

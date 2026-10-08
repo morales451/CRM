@@ -2306,6 +2306,12 @@ def _render_account_detail(account_id, **extra):
             "AND interaction_type = ? ORDER BY created_at DESC, id DESC",
             (account_id, DOOR_KNOCK)).fetchall()
         steps = cadence.get_cadence_progress(conn, account_id)
+        # What to do with this account now: the due step, else the next one.
+        next_step = (next((st for st in steps if st["state"] == "due"), None)
+                     or next((st for st in steps if st["state"] == "upcoming"), None))
+        last_touch = conn.execute(
+            "SELECT MAX(created_at) FROM interactions WHERE account_id=?",
+            (account_id,)).fetchone()[0]
         in_cadence = (acct["prospecting_status"] == cadence.ACTIVE_STATUS
                       and acct["pipeline_milestone"] == cadence.ACTIVE_MILESTONE)
         project = conn.execute("SELECT * FROM projects WHERE account_id = ?",
@@ -2320,6 +2326,7 @@ def _render_account_detail(account_id, **extra):
                            steps=steps, in_cadence=in_cadence, project=project,
                            bids=bids, history_total=history_total, visits=visits,
                            finished=finished, TRIED_STATUSES=TRIED_STATUSES,
+                           next_step=next_step, last_touch=last_touch,
                            RECYCLE_DAYS=RECYCLE_DAYS,
                            show_all_history=show_all_history, **extra)
 

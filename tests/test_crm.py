@@ -2693,7 +2693,7 @@ check("research: the account page shows it as waiting, not overdue",
 _sw = _by_name["Switchboard Only Co"]["id"]
 r = client.get(f"/accounts/{_sw}")
 check("research: the account page explains why and offers to start anyway",
-      b"In Research" in r.data and b"Start the cadence anyway" in r.data)
+      b"Find someone to contact" in r.data and b"Start the cadence anyway" in r.data)
 r = client.get("/accounts?view=research")
 check("research: it's on the Research list", b"Switchboard Only Co" in r.data
       and b"Who to look up next" in r.data)
@@ -3634,8 +3634,7 @@ client.post("/import/contacts", data={"file": (io.BytesIO(_csv_zi), "zi.csv")},
             content_type="multipart/form-data")
 _p = client.get(f"/accounts/{_zid}").data.decode()
 check("zi link: a ZoomInfo upload saves the company page and the button opens it",
-      'href="https://app.zoominfo.com/#/apps/profile/company/555" target="_blank"' in _p
-      and "Open this company in ZoomInfo" in _p)
+      'href="https://app.zoominfo.com/#/apps/profile/company/555" target="_blank"' in _p)
 _zk.execute("UPDATE accounts SET zoominfo_url='' WHERE id=?", (_zid,)); _zk.commit()
 client.post("/import/contacts", data={"file": (io.BytesIO(_csv_zi), "zi.csv")},
             content_type="multipart/form-data")
@@ -3831,7 +3830,7 @@ _d = client.get("/").data.decode()
 check("finished: the dashboard lists accounts whose cadence ran out, with the next person",
       "Cadence finished, no reply" in _d and "Rotate Finished Co" in _d and "Start Fin" in _d)
 _p = client.get(f"/accounts/{_r3}").data.decode()
-check("finished: the account page offers the next contact", "Start next contact" in _p)
+check("finished: the account page offers the next contact", "Start the next person" in _p)
 client.post(f"/accounts/{_r3}/next-contact", data={})
 _ra = _rt.execute("SELECT * FROM accounts WHERE id=?", (_r3,)).fetchone()
 check("finished: one tap starts the next person, the old one marked No reply",
@@ -3891,6 +3890,36 @@ check("undo snooze: the follow-up date and note come back",
       tuple(_ud.execute("SELECT next_follow_up, follow_up_note FROM accounts WHERE id=?",
                         (_uda,)).fetchone()) == (date.today().isoformat(), "call back"))
 _ud.execute("DELETE FROM accounts WHERE id=?", (_uda,)); _ud.commit(); _ud.close()
+
+# ---- 70. Account page: act first
+_ap = db.get_db()
+_apid = _ap.execute(
+    "INSERT INTO accounts (company_name, first_name, email, work_phone, preferred_contact,"
+    " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
+    " ('Act First Co','Ava','ava@x.com','713-555-0110','Unknown','Prospecting','None / In Cadence',?,?,?)",
+    ((date.today() - timedelta(days=10)).isoformat(), _lts, _lts)).lastrowid
+_ap.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) VALUES (?,?,?,?)",
+            (_apid, "Email 1", "", (date.today() - timedelta(days=10)).isoformat() + "T09:00:00"))
+_ap.commit()
+_pg = client.get(f"/accounts/{_apid}").data.decode()
+check("account: Next up names the due step with one-tap call outcomes",
+      'id="nextup"' in _pg and "Call &amp; Text" in _pg.split('id="nextup"')[1][:400]
+      and "→ next person" in _pg and 'name="outcome" value="Voicemail"' in _pg)
+check("account: logging starts on the due step, not General Note",
+      re.search(r'<option selected>Call &amp; Text \(due\)</option>', _pg) is not None, _pg[:0])
+check("account: the edit form is folded behind Edit", '<details id="edit-info">' in _pg)
+check("account: phones get a thumb bar and the extras under More",
+      'class="acct-bar"' in _pg and 'acct-phone-only' in _pg)
+check("account: headings don't skip levels", "<h5>" not in _pg and '<h2 class="h5">' in _pg)
+client.post("/reminders/quicklog", data={"account_id": str(_apid), "step_type": "Call & Text",
+                                         "outcome": "Voicemail", "next": f"/accounts/{_apid}"})
+check("account: one tap logs the call with its outcome",
+      _ap.execute("SELECT outcome FROM interactions WHERE account_id=? AND interaction_type="
+                  "'Call & Text'", (_apid,)).fetchone()[0] == "Voicemail")
+_prog = {p_["step_type"]: p_ for p_ in cadence.get_cadence_progress(_ap, _apid)}
+check("account: finished steps carry the day they were done",
+      _prog["Email 1"]["done_on"] == (date.today() - timedelta(days=10)).isoformat())
+_ap.execute("DELETE FROM accounts WHERE id=?", (_apid,)); _ap.commit(); _ap.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

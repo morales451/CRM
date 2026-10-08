@@ -305,8 +305,8 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
         "SELECT step_type FROM cadence_dismissals WHERE account_id = ?",
         (account_id,))}
 
-    dues = (schedule(start, _done_dates(conn, [account_id]).get(account_id, {}))
-            if started else {})
+    done_on = _done_dates(conn, [account_id]).get(account_id, {})
+    dues = schedule(start, done_on) if started else {}
     steps = []
     for day, step_type in CADENCE_STEPS:
         due = dues.get(step_type)
@@ -322,6 +322,9 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
             state = "due"
         else:
             state = "upcoming"
+        done = done_on.get(step_type)
         steps.append({"day": day, "step_type": step_type,
-                      "due_date": due.isoformat() if due else "", "state": state})
+                      "due_date": due.isoformat() if due else "", "state": state,
+                      "done_on": done.isoformat() if done else "",
+                      "days_late": (now - due).days if due and state == "due" else 0})
     return steps

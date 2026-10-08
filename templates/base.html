@@ -26,7 +26,15 @@
       content: ""; position: absolute; left: -1.45rem; top: .35rem;
       width: .75rem; height: .75rem; border-radius: 50%; background: var(--brand);
     }
-    .overdue { color: #dc3545; font-weight: 600; }
+    .overdue { color: #b02a37; font-weight: 600; }
+    .overdue-soft { color: #8a5a00; font-weight: 600; }
+    .badge { font-size: .75rem; }   /* Bootstrap's .75em lands at 10.5px inside small text */
+    /* Contrast on the grey page background (Bootstrap's defaults land at 4.2-4.3:1). */
+    :root { --bs-link-color-rgb: 10, 88, 202; --bs-link-hover-color-rgb: 8, 66, 152; }
+    .text-success { color: #146c43 !important; }
+    .btn-outline-secondary { --bs-btn-color: #4d5358; --bs-btn-border-color: #8a929a; }
+    .btn-outline-success { --bs-btn-color: #146c43; --bs-btn-border-color: #146c43; }
+    .btn-outline-primary { --bs-btn-color: #0a58ca; --bs-btn-border-color: #0a58ca; }
     td, th { vertical-align: middle; }
     @media (max-width: 576px) {
       .stat-value { font-size: 1.4rem; }

@@ -14,7 +14,7 @@
   .q-bar { display: none; }
   @media (max-width: 767.98px) {
     .q-page { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
-    .q-head h1 { font-size: 1.35rem; }
+    .q-head p { font-size: 1rem; }
     .q-head .btn { min-height: 44px; display: inline-flex; align-items: center; }
     .q-contact .btn { min-height: 48px; min-width: 48px; display: inline-flex; align-items: center;
                       justify-content: center; font-size: 1rem; padding: .5rem .9rem; }
@@ -37,7 +37,7 @@
 </style>
 <div class="q-page">
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 q-head">
-  <h1 class="mb-0">Task {{ pos + 1 }} of {{ total }}</h1>
+  <p class="mb-0 fw-semibold text-body-secondary">Task {{ pos + 1 }} of {{ total }}</p>
   <div class="d-flex gap-1 align-items-center flex-wrap">
     {% if pos > 0 %}
     <a href="{{ url_for('queue', pos=pos - 1) }}" id="k-prev" class="btn btn-outline-secondary">← Back</a>
@@ -66,7 +66,7 @@
 <div class="card p-3 mb-3">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <div>
-      <h4 class="mb-1"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h4>
+      <h1 class="h3 mb-1"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h1>
       <div class="small text-muted">
         {{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}
         {% if account.matching_properties %} · 🎯 {{ account.matching_properties }} matching{% endif %}
@@ -130,10 +130,10 @@
   {% for s in scripts %}
   <div class="card p-3 mb-3">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <h5 class="mb-0">
+      <h2 class="h5 mb-0">
         {% if s.template.kind == 'email' %}✉️{% elif s.template.kind == 'text' %}💬{% else %}📞{% endif %}
         {{ s.template.name }}
-      </h5>
+      </h2>
       {% if s.action_url %}
       <a {{ s.action_attrs }} class="btn btn-sm btn-primary">
         {% if s.template.kind == 'email' %}✉️ Write this email{% elif s.template.kind == 'text' %}💬 Text this{% else %}📞 Dial{% endif %}
@@ -182,7 +182,7 @@
   </div>
 {% else %}
   <div class="card p-3 mb-3">
-    <h5>Log what happened</h5>
+    <h2 class="h5">Log what happened</h2>
     <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
       <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
       <div class="row g-2">
