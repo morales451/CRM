@@ -32,6 +32,13 @@
         and email already written. On an iPhone or iPad they open the Gmail or Outlook app's
         new-message screen instead. Nothing is sent until you press Send.</div>
     </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label small mb-0 text-muted">Send CRM email from (Gmail address)</label>
+      <input name="send_from" type="email" class="form-control form-control-sm"
+             placeholder="{{ settings.get('my_email', '') or 'you@company.com' }}" value="{{ settings.get('send_from', '') }}">
+      <div class="small text-muted">On the computer, Gmail always opens this account's compose
+        window, even while your personal Gmail is signed in too. Blank uses the Email above.</div>
+    </div>
     <div class="col-12">
       <label class="form-label small mb-0 text-muted">Invoice payment terms (printed at the bottom of every invoice)</label>
       <textarea name="invoice_terms" rows="2" class="form-control form-control-sm">{{ settings.get('invoice_terms', '') }}</textarea>

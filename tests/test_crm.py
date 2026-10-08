@@ -3512,7 +3512,7 @@ check("links: no tel:/sms: links left in Google Voice mode",
       'href="tel:' not in _p and 'href="sms:' not in _p)
 _s = client.get(f"/accounts/{_lid}/scripts").data.decode()
 check("links: Gmail compose opens with the email written",
-      "https://mail.google.com/mail/?view=cm&amp;fs=1&amp;to=lena%40linkpref.com&amp;su=" in _s
+      "view=cm&amp;fs=1&amp;to=lena%40linkpref.com&amp;su=" in _s and "mail.google.com/mail/?" in _s
       and "&amp;body=" in _s and "Write this email" in _s)
 _IOS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"}
 _AND = {"User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile"}
@@ -3523,6 +3523,13 @@ check("links: on an iPhone, Gmail opens the Gmail app's compose with the draft",
 _s = client.get(f"/accounts/{_lid}/scripts", headers=_AND).data.decode()
 check("links: on Android, Gmail uses mailto with the draft (the app picker keeps it)",
       'href="mailto:lena@linkpref.com?subject=' in _s)
+client.post("/settings", data={"send_from": "crm.sales@gmail.com"})
+check("links: Gmail web compose opens in the CRM account, not whichever is signed in",
+      "mail.google.com/mail/?authuser=crm.sales%40gmail.com&amp;view=cm" in
+      client.get(f"/accounts/{_lid}/scripts").data.decode())
+client.post("/settings", data={"send_from": ""})
+check("links: blank send-from falls back to Your Info's email",
+      "authuser=" in client.get(f"/accounts/{_lid}/scripts").data.decode())
 client.post("/settings", data={"email_app": "outlook"})
 check("links: on an iPhone, Outlook opens the Outlook app's compose",
       "ms-outlook://compose?to=lena%40linkpref.com" in

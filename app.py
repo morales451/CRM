@@ -88,12 +88,14 @@ def _link_prefs() -> dict:
         conn = get_db()
         try:
             rows = dict(conn.execute(
-                "SELECT key, value FROM settings WHERE key IN ('call_app', 'email_app')"
+                "SELECT key, value FROM settings WHERE key IN "
+                "('call_app', 'email_app', 'send_from', 'my_email')"
             ).fetchall())
         finally:
             conn.close()
         g.link_prefs = {"call_app": rows.get("call_app") or "phone",
-                        "email_app": rows.get("email_app") or "default"}
+                        "email_app": rows.get("email_app") or "default",
+                        "send_from": (rows.get("send_from") or rows.get("my_email") or "").strip()}
     return g.link_prefs
 
 
@@ -156,7 +158,11 @@ def email_link(email: str, subject: str = "", body: str = "") -> tuple[str, bool
         # Android offers the installed mail apps for a mailto, draft intact.
         return f"mailto:{email}?{fields}", False
     if app_ == "gmail":
-        return ("https://mail.google.com/mail/?view=cm&fs=1&to=" + quote(email)
+        # authuser picks which signed-in Google account writes the email, so
+        # a browser also signed in to a personal Gmail never sends from it.
+        sender = _link_prefs()["send_from"]
+        who = f"authuser={quote(sender)}&" if sender else ""
+        return (f"https://mail.google.com/mail/?{who}view=cm&fs=1&to=" + quote(email)
                 + "&su=" + quote(subject) + "&body=" + quote(body)), True
     if app_ == "outlook":
         return ("https://outlook.office.com/mail/deeplink/compose?to=" + quote(email)
@@ -2866,7 +2872,8 @@ def save_settings():
         for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
                     "my_website", "my_address", "invoice_terms", "backup_dir",
                     "price_capsheet_base", "price_other_base", "price_add_15",
-                    "price_add_20", "daily_goal", "call_app", "email_app"):
+                    "price_add_20", "daily_goal", "call_app", "email_app",
+                    "send_from"):
             if key not in request.form:  # only touch submitted fields
                 continue
             value = request.form.get(key, "").strip()
