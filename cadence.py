@@ -5,9 +5,12 @@ Reminders are COMPUTED, not stored. A cadence step is "due" for an account when:
        prospecting_status == 'Prospecting' AND pipeline_milestone == 'None / In Cadence'
      and its clock has started (cadence_start is set — an empty cadence_start
      means it's still waiting in Research for someone to contact)
-  2. Its due date has arrived. Day 1 is the start date itself; every later
-     step is counted in BUSINESS days from there, so no step lands on a
-     weekend and Monday doesn't inherit Saturday's and Sunday's work.
+  2. Its due date has arrived. Step 1 is due on the start date itself. Each
+     later step is due the cadence's gap in BUSINESS days after the step
+     before it: after the day that step was done if it's done, otherwise after
+     its due date. So the clock resets from every action you take. Send Email 1
+     a week late and the call comes two business days after you sent it, not
+     overdue the moment you log it.
   3. No interaction of that step's type has been logged for the account
   4. The step has not been manually checked off (cadence_dismissals)
 
@@ -58,6 +61,51 @@ def step_due(start: date, day: int) -> date:
     the first email is due that Saturday. Every later step counts business
     days, so Day 3 of a Friday start is Tuesday, not Sunday."""
     return start if day <= 1 else add_business_days(start, day - 1)
+
+
+def schedule(start: date, done_on: dict[str, date]) -> dict[str, date]:
+    """Due date of every step, given when the finished steps were done.
+
+    Each step's due date is counted from the step before it: from the day
+    that step was done if it's done, otherwise from its own due date. With
+    nothing done this is the plain Day 1/3/6/8/10 business-day schedule.
+    """
+    dues: dict[str, date] = {}
+    anchor, prev_day = start, None
+    for day, step_type in CADENCE_STEPS:
+        due = start if prev_day is None else add_business_days(anchor, day - prev_day)
+        dues[step_type] = due
+        anchor = done_on.get(step_type, due)
+        prev_day = day
+    return dues
+
+
+def _done_dates(conn, ids: list[int]) -> dict[int, dict[str, date]]:
+    """{account_id: {step: date first done}} from logged steps and check-offs.
+    A call that hit a bad number didn't complete its step."""
+    out: dict[int, dict[str, date]] = {}
+    if not ids:
+        return out
+    ph = ",".join("?" * len(ids))
+    steps = [st for _, st in CADENCE_STEPS]
+    sph = ",".join("?" * len(steps))
+    rows = list(conn.execute(
+        f"SELECT account_id, interaction_type AS step, MIN(created_at) AS at "
+        f"FROM interactions WHERE account_id IN ({ph}) AND interaction_type IN ({sph}) "
+        f"AND COALESCE(outcome, '') != 'Bad number' GROUP BY account_id, interaction_type",
+        (*ids, *steps)))
+    rows += list(conn.execute(
+        f"SELECT account_id, step_type AS step, dismissed_at AS at "
+        f"FROM cadence_dismissals WHERE account_id IN ({ph})", ids))
+    for r in rows:
+        try:
+            d = _parse_date(r["at"])
+        except (TypeError, ValueError):
+            continue
+        steps_done = out.setdefault(r["account_id"], {})
+        if r["step"] not in steps_done or d < steps_done[r["step"]]:
+            steps_done[r["step"]] = d
+    return out
 
 
 def has_contact(acct) -> bool:
@@ -182,11 +230,13 @@ def get_due_reminders(conn, account_id: int | None = None,
         f"WHERE account_id IN ({ph})", ids):
         dismissed.add((row["account_id"], row["step_type"]))
 
+    done = _done_dates(conn, ids)
     reminders = []
     for acct in accounts:
         start = _parse_date(acct["cadence_start"])
+        dues = schedule(start, done.get(acct["id"], {}))
         for day, step_type in CADENCE_STEPS:
-            due = step_due(start, day)
+            due = dues[step_type]
             if due > now:
                 continue
             key = (acct["id"], step_type)
@@ -255,9 +305,11 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
         "SELECT step_type FROM cadence_dismissals WHERE account_id = ?",
         (account_id,))}
 
+    dues = (schedule(start, _done_dates(conn, [account_id]).get(account_id, {}))
+            if started else {})
     steps = []
     for day, step_type in CADENCE_STEPS:
-        due = step_due(start, day) if started else None
+        due = dues.get(step_type)
         if step_type in logged:
             state = "done"
         elif step_type in dismissed:

@@ -102,28 +102,41 @@ check("cadence: the row says how far behind the account is",
       acme_rems[0]["steps_behind"] == 4, acme_rems[0])
 check("cadence: overdue days computed", acme_rems[0]["days_overdue"] == 9, acme_rems[0])
 
-# ---- 3. Logging an interaction clears that step only (persistence rule)
+# ---- 3. Logging a step clears it, and the clock resets from that day
+# Email 1 was due 10-05; it's sent today (Wed 10-14), nine days late.
 conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
-             "VALUES (?,?,?,?)", (acme["id"], "Email 1", "sent intro", db.now_iso()))
+             "VALUES (?,?,?,?)", (acme["id"], "Email 1", "sent intro", "2026-10-14T09:00:00-05:00"))
 conn.commit()
+check("cadence: right after a late step, nothing is overdue",
+      cadence.get_due_reminders(conn, acme["id"]) == [],
+      cadence.get_due_reminders(conn, acme["id"]))
+_prog = {p["step_type"]: p for p in cadence.get_cadence_progress(conn, acme["id"])}
+check("cadence: the next step is due the gap AFTER the action (Wed + 2 business days = Fri)",
+      _prog["Call & Text"]["due_date"] == "2026-10-16" and _prog["Call & Text"]["state"] == "upcoming",
+      _prog["Call & Text"])
+check("cadence: later steps chain on (Call 2 three business days later, then +2, +2)",
+      [_prog[s]["due_date"] for s in ("Call 2", "Email 2", "Breakup Email")]
+      == ["2026-10-21", "2026-10-23", "2026-10-27"],
+      [_prog[s]["due_date"] for s in ("Call 2", "Email 2", "Breakup Email")])
+cadence.today = lambda: date(2026, 10, 16)
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
-check("cadence: logging a step brings the next one forward",
+check("cadence: the next step comes due on its new date",
       [r["step_type"] for r in acme_rems] == ["Call & Text"]
-      and acme_rems[0]["steps_behind"] == 3, acme_rems)
-check("cadence: the later steps are still outstanding underneath",
-      [r["step_type"] for r in cadence.get_due_reminders(conn, acme["id"], collapse=False)]
-      == ["Call & Text", "Call 2", "Email 2"])
+      and acme_rems[0]["steps_behind"] == 1 and acme_rems[0]["days_overdue"] == 0, acme_rems)
 
-# ---- 4. Manual dismissal clears a step
+# ---- 4. Manual dismissal clears a step, and resets the clock the same way
 conn.execute("INSERT INTO cadence_dismissals (account_id, step_type, dismissed_at) "
-             "VALUES (?,?,?)", (acme["id"], "Call & Text", db.now_iso()))
+             "VALUES (?,?,?)", (acme["id"], "Call & Text", "2026-10-16T10:00:00-05:00"))
 conn.commit()
+check("cadence: skipping a step clears it without making the next one overdue",
+      cadence.get_due_reminders(conn, acme["id"]) == [])
+cadence.today = lambda: date(2026, 10, 21)
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
 check("cadence: skipping a step also moves to the next",
       [r["step_type"] for r in acme_rems] == ["Call 2"], acme_rems)
-check("cadence: skip and log leave the same steps outstanding",
+check("cadence: never done on time -> steps stack as before",
       [r["step_type"] for r in cadence.get_due_reminders(conn, acme["id"], collapse=False)]
-      == ["Call 2", "Email 2"])
+      == ["Call 2"])
 
 cadence.today = _real_cadence_today
 
@@ -2472,10 +2485,12 @@ _one = _ids[0]
 _pile.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
               "created_at) VALUES (?,?,?,?)", (_one, "Email 1", "sent", db.now_iso()))
 _pile.commit()
-_next = cadence.get_due_reminders(_pile, account_id=_one)
-check("pile-up: logging the step promotes the next one",
-      len(_next) == 1 and _next[0]["step_type"] == "Call & Text"
-      and _next[0]["steps_behind"] == 4, _next)
+check("pile-up: working a backlogged account clears it (the clock restarts today)",
+      cadence.get_due_reminders(_pile, account_id=_one) == [])
+_prog = {p["step_type"]: p for p in cadence.get_cadence_progress(_pile, _one)}
+check("pile-up: ...and its next step is two business days out",
+      _prog["Call & Text"]["due_date"]
+      == cadence.add_business_days(cadence.today(), 2).isoformat(), _prog["Call & Text"])
 _pile.close()
 
 r = client.get("/")
@@ -2831,8 +2846,9 @@ def _call_acct(name):
         "created_at, updated_at) VALUES (?,'Kim','Ode','k@x.com','713-555-4000',"
         "'Unknown','Prospecting','None / In Cadence',?,?,?)",
         (name, _two_bd_ago.isoformat(), db.now_iso(), db.now_iso())).lastrowid
+    # Email 1 went out on the start day, so the call (two business days on) is due today.
     _oc.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
-                "VALUES (?,?,?,?)", (i, "Email 1", "", db.now_iso()))
+                "VALUES (?,?,?,?)", (i, "Email 1", "", _two_bd_ago.isoformat() + "T09:00:00"))
     _oc.commit()
     return i
 
