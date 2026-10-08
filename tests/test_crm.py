@@ -3534,6 +3534,13 @@ client.post("/settings", data={"email_app": "outlook"})
 check("links: on an iPhone, Outlook opens the Outlook app's compose",
       "ms-outlook://compose?to=lena%40linkpref.com" in
       client.get(f"/accounts/{_lid}/scripts", headers=_IOS).data.decode())
+client.post("/settings", data={"email_app": "gmail", "email_app_phone": "default"})
+check("links: a phone-only choice sends the iPhone to Mail (mailto) with the draft",
+      'href="mailto:lena@linkpref.com?subject=' in
+      client.get(f"/accounts/{_lid}/scripts", headers=_IOS).data.decode())
+check("links: ...while the computer keeps Gmail",
+      "mail.google.com/mail/?" in client.get(f"/accounts/{_lid}/scripts").data.decode())
+client.post("/settings", data={"email_app_phone": "same"})
 client.post("/settings", data={"email_app": "outlook", "call_app": "bogus"})
 _s = client.get(f"/accounts/{_lid}/scripts").data.decode()
 check("links: Outlook web compose works too", "outlook.office.com/mail/deeplink/compose?to=" in _s)

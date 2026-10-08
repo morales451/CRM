@@ -33,6 +33,14 @@
         new-message screen instead. Nothing is sent until you press Send.</div>
     </div>
     <div class="col-12 col-md-6">
+      <label class="form-label small mb-0 text-muted">✉️ On a phone, Email buttons open</label>
+      <select name="email_app_phone" class="form-select form-select-sm">
+        {% for k, v in PHONE_EMAIL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('email_app_phone', 'same') == k }}>{{ v }}</option>{% endfor %}
+      </select>
+      <div class="small text-muted">Two Gmails on your iPhone? Add only the CRM account to Apple's Mail
+        app, make Mail the iPhone's default mail app, and choose "Phone's default mail app" here.</div>
+    </div>
+    <div class="col-12 col-md-6">
       <label class="form-label small mb-0 text-muted">Send CRM email from (Gmail address)</label>
       <input name="send_from" type="email" class="form-control form-control-sm"
              placeholder="{{ settings.get('my_email', '') or 'you@company.com' }}" value="{{ settings.get('send_from', '') }}">

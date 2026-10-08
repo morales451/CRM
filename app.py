@@ -80,6 +80,11 @@ def clean_sms(phone):
 CALL_APPS = {"phone": "Phone's own dialer", "google_voice": "Google Voice"}
 EMAIL_APPS = {"default": "Default mail app", "gmail": "Gmail (in the browser)",
               "outlook": "Outlook.com / Microsoft 365 (in the browser)"}
+# Phones can follow a different choice: e.g. Gmail on the computer, but the
+# iPhone's Mail app (holding only the CRM account) on the phone.
+PHONE_EMAIL_APPS = {"same": "Same as the computer",
+                    "default": "Phone's default mail app (e.g. Apple Mail)",
+                    "gmail": "Gmail app", "outlook": "Outlook app"}
 
 
 def _link_prefs() -> dict:
@@ -89,12 +94,13 @@ def _link_prefs() -> dict:
         try:
             rows = dict(conn.execute(
                 "SELECT key, value FROM settings WHERE key IN "
-                "('call_app', 'email_app', 'send_from', 'my_email')"
+                "('call_app', 'email_app', 'email_app_phone', 'send_from', 'my_email')"
             ).fetchall())
         finally:
             conn.close()
         g.link_prefs = {"call_app": rows.get("call_app") or "phone",
                         "email_app": rows.get("email_app") or "default",
+                        "email_app_phone": rows.get("email_app_phone") or "same",
                         "send_from": (rows.get("send_from") or rows.get("my_email") or "").strip()}
     return g.link_prefs
 
@@ -144,12 +150,15 @@ def email_link(email: str, subject: str = "", body: str = "") -> tuple[str, bool
     """(url, opens_in_new_tab) for writing to `email` in the chosen mail app."""
     if not email:
         return "", False
-    app_ = _link_prefs()["email_app"]
+    prefs = _link_prefs()
+    device = _device()
+    app_ = prefs["email_app"]
+    if device != "desktop" and prefs["email_app_phone"] != "same":
+        app_ = prefs["email_app_phone"]
     fields = "subject=" + quote(subject) + "&body=" + quote(body)
     # On a phone the web compose page is handed to the Gmail/Outlook APP,
     # which opens on the inbox and drops the draft. Those apps have their
     # own compose links that keep everything, so phones get those instead.
-    device = _device()
     if app_ == "gmail" and device == "ios":
         return f"googlegmail:///co?to={quote(email)}&{fields}", False
     if app_ == "outlook" and device == "ios":
@@ -2838,6 +2847,7 @@ def templates_page():
         conn.close()
     return render_template("templates.html", templates=templates,
                            CALL_APPS=CALL_APPS, EMAIL_APPS=EMAIL_APPS,
+                           PHONE_EMAIL_APPS=PHONE_EMAIL_APPS,
                            settings=settings, pricing=pricing,
                            ROOF_TYPES=warranty_calc.ROOF_TYPES,
                            WARRANTY_YEARS=warranty_calc.WARRANTY_YEARS,
@@ -2873,12 +2883,13 @@ def save_settings():
                     "my_website", "my_address", "invoice_terms", "backup_dir",
                     "price_capsheet_base", "price_other_base", "price_add_15",
                     "price_add_20", "daily_goal", "call_app", "email_app",
-                    "send_from"):
+                    "email_app_phone", "send_from"):
             if key not in request.form:  # only touch submitted fields
                 continue
             value = request.form.get(key, "").strip()
             if key == "call_app" and value not in CALL_APPS \
-                    or key == "email_app" and value not in EMAIL_APPS:
+                    or key == "email_app" and value not in EMAIL_APPS \
+                    or key == "email_app_phone" and value not in PHONE_EMAIL_APPS:
                 continue
             if key == "daily_goal":
                 count = _parse_int(value, on_error=_MISSING)
