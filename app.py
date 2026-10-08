@@ -2796,7 +2796,7 @@ PLACEHOLDER_LABELS = {
 }
 
 # Sign-off lines a template may end with. With a signature set they're
-# dropped, so "Best,\n{my_name}" becomes "Best,\n<signature>" rather than
+# dropped, so "Best,\n{my_name}" becomes "Best,\n\n<signature>" rather than
 # the name twice.
 _SIGNOFF_LINE = re.compile(r"^\s*(\{my_(name|title|company|phone|website|email)\}\s*)+$")
 
@@ -2814,7 +2814,8 @@ def with_signature(body: str, settings: dict) -> str:
     lines = body.rstrip().split("\n")
     while lines and _SIGNOFF_LINE.match(lines[-1]):
         lines.pop()
-    return "\n".join(lines).rstrip() + "\n" + sig
+    # A blank line between the sign-off ("Best,") and the signature.
+    return "\n".join(lines).rstrip() + "\n\n" + sig
 
 
 def _get_settings(conn) -> dict:

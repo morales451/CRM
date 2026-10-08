@@ -3560,7 +3560,7 @@ from app import with_signature
 _sg = {"email_signature": "{my_name}\n{my_title}\n{my_company}"}
 check("signature: replaces the closing name lines once",
       with_signature("Hi,\n\nBest,\n{my_name}\n{my_company}\n{my_phone}", _sg)
-      == "Hi,\n\nBest,\n{my_name}\n{my_title}\n{my_company}")
+      == "Hi,\n\nBest,\n\n{my_name}\n{my_title}\n{my_company}")
 check("signature: {signature} places it explicitly",
       with_signature("Hi\n{signature}\nPS", _sg) == "Hi\n{my_name}\n{my_title}\n{my_company}\nPS")
 check("signature: blank means none", with_signature("Best,\n{my_name}", {}) == "Best,\n{my_name}")
