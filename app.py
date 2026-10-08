@@ -775,14 +775,18 @@ def dismiss_reminder():
         if not _account_exists(conn, account_id):
             flash("That account no longer exists.", "danger")
             return redirect(request.form.get("next") or url_for("dashboard"))
-        conn.execute(
+        cur = conn.execute(
             "INSERT OR IGNORE INTO cadence_dismissals "
             "(account_id, step_type, dismissed_at) VALUES (?,?,?)",
             (account_id, step_type, now_iso()))
+        if cur.rowcount:
+            # One tap sits right next to Log, so a mis-tap must be reversible.
+            _offer_undo(conn, f"skipping “{step_type}”",
+                        [undo_module.delete_op("cadence_dismissals", [cur.lastrowid])])
         conn.commit()
     finally:
         conn.close()
-    flash(f"Checked off “{step_type}”.", "success")
+    flash(f"Skipped “{step_type}”.", "success")
     return redirect(request.form.get("next") or url_for("dashboard"))
 
 
@@ -814,7 +818,10 @@ def set_followup(account_id):
     """Set, snooze, or clear an account's follow-up reminder."""
     conn = get_db()
     try:
-        _account_or_404(conn, account_id)
+        acct = _account_or_404(conn, account_id)
+        undo_ops = [undo_module.update_op("accounts", [{
+            "id": acct["id"], "next_follow_up": acct["next_follow_up"],
+            "follow_up_note": acct["follow_up_note"]}])]
         if request.form.get("clear"):
             conn.execute(
                 "UPDATE accounts SET next_follow_up='', follow_up_note='', "
@@ -840,6 +847,7 @@ def set_followup(account_id):
                     "UPDATE accounts SET next_follow_up=?, updated_at=? WHERE id=?",
                     (due, now_iso(), account_id))
             flash(f"Follow-up set for {due}.", "success")
+        _offer_undo(conn, f"changing the follow-up for {acct['company_name']}", undo_ops)
         conn.commit()
     finally:
         conn.close()

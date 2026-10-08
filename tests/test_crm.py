@@ -195,7 +195,7 @@ check("POST log interaction", r.status_code == 200 and b"walked roof" in r.data)
 r = client.post("/reminders/quicklog", data={"account_id": 2, "step_type": "Email 1"},
                 follow_redirects=True)
 check("POST quicklog clears reminder", r.status_code == 200 and b"Bayou Holdings" not in
-      client.get("/").data.split(b"Recent Activity")[0])
+      client.get("/").data.split(b"Recent activity")[0])
 r = client.post(f"/accounts/{tid}/restart-cadence", follow_redirects=True)
 check("POST restart cadence", r.status_code == 200)
 conn = db.get_db()
@@ -1128,8 +1128,8 @@ check("task order: defaults to priority", app_mod._task_order(conn) == "priority
 conn.close()
 r = client.get("/")
 html = r.data.decode()
-check("dashboard: priority toggle + matching column", "🎯 Priority" in html
-      and "Buildings in today's tasks" in html)
+check("dashboard: priority toggle + matching column", "Biggest first" in html
+      and "matching buildings in today" in html)
 check("dashboard: big portfolio listed before tiny one",
       html.index("Big Portfolio Co") < html.index("Tiny Single Co"))
 check("dashboard: top priority card", "Top Priority Accounts" in html
@@ -1874,12 +1874,12 @@ check("volume: the test really is oversized",
 
 r = client.get("/")
 _html = r.data.decode()
+# Each task is drawn twice (desktop table row + phone card), plus Next up.
 check("dashboard: draws at most DASHBOARD_ROWS reminder rows",
-      _html.count('name="step_type"') <= _app.DASHBOARD_ROWS * 2,
+      _html.count('name="step_type"') <= _app.DASHBOARD_ROWS * 2 + 1,
       _html.count('name="step_type"'))
 check("dashboard: still reports the true total",
-      f"of <strong>{_due}</strong> due reminders" in _html
-      or f">{_due}</strong> due reminders" in _html, _due)
+      f"<strong>{_due}</strong>" in _html, _due)
 check("dashboard: points at the Queue for the rest",
       "Work the Queue" in _html and "Show all" in _html)
 check("dashboard: the page stays small", len(r.data) < 200_000, f"{len(r.data)} bytes")
@@ -3867,6 +3867,30 @@ check("queue phone: a thumb bar carries this step's actions",
 check("queue phone: call steps jump to big outcome buttons",
       'id="outcomes"' in _qq and "q-outcomes" in _qq if "How did the call go" in _qq else True)
 check("queue phone: 16px inputs so iPhone doesn't zoom", "font-size: 16px" in _qq)
+
+# ---- 69. Dashboard: Next up, phone cards, undoable Skip and snooze
+_dh = client.get("/").data.decode()
+check("dashboard: leads with Next up and the day's progress", "Next up" in _dh and "day-progress" in _dh)
+check("dashboard: phone gets task cards with Call and Log", 'class="task-card' in _dh)
+check("dashboard: secondary sections are tucked away", '<details class="more' in _dh)
+_ud = db.get_db()
+_uda = _ud.execute(
+    "INSERT INTO accounts (company_name, first_name, email, preferred_contact, prospecting_status,"
+    " pipeline_milestone, cadence_start, next_follow_up, follow_up_note, created_at, updated_at)"
+    " VALUES ('Undo Skip Co','Uma','u@x.com','Unknown','Prospecting','None / In Cadence',?,?,"
+    "'call back',?,?)", (date.today().isoformat(), date.today().isoformat(), _lts, _lts)).lastrowid
+_ud.commit()
+client.post("/reminders/dismiss", data={"account_id": str(_uda), "step_type": "Email 1"})
+check("undo skip: the step is skipped", not cadence.get_due_reminders(_ud, account_id=_uda))
+client.post("/undo/" + str(_ud.execute("SELECT MAX(id) FROM undo_log").fetchone()[0]))
+check("undo skip: undo brings the step back",
+      [x["step_type"] for x in cadence.get_due_reminders(_ud, account_id=_uda)] == ["Email 1"])
+client.post(f"/accounts/{_uda}/followup", data={"days": "3"})
+client.post("/undo/" + str(_ud.execute("SELECT MAX(id) FROM undo_log").fetchone()[0]))
+check("undo snooze: the follow-up date and note come back",
+      tuple(_ud.execute("SELECT next_follow_up, follow_up_note FROM accounts WHERE id=?",
+                        (_uda,)).fetchone()) == (date.today().isoformat(), "call back"))
+_ud.execute("DELETE FROM accounts WHERE id=?", (_uda,)); _ud.commit(); _ud.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
