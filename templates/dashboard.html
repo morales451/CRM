@@ -222,8 +222,7 @@
         <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a>
         {% if a.matching_properties %}<span class="badge text-bg-warning">🎯 {{ a.matching_properties }}</span>{% endif %}
       </span>
-      <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ a.company_name)|urlencode }}"
-         target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary"
+      <a {{ zoominfo_link(a) }} class="btn btn-sm btn-outline-secondary"
          title="Find people at this company on ZoomInfo">🔎 ZoomInfo</a>
     </li>
     {% endfor %}

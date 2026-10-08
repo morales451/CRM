@@ -401,6 +401,8 @@ CONTACT_COMPANY_SYNONYMS = {
     "email_domain": ["emaildomain"],
     "hq_phone": ["companyhqphone", "hqphone", "companyphone", "mainphone",
                  "companymainphone"],
+    "zoominfo_url": ["zoominfocompanyprofileurl"],
+    "zoominfo_id": ["zoominfocompanyid"],
 }
 
 # Free mailbox providers. Two people on gmail.com are not colleagues, so
@@ -435,10 +437,26 @@ def domain_of(value) -> str:
     return "" if v in _PUBLIC_MAIL_DOMAINS else v
 
 
+_ZI_COMPANY_RE = re.compile(r"/profile/company/(-?\d+)")
+ZOOMINFO_COMPANY_URL = "https://app.zoominfo.com/#/apps/profile/company/{}"
+
+
+def zoominfo_company_url(value) -> str:
+    """The company's ZoomInfo profile URL, from a profile URL, a pasted
+    ZoomInfo page (its company link) or a bare ZoomInfo Company ID."""
+    v = _clean(value)
+    m = _ZI_COMPANY_RE.search(v)
+    if m:
+        return ZOOMINFO_COMPANY_URL.format(m.group(1))
+    if re.fullmatch(r"\d{4,}", v):
+        return ZOOMINFO_COMPANY_URL.format(v)
+    return ""
+
+
 # Account columns a contact import can change, snapshotted for its undo.
 _UNDO_ACCOUNT_COLS = ("first_name", "last_name", "title", "email", "work_phone",
                       "mobile_phone", "linkedin_url", "seniority", "notes",
-                      "website", "cadence_start", "updated_at")
+                      "website", "zoominfo_url", "cadence_start", "updated_at")
 
 
 def import_contacts(conn, file_storage, create_missing: bool = False,
@@ -538,6 +556,8 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
             skipped_blank += 1
             continue
         website = company_field("website")
+        zi_url = (zoominfo_company_url(company_field("zoominfo_url"))
+                  or zoominfo_company_url(company_field("zoominfo_id")))
         row_domains = [d for d in (domain_of(company_field("email_domain")),
                                    domain_of(website), domain_of(person["email"]))
                        if d]
@@ -572,10 +592,11 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
             # Opened in Research; the contact attached below starts its clock.
             cur = conn.execute(
                 """INSERT INTO accounts
-                   (company_name, website, preferred_contact, prospecting_status,
-                    pipeline_milestone, cadence_start, created_at, updated_at)
-                   VALUES (?, ?, 'Unknown', 'Prospecting', 'None / In Cadence', '', ?, ?)""",
-                (company, website, ts, ts))
+                   (company_name, website, zoominfo_url, preferred_contact,
+                    prospecting_status, pipeline_milestone, cadence_start,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, 'Unknown', 'Prospecting', 'None / In Cadence', '', ?, ?)""",
+                (company, website, zi_url, ts, ts))
             account_id = cur.lastrowid
             accounts_by_key[key] = account_id
             names[account_id] = company
@@ -594,18 +615,23 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
             (person["email"] and (p["email"] or "").lower() == person["email"].lower())
             or ((p["first_name"] or "").lower(), (p["last_name"] or "").lower()) == name_key
             for p in existing_people)
-        if is_dupe:
-            skipped_dupe += 1
-            continue
-
+        # Company details are saved even when the person is a duplicate, so
+        # re-uploading an old export fills in what the account is missing.
         if account_id not in before and account_id not in new_accounts:
             before[account_id] = {"id": account_id,
                                   **{c: acct[c] for c in _UNDO_ACCOUNT_COLS}}
+        if zi_url and not (acct["zoominfo_url"] or "").strip():
+            conn.execute("UPDATE accounts SET zoominfo_url=? WHERE id=?",
+                         (zi_url, account_id))
         if website and not (acct["website"] or "").strip():
             conn.execute("UPDATE accounts SET website=? WHERE id=?",
                          (website, account_id))
             if domain_of(website):
                 active_domains.setdefault(domain_of(website), set()).add(account_id)
+        if is_dupe:
+            skipped_dupe += 1
+            continue
+
         has_primary = any(acct[c] for c in ("first_name", "last_name", "email"))
         if not has_primary:
             # The person's direct phone beats the company main line; keep the

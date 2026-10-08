@@ -3603,6 +3603,55 @@ check("signature: editable on the Templates page", 'name="email_signature"' in
       client.get("/templates").data.decode())
 _gc.execute("DELETE FROM accounts WHERE id=?", (_gid,)); _gc.commit(); _gc.close()
 
+# ---- 64. ZoomInfo button opens the company's own ZoomInfo page
+check("zi link: built from a profile URL, an ID or a pasted page",
+      importer.zoominfo_company_url("https://app.zoominfo.com/#/apps/profile/company/1000001?profileId=1000001")
+      == "https://app.zoominfo.com/#/apps/profile/company/1000001"
+      and importer.zoominfo_company_url("1000001") == "https://app.zoominfo.com/#/apps/profile/company/1000001"
+      and importer.zoominfo_company_url("[Harlow](https://app.zoominfo.com/#/apps/profile/company/77?x=1)")
+      .endswith("/company/77")
+      and importer.zoominfo_company_url("Harlow Enterprises") == "")
+_zk = db.get_db()
+_zid = _zk.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, pipeline_milestone,"
+    " cadence_start, created_at, updated_at) VALUES ('ZI Link Co','Unknown','Prospecting',"
+    "'None / In Cadence','',?,?)", (_lts, _lts)).lastrowid
+_zk.commit()
+_p = client.get(f"/accounts/{_zid}").data.decode()
+check("zi link: unknown -> a ZoomInfo search for the company",
+      "google.com/search?q=site%3Azoominfo.com%20ZI%20Link%20Co" in _p)
+_csv_zi = ("Company Name,First Name,Last Name,Email Address,ZoomInfo Company ID,"
+           "ZoomInfo Company Profile URL\r\nZI Link Co,Zed,Eye,zed@zilink.com,555,"
+           "https://app.zoominfo.com/#/apps/profile/company/555\r\n").encode()
+client.post("/import/contacts", data={"file": (io.BytesIO(_csv_zi), "zi.csv")},
+            content_type="multipart/form-data")
+_p = client.get(f"/accounts/{_zid}").data.decode()
+check("zi link: a ZoomInfo upload saves the company page and the button opens it",
+      'href="https://app.zoominfo.com/#/apps/profile/company/555" target="_blank"' in _p
+      and "Open this company in ZoomInfo" in _p)
+_zk.execute("UPDATE accounts SET zoominfo_url='' WHERE id=?", (_zid,)); _zk.commit()
+client.post("/import/contacts", data={"file": (io.BytesIO(_csv_zi), "zi.csv")},
+            content_type="multipart/form-data")
+check("zi link: re-uploading an old export backfills it (person skipped as a duplicate)",
+      _zk.execute("SELECT zoominfo_url FROM accounts WHERE id=?", (_zid,)).fetchone()[0]
+      .endswith("/company/555"))
+_zid2 = _zk.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, pipeline_milestone,"
+    " cadence_start, created_at, updated_at) VALUES ('ZI Paste Co','Unknown','Prospecting',"
+    "'None / In Cadence','',?,?)", (_lts, _lts)).lastrowid
+_zk.commit()
+client.post(f"/accounts/{_zid2}/contacts/add", data={
+    "paste": (Path(__file__).resolve().parent / "fixtures" / "zoominfo_page.txt").read_text()})
+check("zi link: pasting a ZoomInfo page saves the company page too",
+      _zk.execute("SELECT zoominfo_url FROM accounts WHERE id=?", (_zid2,)).fetchone()[0]
+      == "https://app.zoominfo.com/#/apps/profile/company/1000001")
+client.post(f"/accounts/{_zid2}/edit", data={
+    "company_name": "ZI Paste Co", "zoominfo_url": "https://app.zoominfo.com/#/apps/profile/company/99?foo=1"})
+check("zi link: editable on the account (and tidied)",
+      _zk.execute("SELECT zoominfo_url FROM accounts WHERE id=?", (_zid2,)).fetchone()[0]
+      == "https://app.zoominfo.com/#/apps/profile/company/99")
+_zk.execute("DELETE FROM accounts WHERE id IN (?,?)", (_zid, _zid2)); _zk.commit(); _zk.close()
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

@@ -28,8 +28,7 @@
     {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary">✉️ Email</a>
     {% else %}<span class="btn btn-sm btn-outline-secondary disabled" title="Add an email in Account Info below">✉️ No email on file</span>{% endif %}
     <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-warning" title="Personalized call & email scripts">📄 Scripts</a>
-    <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ account.company_name)|urlencode }}"
-       target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find people at this company on ZoomInfo">🔎 ZoomInfo</a>
+    <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary" title="{{ 'Open this company in ZoomInfo' if account.zoominfo_url else 'Search ZoomInfo for this company' }}">🔎 ZoomInfo</a>
     <a href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}"
        target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find this company on LinkedIn">in</a>
   </div>
@@ -49,6 +48,11 @@
           <div class="col-5">
             <label class="form-label small mb-0" title="Contact uploads match people to this account by its web domain">Website</label>
             <input name="website" class="form-control form-control-sm" value="{{ account.website or '' }}" placeholder="company.com">
+          </div>
+          <div class="col-12">
+            <label class="form-label small mb-0" title="The 🔎 ZoomInfo button opens this page">ZoomInfo company page</label>
+            <input name="zoominfo_url" class="form-control form-control-sm" value="{{ account.zoominfo_url or '' }}"
+                   placeholder="Filled in from ZoomInfo uploads and pastes, or paste the company page's address here">
           </div>
           <div class="col-6">
             <label class="form-label small mb-0">First Name</label>

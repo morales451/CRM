@@ -181,6 +181,25 @@ def email_link(email: str, subject: str = "", body: str = "") -> tuple[str, bool
 
 
 @app.template_global()
+def zoominfo_link(acct):
+    """The account's own ZoomInfo company page once it's known (saved from a
+    ZoomInfo export or paste); until then, a search for the company."""
+    url = (acct["zoominfo_url"] if "zoominfo_url" in acct.keys() else "") or ""
+    if url:
+        return _attrs(url, True)
+    return _attrs("https://www.google.com/search?q="
+                  + quote("site:zoominfo.com " + acct["company_name"]), True)
+
+
+def _save_zoominfo_url(conn, account_id, paste: str) -> None:
+    """Remember the company's ZoomInfo page from a pasted ZoomInfo page."""
+    url = importer.zoominfo_company_url(paste or "")
+    if url:
+        conn.execute("UPDATE accounts SET zoominfo_url=? WHERE id=? "
+                     "AND COALESCE(zoominfo_url, '') = ''", (url, account_id))
+
+
+@app.template_global()
 def dial(phone):
     """Attributes for a Call link: {{ dial(phone) }} inside <a ...>."""
     return _attrs(*phone_link(phone, "call"))
@@ -401,6 +420,8 @@ def _account_fields_from_form(form, previous=None):
         "linkedin_url": form.get("linkedin_url", "").strip(),
         "seniority": form.get("seniority", "").strip(),
         "website": form.get("website", "").strip(),
+        "zoominfo_url": (importer.zoominfo_company_url(form.get("zoominfo_url", ""))
+                         or form.get("zoominfo_url", "").strip()),
         "preferred_contact": form.get("preferred_contact", "Unknown"),
         "notes": form.get("notes", "").strip(),
         "prospecting_status": form.get("prospecting_status", "Prospecting"),
@@ -560,7 +581,7 @@ def dashboard():
                ORDER BY i.created_at DESC, i.id DESC LIMIT 10""").fetchall()
         # Who to look up next: research accounts, biggest portfolios first.
         research_top = conn.execute(
-            f"SELECT id, company_name, matching_properties, work_phone "
+            f"SELECT id, company_name, matching_properties, work_phone, zoominfo_url "
             f"FROM accounts WHERE {cadence.RESEARCH_SQL} "
             f"ORDER BY COALESCE(matching_properties, 0) DESC, "
             f"company_name COLLATE NOCASE LIMIT 6").fetchall()
@@ -2565,6 +2586,7 @@ def add_contact(account_id):
                 f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, created_at) "
                 f"VALUES ({','.join('?' * (len(CONTACT_COLS) + 2))})",
                 (account_id, *(person[c] for c in CONTACT_COLS), now_iso()))
+        _save_zoominfo_url(conn, account_id, paste)
         started = cadence.start_cadence_if_ready(conn, account_id)
         conn.commit()
     finally:
@@ -2664,6 +2686,9 @@ def roster_contacts(account_id):
                         "SELECT first_name, last_name FROM contacts WHERE account_id=?",
                         (account_id,))}
         existing.add((acct["first_name"].lower(), acct["last_name"].lower()))
+        # The one thing a preview keeps: where this company lives in ZoomInfo.
+        _save_zoominfo_url(conn, account_id, paste)
+        conn.commit()
     finally:
         conn.close()
     for person in people:

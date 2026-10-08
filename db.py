@@ -185,6 +185,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     linkedin_url TEXT DEFAULT '',          -- ZoomInfo/LinkedIn profile of the primary contact
     seniority TEXT DEFAULT '',             -- ZoomInfo "Management Level" (C-Level, VP-Level, ...)
     website TEXT DEFAULT '',               -- company website; contact imports match on its domain
+    zoominfo_url TEXT DEFAULT '',          -- the company's ZoomInfo profile page
     preferred_contact TEXT NOT NULL DEFAULT 'Unknown',
     notes TEXT DEFAULT '',
     prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
@@ -539,6 +540,8 @@ def _migrate(conn) -> None:
     for name in ("linkedin_url", "seniority"):
         if name not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} TEXT DEFAULT ''")
+    if "zoominfo_url" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN zoominfo_url TEXT DEFAULT ''")
     if "website" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN website TEXT DEFAULT ''")
         # Imports used to file the website as a "Website: ..." line in Notes.
