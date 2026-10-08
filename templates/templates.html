@@ -14,6 +14,23 @@
     <div class="col-6 col-md-4"><input name="my_email" type="email" class="form-control form-control-sm" placeholder="Email" value="{{ settings.get('my_email', '') }}"></div>
     <div class="col-6 col-md-3"><input name="my_website" class="form-control form-control-sm" placeholder="Website" value="{{ settings.get('my_website', '') }}"></div>
     <div class="col-12 col-md-5"><input name="my_address" class="form-control form-control-sm" placeholder="Business address (shows on invoices)" value="{{ settings.get('my_address', '') }}"></div>
+    <div class="col-12 col-md-6">
+      <label class="form-label small mb-0 text-muted">📞 Call and 💬 Text buttons use</label>
+      <select name="call_app" class="form-select form-select-sm">
+        {% for k, v in CALL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('call_app', 'phone') == k }}>{{ v }}</option>{% endfor %}
+      </select>
+      <div class="small text-muted">Google Voice opens voice.google.com ready to call or text the number,
+        from your Google Voice number. An extension has to be keyed in yourself, and texts open
+        empty, so use the script's Copy button.</div>
+    </div>
+    <div class="col-12 col-md-6">
+      <label class="form-label small mb-0 text-muted">✉️ Email buttons open</label>
+      <select name="email_app" class="form-select form-select-sm">
+        {% for k, v in EMAIL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('email_app', 'default') == k }}>{{ v }}</option>{% endfor %}
+      </select>
+      <div class="small text-muted">Gmail and Outlook open a new message in a browser tab with the subject
+        and email already written. Nothing is sent until you press Send.</div>
+    </div>
     <div class="col-12">
       <label class="form-label small mb-0 text-muted">Invoice payment terms (printed at the bottom of every invoice)</label>
       <textarea name="invoice_terms" rows="2" class="form-control form-control-sm">{{ settings.get('invoice_terms', '') }}</textarea>

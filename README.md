@@ -179,6 +179,12 @@ computer's firewall (Windows will usually prompt you the first time — choose
   - Accounts have a **Website** field. Account imports fill it from a
     Website column, and older databases lift it out of the "Website:" line
     in Notes.
+- **Which app the buttons open** — Templates → Your Info picks the call app
+  (the phone's own dialer, or **Google Voice**, which opens voice.google.com
+  ready to call or text from your Google Voice number) and the email app
+  (default mail app, **Gmail** or **Outlook** web compose with the subject and
+  body filled in). Nothing is ever sent automatically. Accounts with no email
+  say so instead of hiding the button.
 - **Outreach Templates & Scripts** — your cold call script, voicemail,
   text message, and three cadence emails live in the app (Templates page)
   and are fully editable, with placeholders like `{first_name}`, `{company}`,
@@ -323,4 +329,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-636 checks, about two seconds.
+647 checks, about two seconds.

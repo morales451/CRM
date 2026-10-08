@@ -23,9 +23,10 @@
   </div>
   <div class="text-nowrap">
     {% set phone = account.mobile_phone or account.work_phone %}
-    {% if phone %}<a href="tel:{{ phone|tel }}" class="btn btn-sm btn-success">📞 Call</a>
-    <a href="sms:{{ phone|sms }}" class="btn btn-sm btn-info">💬 Text</a>{% endif %}
-    {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>
+    <a {{ text_to(phone) }} class="btn btn-sm btn-info">💬 Text</a>{% endif %}
+    {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary">✉️ Email</a>
+    {% else %}<span class="btn btn-sm btn-outline-secondary disabled" title="Add an email in Account Info below">✉️ No email on file</span>{% endif %}
     <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-warning" title="Personalized call & email scripts">📄 Scripts</a>
     <a href="https://www.google.com/search?q={{ ('site:zoominfo.com ' ~ account.company_name)|urlencode }}"
        target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find people at this company on ZoomInfo">🔎 ZoomInfo</a>
@@ -280,9 +281,9 @@
               {% if account.seniority %}<span class="badge text-bg-light border">{{ account.seniority }}</span>{% endif %}
               {% if account.title %}<div class="small text-muted">{{ account.title }}</div>{% endif %}
               <div class="small">
-                {% if account.email %}<a href="mailto:{{ account.email }}">{{ account.email }}</a><br>{% endif %}
-                {% if account.work_phone %}<a href="tel:{{ account.work_phone|tel }}">{{ account.work_phone }}</a> (work) {% endif %}
-                {% if account.mobile_phone %}<a href="tel:{{ account.mobile_phone|tel }}">{{ account.mobile_phone }}</a> (mobile){% endif %}
+                {% if account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a><br>{% endif %}
+                {% if account.work_phone %}<a {{ dial(account.work_phone) }}>{{ account.work_phone }}</a> (work) {% endif %}
+                {% if account.mobile_phone %}<a {{ dial(account.mobile_phone) }}>{{ account.mobile_phone }}</a> (mobile){% endif %}
                 {% if account.linkedin_url %}<br><a href="{{ account.linkedin_url if '://' in account.linkedin_url else 'https://' + account.linkedin_url }}" target="_blank" rel="noopener">in/ LinkedIn profile</a>{% endif %}
               </div>
             </div>
@@ -297,9 +298,9 @@
               {% if c.seniority %}<span class="badge text-bg-light border">{{ c.seniority }}</span>{% endif %}
               {% if c.title %}<div class="small text-muted">{{ c.title }}</div>{% endif %}
               <div class="small">
-                {% if c.email %}<a href="mailto:{{ c.email }}">{{ c.email }}</a><br>{% endif %}
-                {% if c.work_phone %}<a href="tel:{{ c.work_phone|tel }}">{{ c.work_phone }}</a> (work) {% endif %}
-                {% if c.mobile_phone %}<a href="tel:{{ c.mobile_phone|tel }}">{{ c.mobile_phone }}</a> (mobile){% endif %}
+                {% if c.email %}<a {{ mail_to(c.email) }}>{{ c.email }}</a><br>{% endif %}
+                {% if c.work_phone %}<a {{ dial(c.work_phone) }}>{{ c.work_phone }}</a> (work) {% endif %}
+                {% if c.mobile_phone %}<a {{ dial(c.mobile_phone) }}>{{ c.mobile_phone }}</a> (mobile){% endif %}
                 {% if c.linkedin_url %}<br><a href="{{ c.linkedin_url if '://' in c.linkedin_url else 'https://' + c.linkedin_url }}" target="_blank" rel="noopener">in/ LinkedIn profile</a>{% endif %}
               </div>
             </div>

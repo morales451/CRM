@@ -34,6 +34,7 @@
       <a href="#archive">6b. Archiving accounts</a><br>
       <a href="#cadence">7. The cold cadence</a><br>
       <a href="#contacts">8. Contacts &amp; ZoomInfo</a><br>
+      <a href="#calling">8b. Calls, texts &amp; email apps</a><br>
       <a href="#scripts">9. Scripts &amp; templates</a><br>
       <a href="#followups">10. Follow-ups &amp; stale deals</a><br>
       <a href="#pipeline">11. Pipeline board</a>
@@ -335,6 +336,31 @@ future import <em>can</em> add that company again.</div>
   <li><strong>Companies you don't have yet:</strong> tick <em>“Open a new account for any company I don't have yet”</em> on the upload and those rows become new prospecting accounts instead of being listed back as unmatched. Archived companies are never re-created.</li>
   <li><strong>Columns read automatically</strong> from a stock ZoomInfo export: Company Name, First/Last Name, Job Title, Email Address, Direct Phone Number, Mobile phone, LinkedIn Contact Profile URL, Management Level, Website, Email Domain and Company HQ Phone. The rest of ZoomInfo's 70-odd columns are ignored. The import summary lists exactly which column it read for each field.</li>
   <li>LinkedIn URLs become a clickable link on the contact; Management Level shows as a badge (C-Level, VP-Level, Director, Manager) and is guessed from the job title when the file doesn't have it. Both are searchable and both go into the Excel export.</li>
+</ul>
+
+<h2 id="calling">8b. Calls, texts &amp; email: which app opens</h2>
+<p>The CRM never sends anything itself. Its buttons open your own phone or mail app with
+  everything filled in, so calls come from your number and emails come from your inbox.
+  Choose the apps under <a href="{{ url_for('templates_page') }}">Templates → Your Info</a>.</p>
+<ul>
+  <li><strong>📞 / 💬 → Phone's own dialer</strong> (the default): rings straight from the phone
+    you're holding, and "ext. 32" is dialed for you.</li>
+  <li><strong>📞 / 💬 → Google Voice:</strong> opens voice.google.com ready to call or text the
+    number, so the other person sees your Google Voice number, not your cell. It works on the
+    computer and in the phone's browser. Google Voice can't dial an extension for you, so key it in
+    when the call connects. A text opens with no message written, so copy the script with its
+    Copy button first.
+    <em>Android shortcut:</em> in the Google Voice app's settings, set calls to go through Google
+    Voice. Then you can leave the CRM on "Phone's own dialer", and every 📞 still goes out on your
+    Google Voice number, extension included.</li>
+  <li><strong>✉️ → Gmail or Outlook in the browser:</strong> opens a new message with the subject
+    and body already written, in a new tab. Nothing is sent until you press Send. "Default mail
+    app" uses whatever your computer or phone opens for email links.</li>
+  <li><strong>No ✉️ button?</strong> The account has no email on file. The page now says
+    <em>No email on file</em>, and the scripts page says what to add. Fill it in under Account
+    Info, or upload the person from ZoomInfo.</li>
+  <li>Set <em>Your phone</em> on the same page to your Google Voice number, because it's the
+    number the scripts and voicemail tell people to call back.</li>
 </ul>
 
 <h2 id="scripts">9. Scripts &amp; templates</h2>

@@ -3474,6 +3474,60 @@ check("updater: start.bat updates first, inside one ( ) block",
 check("updater: ...and the block holds every command",
       _bat.count("(") >= 1 and _bat.rstrip().endswith(")"))
 
+# ---- 62. Call/email app choice: Google Voice, Gmail, Outlook
+_lc = db.get_db()
+_lts = db.now_iso()
+_lid = _lc.execute(
+    "INSERT INTO accounts (company_name, first_name, email, work_phone, mobile_phone, "
+    "preferred_contact, prospecting_status, pipeline_milestone, cadence_start, created_at, "
+    "updated_at) VALUES ('Link Pref Co','Lena','lena@linkpref.com','(713) 555-0100 ext. 32',"
+    "'(281) 555-0123','Unknown','Prospecting','None / In Cadence',?,?,?)",
+    (date.today().isoformat(), _lts, _lts)).lastrowid
+_nid = _lc.execute(
+    "INSERT INTO accounts (company_name, first_name, work_phone, preferred_contact, "
+    "prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) "
+    "VALUES ('No Email Co','Ned','713-555-0177','Unknown','Prospecting','None / In Cadence',"
+    "?,?,?)", (date.today().isoformat(), _lts, _lts)).lastrowid
+_lc.commit()
+_p = client.get(f"/accounts/{_lid}").data.decode()
+check("links: default is the phone's dialer and mail app",
+      'href="tel:7135550100,32"' in _p and 'href="sms:2815550123"' in _p
+      and 'href="mailto:lena@linkpref.com"' in _p)
+_p = client.get(f"/accounts/{_nid}").data.decode()
+check("links: no email -> the header says so instead of hiding the button",
+      "No email on file" in _p)
+_s = client.get(f"/accounts/{_nid}/scripts").data.decode()
+check("links: no email -> the email script says what's missing",
+      "No email address on file. Add one" in _s)
+
+client.post("/settings", data={"call_app": "google_voice", "email_app": "gmail",
+                               "next": "/templates"})
+_p = client.get(f"/accounts/{_lid}").data.decode()
+check("links: Google Voice calls open voice.google.com in a new tab, extension dropped",
+      'href="https://voice.google.com/u/0/calls?a=nc,%2B17135550100" target="_blank"' in _p
+      or 'href="https://voice.google.com/u/0/calls?a=nc,%2B12815550123" target="_blank"' in _p)
+check("links: Google Voice texts open the message thread",
+      "https://voice.google.com/u/0/messages?itemId=t.%2B12815550123" in _p)
+check("links: no tel:/sms: links left in Google Voice mode",
+      'href="tel:' not in _p and 'href="sms:' not in _p)
+_s = client.get(f"/accounts/{_lid}/scripts").data.decode()
+check("links: Gmail compose opens with the email written",
+      "https://mail.google.com/mail/?view=cm&amp;fs=1&amp;to=lena%40linkpref.com&amp;su=" in _s
+      and "&amp;body=" in _s and "Write this email" in _s)
+client.post("/settings", data={"email_app": "outlook", "call_app": "bogus"})
+_s = client.get(f"/accounts/{_lid}/scripts").data.decode()
+check("links: Outlook web compose works too", "outlook.office.com/mail/deeplink/compose?to=" in _s)
+check("links: an unknown app value is ignored, the old choice kept",
+      "voice.google.com" in _s)
+_t = client.get("/templates").data.decode()
+check("links: the choice is on the Templates page",
+      'name="call_app"' in _t and 'value="google_voice" selected' in _t
+      and 'value="outlook" selected' in _t)
+client.post("/settings", data={"call_app": "phone", "email_app": "default"})
+check("links: switching back restores tel: links",
+      'href="tel:7135550100,32"' in client.get(f"/accounts/{_lid}").data.decode())
+_lc.execute("DELETE FROM accounts WHERE id IN (?,?)", (_lid, _nid)); _lc.commit(); _lc.close()
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

@@ -13,8 +13,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import (Flask, flash, redirect, render_template, request,
+from flask import (Flask, flash, g, redirect, render_template, request,
                    send_file, session, url_for)
+from markupsafe import Markup, escape
 
 import cadence
 import db as db_module
@@ -73,6 +74,91 @@ def clean_tel(phone):
 def clean_sms(phone):
     """Phone number for sms: links — a text can't dial an extension."""
     return clean_tel(phone).split(",")[0]
+
+
+# Which app the Call / Text / Email buttons open (Templates page → Your Info).
+CALL_APPS = {"phone": "Phone's own dialer", "google_voice": "Google Voice"}
+EMAIL_APPS = {"default": "Default mail app", "gmail": "Gmail (in the browser)",
+              "outlook": "Outlook.com / Microsoft 365 (in the browser)"}
+
+
+def _link_prefs() -> dict:
+    """The call/email app settings, read once per request."""
+    if "link_prefs" not in g:
+        conn = get_db()
+        try:
+            rows = dict(conn.execute(
+                "SELECT key, value FROM settings WHERE key IN ('call_app', 'email_app')"
+            ).fetchall())
+        finally:
+            conn.close()
+        g.link_prefs = {"call_app": rows.get("call_app") or "phone",
+                        "email_app": rows.get("email_app") or "default"}
+    return g.link_prefs
+
+
+def _e164(phone: str) -> str:
+    """+17135550100 from any US-style number; the extension is dropped."""
+    digits = re.sub(r"\D", "", clean_tel(phone).split(",")[0])
+    if len(digits) == 10:
+        digits = "1" + digits
+    return "+" + digits if digits else ""
+
+
+def _attrs(url: str, external: bool) -> Markup:
+    extra = ' target="_blank" rel="noopener"' if external else ""
+    return Markup(f'href="{escape(url)}"{extra}')
+
+
+def phone_link(phone: str, kind: str = "call", body: str = "") -> tuple[str, bool]:
+    """(url, opens_in_new_tab) for calling or texting `phone`.
+
+    Google Voice has no call link a phone or browser hands to it, so with
+    Google Voice chosen the buttons open Google Voice's own web pages: a new
+    call to the number, or the message thread with it. Those can't dial an
+    extension or pre-fill a text; the scripts page has Copy buttons for that.
+    """
+    if not phone:
+        return "", False
+    if _link_prefs()["call_app"] == "google_voice":
+        num = quote(_e164(phone))
+        if kind == "text":
+            return f"https://voice.google.com/u/0/messages?itemId=t.{num}", True
+        return f"https://voice.google.com/u/0/calls?a=nc,{num}", True
+    if kind == "text":
+        return f"sms:{clean_sms(phone)}" + (f"?body={quote(body)}" if body else ""), False
+    return f"tel:{clean_tel(phone)}", False
+
+
+def email_link(email: str, subject: str = "", body: str = "") -> tuple[str, bool]:
+    """(url, opens_in_new_tab) for writing to `email` in the chosen mail app."""
+    if not email:
+        return "", False
+    app_ = _link_prefs()["email_app"]
+    if app_ == "gmail":
+        return ("https://mail.google.com/mail/?view=cm&fs=1&to=" + quote(email)
+                + "&su=" + quote(subject) + "&body=" + quote(body)), True
+    if app_ == "outlook":
+        return ("https://outlook.office.com/mail/deeplink/compose?to=" + quote(email)
+                + "&subject=" + quote(subject) + "&body=" + quote(body)), True
+    query = "&".join(f"{k}={quote(v)}" for k, v in (("subject", subject), ("body", body)) if v)
+    return f"mailto:{email}" + (f"?{query}" if query else ""), False
+
+
+@app.template_global()
+def dial(phone):
+    """Attributes for a Call link: {{ dial(phone) }} inside <a ...>."""
+    return _attrs(*phone_link(phone, "call"))
+
+
+@app.template_global()
+def text_to(phone, body=""):
+    return _attrs(*phone_link(phone, "text", body))
+
+
+@app.template_global()
+def mail_to(email, subject="", body=""):
+    return _attrs(*email_link(email, subject, body))
 
 
 _last_backup_date = None
@@ -2725,6 +2811,7 @@ def templates_page():
     finally:
         conn.close()
     return render_template("templates.html", templates=templates,
+                           CALL_APPS=CALL_APPS, EMAIL_APPS=EMAIL_APPS,
                            settings=settings, pricing=pricing,
                            ROOF_TYPES=warranty_calc.ROOF_TYPES,
                            WARRANTY_YEARS=warranty_calc.WARRANTY_YEARS,
@@ -2759,10 +2846,13 @@ def save_settings():
         for key in ("my_name", "my_title", "my_company", "my_phone", "my_email",
                     "my_website", "my_address", "invoice_terms", "backup_dir",
                     "price_capsheet_base", "price_other_base", "price_add_15",
-                    "price_add_20", "daily_goal"):
+                    "price_add_20", "daily_goal", "call_app", "email_app"):
             if key not in request.form:  # only touch submitted fields
                 continue
             value = request.form.get(key, "").strip()
+            if key == "call_app" and value not in CALL_APPS \
+                    or key == "email_app" and value not in EMAIL_APPS:
+                continue
             if key == "daily_goal":
                 count = _parse_int(value, on_error=_MISSING)
                 if count is _MISSING or count is None or count < 0:
@@ -2799,18 +2889,22 @@ def _build_scripts(acct, settings, rows, step=""):
             continue
         subject, missing_s = render_script(t["subject"], acct, settings)
         body, missing_b = render_script(t["body"], acct, settings)
-        action_url = ""
-        if t["kind"] == "email" and acct["email"]:
-            action_url = (f"mailto:{acct['email']}?subject={quote(subject)}"
-                          f"&body={quote(body)}")
-        elif t["kind"] == "call" and (acct["work_phone"] or acct["mobile_phone"]):
-            action_url = f"tel:{clean_tel(acct['work_phone'] or acct['mobile_phone'])}"
-        elif t["kind"] == "text" and acct["mobile_phone"]:
-            action_url = f"sms:{clean_tel(acct['mobile_phone'])}?body={quote(body)}"
+        if t["kind"] == "email":
+            action_url, external = email_link(acct["email"], subject, body)
+            missing_target = "" if action_url else "email address"
+        elif t["kind"] == "text":
+            action_url, external = phone_link(acct["mobile_phone"], "text", body)
+            missing_target = "" if action_url else "mobile number"
+        else:
+            action_url, external = phone_link(
+                acct["work_phone"] or acct["mobile_phone"], "call")
+            missing_target = "" if action_url else "phone number"
         scripts.append({
             "template": t, "subject": subject, "body": body,
             "missing": list(dict.fromkeys(missing_s + missing_b)),
             "action_url": action_url, "log_steps": t_steps,
+            "action_attrs": _attrs(action_url, external) if action_url else "",
+            "missing_target": missing_target,
         })
     return scripts
 

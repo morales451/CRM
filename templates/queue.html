@@ -59,9 +59,9 @@
     </div>
     <div class="text-nowrap">
       {% set phone = account.mobile_phone or account.work_phone %}
-      {% if phone %}<a href="tel:{{ phone|tel }}" class="btn btn-sm btn-success">📞 Call</a>
-      <a href="sms:{{ phone|sms }}" class="btn btn-sm btn-info">💬</a>{% endif %}
-      {% if account.email %}<a href="mailto:{{ account.email }}" class="btn btn-sm btn-primary">✉️</a>{% endif %}
+      {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>
+      <a {{ text_to(phone) }} class="btn btn-sm btn-info">💬</a>{% endif %}
+      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary">✉️</a>{% endif %}
     </div>
   </div>
   {% if account.notes %}
@@ -107,9 +107,12 @@
         {{ s.template.name }}
       </h5>
       {% if s.action_url %}
-      <a href="{{ s.action_url }}" class="btn btn-sm btn-primary">
-        {% if s.template.kind == 'email' %}Open in Email app{% elif s.template.kind == 'text' %}Open in Messages{% else %}📞 Dial{% endif %}
-      </a>
+      <a {{ s.action_attrs }} class="btn btn-sm btn-primary">
+        {% if s.template.kind == 'email' %}✉️ Write this email{% elif s.template.kind == 'text' %}💬 Text this{% else %}📞 Dial{% endif %}
+        </a>
+      {% else %}
+        <a href="{{ url_for('account_detail', account_id=account.id) }}" class="btn btn-sm btn-outline-secondary"
+           title="Add it on the account page and this button appears">No {{ s.missing_target }} on file. Add one</a>
       {% endif %}
     </div>
     {% if s.missing %}

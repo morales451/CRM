@@ -19,9 +19,12 @@
     </h5>
     <div class="d-flex gap-2 flex-wrap">
       {% if s.action_url %}
-        <a href="{{ s.action_url }}" class="btn btn-sm btn-primary">
-          {% if s.template.kind == 'email' %}Open in Email app{% elif s.template.kind == 'text' %}Open in Messages{% else %}📞 Dial{% endif %}
+        <a {{ s.action_attrs }} class="btn btn-sm btn-primary">
+          {% if s.template.kind == 'email' %}✉️ Write this email{% elif s.template.kind == 'text' %}💬 Text this{% else %}📞 Dial{% endif %}
         </a>
+      {% else %}
+        <a href="{{ url_for('account_detail', account_id=account.id) }}" class="btn btn-sm btn-outline-secondary"
+           title="Add it on the account page and this button appears">No {{ s.missing_target }} on file. Add one</a>
       {% endif %}
       {% for step_name in s.log_steps %}
       <form method="post" action="{{ url_for('quick_log') }}" class="d-inline">
