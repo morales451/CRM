@@ -15,3 +15,6 @@ uploads/
 # written by updater.py
 .installed_version
 *.updating
+
+# Claude Code local settings (machine-specific)
+.claude/settings.local.json
