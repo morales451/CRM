@@ -8,7 +8,35 @@
   <a href="{{ url_for('dashboard') }}" class="btn btn-primary mx-auto" style="max-width:200px">← Back to Dashboard</a>
 </div>
 {% else %}
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+<style>
+  /* Phone: a one-handed calling tool. The two actions that matter for this
+     step live in a bar under the thumb; desktop keeps the keyboard flow. */
+  .q-bar { display: none; }
+  @media (max-width: 767.98px) {
+    .q-page { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+    .q-head h1 { font-size: 1.35rem; }
+    .q-head .btn { min-height: 44px; display: inline-flex; align-items: center; }
+    .q-contact .btn { min-height: 48px; min-width: 48px; display: inline-flex; align-items: center;
+                      justify-content: center; font-size: 1rem; padding: .5rem .9rem; }
+    .q-outcomes { display: grid !important; grid-template-columns: 1fr 1fr; gap: .5rem !important; }
+    .q-outcomes .btn { min-height: 52px; font-size: 1rem; font-weight: 600; border-width: 2px; }
+    .q-page .form-control, .q-page .form-select { font-size: 16px; }   /* no iOS focus zoom */
+    .q-page .form-control-sm { min-height: 44px; }
+    .q-page textarea.form-control { max-height: 16rem; }
+    .q-page .btn-sm { min-height: 44px; }
+    .q-desk-only, .q-page kbd, #k-help-btn, #k-help { display: none !important; }
+    .q-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
+             padding: .6rem .75rem calc(.6rem + env(safe-area-inset-bottom));
+             background: #fff; border-top: 1px solid #d5dbe3;
+             box-shadow: 0 -4px 16px rgba(26, 26, 46, .08); }
+    .q-bar > *, .q-bar form { flex: 1 1 0; margin: 0; }
+    .q-bar .btn { width: 100%; min-height: 56px; font-size: 1.1rem; font-weight: 700;
+                  display: flex; align-items: center; justify-content: center; gap: .4rem; }
+  }
+  @media (hover: none) { .q-page kbd, #k-help-btn, #k-help { display: none !important; } }
+</style>
+<div class="q-page">
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 q-head">
   <h1 class="mb-0">Task {{ pos + 1 }} of {{ total }}</h1>
   <div class="d-flex gap-1 align-items-center flex-wrap">
     {% if pos > 0 %}
@@ -57,11 +85,11 @@
         {% endif %}
       </div>
     </div>
-    <div class="text-nowrap">
+    <div class="d-flex gap-1 flex-wrap q-contact">
       {% set phone = account.mobile_phone or account.work_phone %}
       {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>
-      <a {{ text_to(phone) }} class="btn btn-sm btn-info">💬</a>{% endif %}
-      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary">✉️</a>{% endif %}
+      <a {{ text_to(phone) }} class="btn btn-sm btn-info" aria-label="Text {{ account.first_name or 'them' }}">💬 Text</a>{% endif %}
+      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary" aria-label="Email {{ account.first_name or 'them' }}">✉️ Email</a>{% endif %}
     </div>
   </div>
   {% if account.notes %}
@@ -74,15 +102,15 @@
   {% if task.reminder.step_type in CALL_STEPS %}
   {# Up here, not below the scripts: after every call the next tap is the
      outcome, and on a phone three scripts is a long way to scroll. #}
-  <div class="card p-3 mb-3 border-success">
+  <div class="card p-3 mb-3 border-success" id="outcomes">
     <form method="post" action="{{ url_for('quick_log') }}" class="mb-0">
       <input type="hidden" name="account_id" value="{{ account.id }}">
       <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
       <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
       <input name="notes" class="form-control form-control-sm mb-2"
-             placeholder="Notes from the call (optional) — then tap how it went">
+             placeholder="Notes from the call (optional)">
       <div class="small text-muted mb-1">How did the call go? One tap logs it and moves on.</div>
-      <div class="d-flex gap-1 flex-wrap">
+      <div class="d-flex gap-1 flex-wrap q-outcomes">
         {% for o in CALL_OUTCOMES %}
         <button name="outcome" value="{{ o }}" id="k-o{{ loop.index }}"
                 class="btn btn-sm {{ 'btn-success' if o == 'Meeting booked'
@@ -92,7 +120,7 @@
           <kbd class="me-1">{{ loop.index }}</kbd>{{ o }}</button>
         {% endfor %}
       </div>
-      <div class="small text-muted mt-1">
+      <div class="small text-muted mt-2">
         Meeting booked moves the deal to Accepted Meeting · Not interested / Wrong person hands
         over to the next contact at the company · Bad number sends it back to Research
       </div>
@@ -141,7 +169,7 @@
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-success" id="k-log">✓ Log “{{ task.reminder.step_type }}” & Next <kbd class="ms-1">L</kbd></button>
+        <button class="btn btn-success q-desk-only" id="k-log">✓ Log “{{ task.reminder.step_type }}” & Next <kbd class="ms-1">L</kbd></button>
       </form>
       {% endif %}
       <form method="post" action="{{ url_for('dismiss_reminder') }}" class="d-inline">
@@ -173,7 +201,7 @@
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
         <input type="hidden" name="clear" value="1">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-success" id="k-log">✓ Done & Next <kbd class="ms-1">L</kbd></button>
+        <button class="btn btn-success q-desk-only" id="k-log">✓ Done & Next <kbd class="ms-1">L</kbd></button>
       </form>
       {% for label, d in [('Snooze +1d', 1), ('+3d', 3), ('+1w', 7)] %}
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
@@ -185,6 +213,35 @@
     </div>
   </div>
 {% endif %}
+
+{# Thumb bar (phones only): this step's two actions, always in reach. #}
+{% set phone = account.mobile_phone or account.work_phone %}
+<nav class="q-bar" aria-label="Actions for this task">
+  {% if task.kind == 'cadence' and task.reminder.step_type in CALL_STEPS %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call</a>{% endif %}
+    <a href="#outcomes" class="btn btn-outline-success"
+       onclick="document.getElementById('outcomes').scrollIntoView({behavior:'smooth', block:'start'}); return false;">✓ Log outcome</a>
+  {% elif task.kind == 'cadence' %}
+    {% set first = scripts[0] if scripts else none %}
+    {% if first and first.action_url %}
+      <a {{ first.action_attrs }} class="btn btn-primary">{% if first.template.kind == 'email' %}✉️ Write email{% elif first.template.kind == 'text' %}💬 Text{% else %}📞 Call{% endif %}</a>
+    {% elif phone %}<a {{ dial(phone) }} class="btn btn-outline-success">📞 Call</a>{% endif %}
+    <form method="post" action="{{ url_for('quick_log') }}">
+      <input type="hidden" name="account_id" value="{{ account.id }}">
+      <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
+      <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
+      <button class="btn btn-success">✓ Log &amp; next</button>
+    </form>
+  {% else %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-outline-success">📞 Call</a>{% endif %}
+    <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}">
+      <input type="hidden" name="clear" value="1">
+      <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
+      <button class="btn btn-success">✓ Done &amp; next</button>
+    </form>
+  {% endif %}
+</nav>
+</div>{# /.q-page #}
 
 <script>
 (function () {

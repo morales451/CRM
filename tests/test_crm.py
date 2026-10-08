@@ -3860,6 +3860,14 @@ check("rest: comes back as a follow-up in 90 days, and leaves the finished list"
 _rt.execute("DELETE FROM accounts WHERE company_name LIKE 'Rotate %' OR company_name='Fresh Co'")
 _rt.commit(); _rt.close()
 
+# ---- 68. Queue on a phone: the thumb bar
+_qq = "".join(client.get(f"/queue?pos={i}").data.decode() for i in range(0, 12))
+check("queue phone: a thumb bar carries this step's actions",
+      'class="q-bar"' in _qq and "Log &amp; next" in _qq or "Log outcome" in _qq)
+check("queue phone: call steps jump to big outcome buttons",
+      'id="outcomes"' in _qq and "q-outcomes" in _qq if "How did the call go" in _qq else True)
+check("queue phone: 16px inputs so iPhone doesn't zoom", "font-size: 16px" in _qq)
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)
