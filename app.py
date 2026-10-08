@@ -9,7 +9,7 @@ import io
 import re
 import socket
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,6 +25,7 @@ import undo as undo_module
 import warranty_calc
 from db import (ALL_OUTCOMES, ARCHIVE_REASONS, CALL_OUTCOMES, CALL_STEPS,
                 CONNECT_OUTCOMES, DOOR_KNOCK, DOOR_OUTCOMES,
+                PERSON_DONE_OUTCOMES, RECYCLE_DAYS, TRIED_STATUSES,
                 DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
                 INVOICE_STATUSES,
                 PIPELINE_MILESTONES, PREFERRED_CONTACT_METHODS,
@@ -562,6 +563,7 @@ def dashboard():
                                        cut(all_stale))
         owed = _outstanding_invoices(conn)
         top_priority = _top_priority_accounts(conn)
+        finished_cadences = _finished_cadences(conn)
         stats = {
             "total_accounts": conn.execute(
                 "SELECT COUNT(*) c FROM accounts WHERE COALESCE(archived_at, '') = ''").fetchone()["c"],
@@ -597,7 +599,9 @@ def dashboard():
                                stats=stats, recent=recent, today=today_iso(),
                                order=order, top_priority=top_priority,
                                progress=progress, totals=totals,
-                               show_all=show_all, research_top=research_top)
+                               show_all=show_all, research_top=research_top,
+                               finished_cadences=finished_cadences,
+                               RECYCLE_DAYS=RECYCLE_DAYS)
     finally:
         conn.close()
 
@@ -605,6 +609,94 @@ def dashboard():
 def _account_exists(conn, account_id) -> bool:
     return conn.execute("SELECT 1 FROM accounts WHERE id = ?",
                         (account_id,)).fetchone() is not None
+
+
+# Who to try next at an account: the people who own the roof problem first,
+# the C-suite last as the escalation.
+NEXT_CONTACT_ORDER = {"Director": 0, "Manager": 1, "VP-Level": 2, "C-Level": 3}
+
+
+def _person_name(row) -> str:
+    return " ".join(x for x in (row["first_name"], row["last_name"]) if x).strip()
+
+
+def _next_contacts(conn, account_id) -> list:
+    """People at the account who haven't had their turn, best first:
+    reachable before not, then by NEXT_CONTACT_ORDER, then oldest first."""
+    rows = conn.execute(
+        "SELECT * FROM contacts WHERE account_id=? AND COALESCE(tried_status, '') = ''",
+        (account_id,)).fetchall()
+    return sorted(rows, key=lambda r: (not cadence.has_contact(r),
+                                       NEXT_CONTACT_ORDER.get(r["seniority"] or "", 4),
+                                       r["id"]))
+
+
+def _rotate_contact(conn, account_id, status: str, contact_id=None):
+    """End the current primary's turn (marked `status`) and start the next
+    person's cadence today. Returns (their name, undo ops) or None when
+    nobody untried is left. The caller records the undo and commits."""
+    acct = conn.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+    nxt = _next_contacts(conn, account_id)
+    if contact_id is not None:
+        nxt = [r for r in nxt if r["id"] == int(contact_id)]
+    if not acct or not nxt:
+        return None
+    pick = nxt[0]
+    acct_before = undo_module.capture(conn, "accounts", "id=?", (account_id,))
+    contacts_before = undo_module.capture(conn, "contacts", "account_id=?", (account_id,))
+    created = []
+    if _has_primary_contact(acct):
+        cur = conn.execute(
+            f"INSERT INTO contacts (account_id, {','.join(CONTACT_COLS)}, tried_status, "
+            f"tried_at, created_at) VALUES ({','.join('?' * (len(CONTACT_COLS) + 4))})",
+            (account_id, *(acct[c] for c in CONTACT_COLS), status, today_iso(), now_iso()))
+        created.append(cur.lastrowid)
+    _set_primary_contact(conn, account_id, dict(pick))
+    conn.execute("DELETE FROM contacts WHERE id=?", (pick["id"],))
+    conn.execute("UPDATE accounts SET previous_contact=? WHERE id=?",
+                 (acct["first_name"] or acct["last_name"] or "", account_id))
+    restart_ops = _restart_cadence(conn, [account_id])
+    ops = ([undo_module.delete_op("contacts", created),
+            undo_module.insert_op("contacts", contacts_before),
+            undo_module.update_op("accounts", acct_before)] + restart_ops)
+    return _person_name(pick) or "the next contact", ops
+
+
+def _rest_account(conn, account_id, why: str) -> str:
+    """Everyone at the company has been tried: rest it for RECYCLE_DAYS,
+    then a follow-up brings it back to start again with the most senior."""
+    back = (date.today() + timedelta(days=RECYCLE_DAYS)).isoformat()
+    note = f"Everyone tried ({why.lower()}). Start again with the most senior person."
+    if why == "Not interested":
+        conn.execute("UPDATE accounts SET prospecting_status='Not Interested', "
+                     "next_follow_up=?, follow_up_note=?, updated_at=? WHERE id=?",
+                     (back, note, now_iso(), account_id))
+        return (f" Nobody else is on file, so the company is marked Not Interested and "
+                f"comes back as a follow-up on {back}.")
+    conn.execute("UPDATE accounts SET next_follow_up=?, follow_up_note=?, updated_at=? "
+                 "WHERE id=?", (back, note, now_iso(), account_id))
+    return f" Resting it until {back}, when it comes back as a follow-up."
+
+
+def _finished_cadences(conn, account_id=None) -> list[dict]:
+    """In-cadence accounts whose every step is done or skipped: the person
+    had their full run without a reply (a reply moves the deal out of
+    the cadence). Each comes with who's next, if anyone."""
+    sql = (f"SELECT a.* FROM accounts a WHERE {cadence.in_cadence_where('a')}"
+           + (" AND a.id = ?" if account_id else ""))
+    rows = conn.execute(sql, (account_id,) if account_id else ()).fetchall()
+    done = cadence._done_dates(conn, [r["id"] for r in rows])
+    n_steps = len(cadence.CADENCE_STEPS)
+    out = []
+    for r in rows:
+        if len(done.get(r["id"], {})) < n_steps:
+            continue
+        if r["next_follow_up"] and r["next_follow_up"] > today_iso():
+            continue                     # already resting
+        nxt = _next_contacts(conn, r["id"])
+        out.append({"account": r, "next": nxt,
+                    "finished": max(done[r["id"]].values()).isoformat()})
+    return out
 
 
 def _log_interaction(conn, account_id, itype: str, notes: str,
@@ -621,13 +713,36 @@ def _log_interaction(conn, account_id, itype: str, notes: str,
     """
     outcome = outcome if outcome in ALL_OUTCOMES else ""
     before = conn.execute(
-        "SELECT id, prospecting_status, pipeline_milestone, cadence_start, notes "
-        "FROM accounts WHERE id=?", (account_id,)).fetchone()
+        "SELECT id, prospecting_status, pipeline_milestone, cadence_start, notes, "
+        "next_follow_up, follow_up_note FROM accounts WHERE id=?", (account_id,)).fetchone()
     cur = conn.execute(
         "INSERT INTO interactions (account_id, interaction_type, notes, outcome, "
         "created_at) VALUES (?,?,?,?,?)",
         (account_id, itype, notes, outcome, now_iso()))
     effect = ""
+    if outcome in PERSON_DONE_OUTCOMES and itype != DOOR_KNOCK:
+        # One person's no isn't the company's no: hand over to the next
+        # contact, or rest the company once everyone has been tried.
+        who = _person_name(conn.execute(
+            "SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone())
+        rotated = _rotate_contact(conn, account_id, outcome)
+        if rotated:
+            name, ops = rotated
+            _offer_undo(conn, f"logging “{itype}” ({outcome})",
+                        [undo_module.delete_op("interactions", [cur.lastrowid])] + ops)
+            return (f" {who or 'They'} marked {outcome.lower()}. Moved on to {name}: "
+                    f"their cadence starts today, with an email that mentions {who or 'the first contact'}.")
+        if outcome == "Wrong person":
+            conn.execute("UPDATE accounts SET cadence_start='', updated_at=? WHERE id=?",
+                         (now_iso(), account_id))
+            effect = (" Nobody else is on file, so the account is back in Research. Add the "
+                      "right person and tick Make primary; their cadence starts that day.")
+        else:
+            effect = _rest_account(conn, account_id, "Not interested")
+        _offer_undo(conn, f"logging “{itype}” ({outcome})",
+                    [undo_module.delete_op("interactions", [cur.lastrowid]),
+                     undo_module.update_op("accounts", [dict(before)])])
+        return effect
     if outcome == "Meeting booked":
         conn.execute("UPDATE accounts SET pipeline_milestone='Accepted Meeting', "
                      "updated_at=? WHERE id=?", (now_iso(), account_id))
@@ -2159,10 +2274,11 @@ def _render_account_detail(account_id, **extra):
     conn = get_db()
     try:
         acct = _account_or_404(conn, account_id)
-        contacts = conn.execute(
-            "SELECT * FROM contacts WHERE account_id = ? "
-            "ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE",
-            (account_id,)).fetchall()
+        # Untried people first, in the order they'd be tried; then the history.
+        untried = _next_contacts(conn, account_id)
+        contacts = untried + conn.execute(
+            "SELECT * FROM contacts WHERE account_id = ? AND COALESCE(tried_status, '') != '' "
+            "ORDER BY tried_at DESC, id DESC", (account_id,)).fetchall()
         # Each timeline entry carries an inline edit form, so a long history
         # is the heaviest thing on this page. Draw the recent ones and offer
         # the rest behind a link.
@@ -2175,6 +2291,8 @@ def _render_account_detail(account_id, **extra):
             "ORDER BY created_at DESC, id DESC" +
             ("" if show_all_history else f" LIMIT {TIMELINE_ROWS}"),
             (account_id,)).fetchall()
+        finished = _finished_cadences(conn, account_id)
+        finished = finished[0] if finished else None
         visits = conn.execute(
             "SELECT created_at, outcome FROM interactions WHERE account_id = ? "
             "AND interaction_type = ? ORDER BY created_at DESC, id DESC",
@@ -2193,6 +2311,8 @@ def _render_account_detail(account_id, **extra):
                            contacts=contacts, interactions=interactions,
                            steps=steps, in_cadence=in_cadence, project=project,
                            bids=bids, history_total=history_total, visits=visits,
+                           finished=finished, TRIED_STATUSES=TRIED_STATUSES,
+                           RECYCLE_DAYS=RECYCLE_DAYS,
                            show_all_history=show_all_history, **extra)
 
 
@@ -2245,6 +2365,49 @@ def _restart_cadence(conn, ids: list[int]) -> list[dict]:
         f"WHERE account_id IN ({ph}) AND interaction_type IN ({sph})", (*ids, *steps))
     return [undo_module.update_op("interactions", retagged),
             undo_module.insert_op("cadence_dismissals", dismissals)]
+
+
+@app.route("/accounts/<int:account_id>/next-contact", methods=["POST"])
+def next_contact(account_id):
+    """The current person's cadence ended without a reply: start the next."""
+    contact_id = request.form.get("contact_id") or None
+    status = request.form.get("status", "No reply")
+    status = status if status in TRIED_STATUSES else "No reply"
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        who = _person_name(acct)
+        rotated = _rotate_contact(conn, account_id, status, contact_id)
+        if rotated:
+            name, ops = rotated
+            _offer_undo(conn, f"moving on from {who or 'the contact'} to {name}", ops)
+            conn.commit()
+            flash(f"{who or 'They'} marked {status.lower()}. {name}'s cadence starts today, "
+                  f"and Email 1 mentions {who or 'the first contact'}.", "success")
+        else:
+            flash("Nobody untried is left at this company. Rest it for "
+                  f"{RECYCLE_DAYS} days, or add someone new.", "warning")
+    finally:
+        conn.close()
+    return redirect(request.form.get("next") or url_for("account_detail", account_id=account_id))
+
+
+@app.route("/accounts/<int:account_id>/rest", methods=["POST"])
+def rest_account(account_id):
+    """Everyone has been tried: rest the company and bring it back later."""
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        before = undo_module.capture(conn, "accounts", "id=?", (account_id,))
+        ops = []
+        effect = _rest_account(conn, account_id, "No reply")
+        _offer_undo(conn, f"resting {acct['company_name']}",
+                    ops + [undo_module.update_op("accounts", before)])
+        conn.commit()
+    finally:
+        conn.close()
+    flash("Rested." + effect, "success")
+    return redirect(request.form.get("next") or url_for("account_detail", account_id=account_id))
 
 
 @app.route("/accounts/<int:account_id>/start-cadence", methods=["POST"])
@@ -2903,6 +3066,7 @@ PLACEHOLDER_LABELS = {
     "email": "email", "my_name": "your name", "my_company": "your company",
     "my_phone": "your phone number", "my_title": "your title",
     "my_website": "your website", "my_email": "your email",
+    "previous_contact": "the person contacted before",
 }
 
 # Sign-off lines a template may end with. With a signature set they're
@@ -2954,6 +3118,8 @@ def render_script(text: str, acct, settings: dict):
         "my_title": settings.get("my_title", ""),
         "my_website": settings.get("my_website", ""),
         "my_email": settings.get("my_email", ""),
+        "previous_contact": (acct["previous_contact"]
+                             if "previous_contact" in acct.keys() else "") or "",
     }
     missing = []
 
@@ -3055,7 +3221,14 @@ def save_settings():
 
 
 def _build_scripts(acct, settings, rows, step=""):
-    """Render templates for an account, optionally filtered to a cadence step."""
+    """Render templates for an account, optionally filtered to a cadence step.
+
+    A template that mentions {previous_contact} is for the second person
+    onward, so it only shows once someone has been tried, and then first."""
+    has_prev = bool(("previous_contact" in acct.keys() and acct["previous_contact"]))
+    rows = [t for t in rows if has_prev or "{previous_contact}" not in (t["body"] or "")]
+    if has_prev:
+        rows = sorted(rows, key=lambda t: "{previous_contact}" not in (t["body"] or ""))
     scripts = []
     for t in rows:
         t_steps = [s.strip() for s in (t["steps"] or "").split(",") if s.strip()]

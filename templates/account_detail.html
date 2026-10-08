@@ -300,6 +300,27 @@
 
   <!-- Right column: contacts + log form + timeline -->
   <div class="col-12 col-lg-6">
+    {% if finished %}
+    <div class="alert alert-warning">
+      <strong>{{ account.first_name or 'This contact' }} finished the whole cadence without a reply.</strong>
+      {% if finished.next %}
+      Move on to the next person: their cadence starts today, and Email 1 mentions
+      {{ account.first_name or 'the first contact' }}.
+      <form method="post" action="{{ url_for('next_contact', account_id=account.id) }}" class="d-flex gap-2 flex-wrap mt-2">
+        <select name="contact_id" class="form-select form-select-sm" style="max-width: 20rem">
+          {% for c in finished.next %}<option value="{{ c.id }}">{{ c.first_name }} {{ c.last_name }}{% if c.title %}, {{ c.title }}{% endif %}</option>{% endfor %}
+        </select>
+        <button class="btn btn-sm btn-primary">▶ Start next contact</button>
+      </form>
+      {% else %}
+      Everyone on file has been tried.
+      <form method="post" action="{{ url_for('rest_account', account_id=account.id) }}" class="d-inline">
+        <button class="btn btn-sm btn-outline-dark ms-1">Rest {{ RECYCLE_DAYS }} days</button>
+      </form>
+      <span class="small">Or add someone new below, tick Make primary, and restart the cadence.</span>
+      {% endif %}
+    </div>
+    {% endif %}
     <div class="card p-3 mb-3">
       <h5>Contacts</h5>
       <ul class="list-group list-group-flush">
@@ -327,6 +348,9 @@
             <div>
               <strong>{{ c.first_name }} {{ c.last_name }}</strong>
               {% if c.seniority %}<span class="badge text-bg-light border">{{ c.seniority }}</span>{% endif %}
+              {% if c.tried_status %}<span class="badge {{ 'text-bg-danger' if c.tried_status == 'Not interested' else 'text-bg-secondary' }}"
+                    title="Their turn ended {{ c.tried_at }}">Tried: {{ c.tried_status }} · {{ c.tried_at|d }}</span>
+              {% else %}<span class="badge text-bg-light border text-success">Not tried yet</span>{% endif %}
               {% if c.title %}<div class="small text-muted">{{ c.title }}</div>{% endif %}
               <div class="small">
                 {% if c.email %}<a {{ mail_to(c.email) }}>{{ c.email }}</a><br>{% endif %}
@@ -336,6 +360,13 @@
               </div>
             </div>
             <div class="text-nowrap">
+              {% if in_cadence and not c.tried_status and (account.first_name or account.last_name) %}
+              <form method="post" action="{{ url_for('next_contact', account_id=account.id) }}" class="d-inline"
+                    onsubmit="return confirm('End {{ account.first_name }}\'s turn (no reply) and start {{ c.first_name }}\'s cadence today?')">
+                <input type="hidden" name="contact_id" value="{{ c.id }}">
+                <button class="btn btn-sm btn-outline-success" title="End the current person's turn (no reply) and start this person's cadence today">▶ Next</button>
+              </form>
+              {% endif %}
               <form method="post" action="{{ url_for('promote_contact', account_id=account.id, contact_id=c.id) }}" class="d-inline">
                 <button class="btn btn-sm btn-outline-primary" title="Make primary contact">★</button>
               </form>
@@ -559,8 +590,9 @@ Direct Phone: 713-555-0199</pre>
             <optgroup label="Call">{% for o in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
             <optgroup label="Door knock">{% for o in DOOR_OUTCOMES if o not in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
           </select>
-          <div class="form-text">Meeting booked → Accepted Meeting · Not interested ends the
-            cadence · Bad number sends the account back to Research.</div>
+          <div class="form-text">Meeting booked → Accepted Meeting · Not interested / Wrong person
+            → the next contact takes over (the company closes only when nobody's left) · Bad number
+            sends the account back to Research.</div>
         </div>
         <div class="mb-2">
           <textarea name="notes" rows="3" class="form-control form-control-sm" placeholder="What happened? (optional)"></textarea>

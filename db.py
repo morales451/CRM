@@ -137,8 +137,17 @@ CALL_OUTCOMES = [
     "Spoke",
     "Meeting booked",
     "Not interested",
+    "Wrong person",
     "Bad number",
 ]
+# Outcomes that end the cadence for THIS PERSON, not the company: the next
+# contact at the account takes over (see app._rotate_contact). Only when
+# nobody is left does "Not interested" close the company.
+PERSON_DONE_OUTCOMES = ("Not interested", "Wrong person")
+# How a person's turn at an account ended (contacts.tried_status).
+TRIED_STATUSES = ("No reply", "Not interested", "Wrong person")
+# Days an account rests once everyone there has been tried.
+RECYCLE_DAYS = 90
 # What happened at the door. Meeting booked / Not interested move the account
 # exactly as they do on a call.
 DOOR_OUTCOMES = [
@@ -200,6 +209,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     seniority TEXT DEFAULT '',             -- ZoomInfo "Management Level" (C-Level, VP-Level, ...)
     website TEXT DEFAULT '',               -- company website; contact imports match on its domain
     zoominfo_url TEXT DEFAULT '',          -- the company's ZoomInfo profile page
+    previous_contact TEXT DEFAULT '',      -- first name of the last person tried here
     street TEXT DEFAULT '',                -- office address, for door knocking
     city TEXT DEFAULT '',
     state TEXT DEFAULT '',
@@ -230,6 +240,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     mobile_phone TEXT DEFAULT '',
     linkedin_url TEXT DEFAULT '',
     seniority TEXT DEFAULT '',
+    tried_status TEXT DEFAULT '',         -- '' untried, else one of TRIED_STATUSES
+    tried_at TEXT DEFAULT '',             -- ISO date their turn ended
     created_at TEXT NOT NULL              -- ISO timestamp
 );
 
@@ -486,6 +498,21 @@ Best,
 {my_name}""",
     },
     {
+        "name": "Email 1 (next contact)", "kind": "email",
+        "steps": "Email 1", "sort_order": 4,
+        "subject": "{company}'s older roofs",
+        "body": """Hi {first_name},
+
+I'd reached out to {previous_contact} about {company}'s properties built before the 1980s, but I suspect roofing may sit more on your plate.
+
+When commercial buildings hit that age, owners are usually facing a costly, disruptive full replacement. We restore aging roofs with a commercial silicone system that cuts the cost of a replacement by up to 50%, skips the tear-off, and keeps the building fully operational while we work.
+
+Are you the right person to talk to about this, or is there someone better?
+
+Best,
+{my_name}""",
+    },
+    {
         "name": "Email 2", "kind": "email",
         "steps": "Email 2", "sort_order": 5,
         "subject": "Extending the life of {company}'s roofs",
@@ -573,6 +600,8 @@ def _migrate(conn) -> None:
                     conn.execute("UPDATE accounts SET street=?, city=?, state=?, zip=? "
                                  "WHERE id=?", (a["street"], a["city"], a["state"],
                                                 a["zip"], row[0]))
+    if "previous_contact" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN previous_contact TEXT DEFAULT ''")
     if "zoominfo_url" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN zoominfo_url TEXT DEFAULT ''")
     if "website" not in cols:
@@ -591,7 +620,7 @@ def _migrate(conn) -> None:
         conn.execute("ALTER TABLE interactions ADD COLUMN outcome TEXT DEFAULT ''")
     contact_cols = {row[1] for row in conn.execute("PRAGMA table_info(contacts)")}
     if contact_cols:
-        for name in ("linkedin_url", "seniority"):
+        for name in ("linkedin_url", "seniority", "tried_status", "tried_at"):
             if name not in contact_cols:
                 conn.execute(f"ALTER TABLE contacts ADD COLUMN {name} TEXT DEFAULT ''")
 
@@ -708,6 +737,19 @@ def init_db() -> list[str]:
         for key, value in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)",
                          (key, value))
+        # Templates added after the first release reach existing databases
+        # once (a settings flag remembers, so deleting one keeps it deleted).
+        if conn.execute("SELECT COUNT(*) FROM templates").fetchone()[0] \
+                and not conn.execute("SELECT 1 FROM settings WHERE key="
+                                     "'template_next_contact_v1'").fetchone():
+            t = next(t for t in SEED_TEMPLATES if t["name"] == "Email 1 (next contact)")
+            conn.execute(
+                "INSERT INTO templates (name, kind, steps, subject, body, sort_order, "
+                "updated_at) VALUES (?,?,?,?,?,?,?)",
+                (t["name"], t["kind"], t["steps"], t["subject"], t["body"],
+                 t["sort_order"], now_iso()))
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES "
+                     "('template_next_contact_v1', ?)", (now_iso(),))
         if conn.execute("SELECT COUNT(*) FROM templates").fetchone()[0] == 0:
             for t in SEED_TEMPLATES:
                 conn.execute(

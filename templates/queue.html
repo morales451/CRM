@@ -26,7 +26,7 @@
 <div class="alert alert-secondary py-2 small d-none" id="k-help">
   <strong>Keyboard:</strong>
   <kbd>L</kbd> log &amp; next ·
-  <kbd>1</kbd>–<kbd>7</kbd> call outcome ·
+  <kbd>1</kbd>–<kbd>8</kbd> call outcome ·
   <kbd>S</kbd> skip step ·
   <kbd>N</kbd>/<kbd>→</kbd> next task ·
   <kbd>P</kbd>/<kbd>←</kbd> previous ·
@@ -93,8 +93,8 @@
         {% endfor %}
       </div>
       <div class="small text-muted mt-1">
-        Meeting booked moves the deal to Accepted Meeting · Not interested ends the cadence ·
-        Bad number sends it back to Research
+        Meeting booked moves the deal to Accepted Meeting · Not interested / Wrong person hands
+        over to the next contact at the company · Bad number sends it back to Research
       </div>
     </form>
   </div>
@@ -196,7 +196,7 @@
     l: 'k-log', s: 'k-skip', n: 'k-next', p: 'k-prev', e: 'k-exit',
     // call outcomes, in the order the buttons show them
     '1': 'k-o1', '2': 'k-o2', '3': 'k-o3', '4': 'k-o4', '5': 'k-o5',
-    '6': 'k-o6', '7': 'k-o7',
+    '6': 'k-o6', '7': 'k-o7', '8': 'k-o8',
     arrowright: 'k-next', arrowleft: 'k-prev'
   };
   document.addEventListener('keydown', e => {

@@ -4,6 +4,7 @@ Run from anywhere:  python3 tests/test_crm.py
 Uses a throwaway database in a temp directory; never touches crm.db.
 """
 import io
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -307,7 +308,7 @@ conn.close()
 # ---- 10. Outreach templates & scripts
 conn = db.get_db()
 n_templates = conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"]
-check("templates: 6 seeded", n_templates == 6, n_templates)
+check("templates: 7 seeded", n_templates == 7, n_templates)
 settings = {r["key"]: r["value"] for r in conn.execute("SELECT * FROM settings")}
 check("templates: settings seeded", settings.get("my_name") == "Alexis Morales"
       and settings.get("my_company") == "Silicone Roof Pros, Inc.")
@@ -316,7 +317,7 @@ conn.close()
 db.init_db()
 conn = db.get_db()
 check("templates: re-init does not re-seed",
-      conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"] == 6)
+      conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"] == 7)
 conn.close()
 
 r = client.get("/templates")
@@ -3751,6 +3752,113 @@ r = client.post(f"/accounts/{_uid}/contacts/upload",
                 content_type="multipart/form-data", follow_redirects=True)
 check("account upload: a file with no company column still works here", b"Added 1 contact" in r.data)
 _ua.execute("DELETE FROM accounts WHERE id=?", (_uid,)); _ua.commit(); _ua.close()
+
+# ---- 67. One person at a time: rotation, finished cadences, rest
+_rt = db.get_db()
+def _rt_acct(name, people):
+    """Account with a primary (Pat) in cadence plus extra people."""
+    i = _rt.execute(
+        "INSERT INTO accounts (company_name, first_name, last_name, title, email, work_phone,"
+        " seniority, preferred_contact, prospecting_status, pipeline_milestone, cadence_start,"
+        " created_at, updated_at) VALUES (?,'Pat','Prime','COO','pat@x.com','713-555-0001',"
+        "'C-Level','Unknown','Prospecting','None / In Cadence',?,?,?)",
+        (name, (date.today() - timedelta(days=21)).isoformat(), _lts, _lts)).lastrowid
+    for first, sen, email in people:
+        _rt.execute("INSERT INTO contacts (account_id, first_name, last_name, title, email,"
+                    " seniority, created_at) VALUES (?,?,'X','',?,?,?)", (i, first, email, sen, _lts))
+    _rt.commit()
+    return i
+_r1 = _rt_acct("Rotate One Co", [("Cee", "C-Level", "cee@x.com"), ("Dee", "Director", "dee@x.com"),
+                                  ("Nob", "Director", "")])
+r = client.post("/reminders/quicklog", data={"account_id": str(_r1), "step_type": "Email 1",
+                                             "outcome": "Not interested"}, follow_redirects=True)
+_ra = _rt.execute("SELECT * FROM accounts WHERE id=?", (_r1,)).fetchone()
+check("rotate: one person's 'not interested' moves on, the company stays open",
+      _ra["prospecting_status"] == "Prospecting" and _ra["first_name"] == "Dee", dict(_ra))
+check("rotate: next is the reachable Director first (problem owner before the C-suite)",
+      _ra["first_name"] == "Dee" and _ra["previous_contact"] == "Pat")
+check("rotate: the cadence restarts today for the new person",
+      _ra["cadence_start"] == date.today().isoformat()
+      and [x["step_type"] for x in cadence.get_due_reminders(_rt, account_id=_r1)] == ["Email 1"])
+check("rotate: the first person is kept, marked how their turn ended",
+      tuple(_rt.execute("SELECT tried_status, tried_at FROM contacts WHERE account_id=? AND "
+                        "first_name='Pat'", (_r1,)).fetchone()) == ("Not interested", date.today().isoformat()))
+check("rotate: the flash says who's next", b"Moved on to Dee" in r.data)
+_s = client.get(f"/accounts/{_r1}/scripts?step=Email+1").data.decode()
+_names = re.findall(r"</span>|(Email 1 \(next contact\)|Email 1)\s*</h5>", _s)
+_names = [n for n in _names if n]
+check("rotate: Email 1 now leads with the version that mentions the first person",
+      _names[:2] == ["Email 1 (next contact)", "Email 1"], _names)
+check("rotate: ...filled in with their name", "reached out to Pat about" in _s)
+_s0 = client.get(f"/accounts/{_rt_acct('Fresh Co', [])}/scripts?step=Email+1").data.decode()
+check("rotate: a first contact never sees the next-contact email", "Email 1 (next contact)" not in _s0)
+_p = client.get(f"/accounts/{_r1}").data.decode()
+check("rotate: the account page shows who's been tried and who hasn't",
+      "Tried: Not interested" in _p and "Not tried yet" in _p)
+client.post("/undo/" + str(_rt.execute(
+    "SELECT MAX(id) m FROM undo_log WHERE label LIKE 'logging%'").fetchone()["m"]))
+_ra = _rt.execute("SELECT * FROM accounts WHERE id=?", (_r1,)).fetchone()
+check("rotate: undo puts Pat back and the people as they were",
+      _ra["first_name"] == "Pat" and _rt.execute(
+          "SELECT COUNT(*) FROM contacts WHERE account_id=? AND COALESCE(tried_status,'')=''",
+          (_r1,)).fetchone()[0] == 3
+      and not _rt.execute("SELECT 1 FROM contacts WHERE account_id=? AND first_name='Pat'",
+                          (_r1,)).fetchone())
+
+# Wrong person rotates too
+client.post("/reminders/quicklog", data={"account_id": str(_r1), "step_type": "Call & Text",
+                                         "outcome": "Wrong person"})
+check("rotate: 'Wrong person' hands over as well",
+      _rt.execute("SELECT first_name FROM accounts WHERE id=?", (_r1,)).fetchone()[0] == "Dee")
+
+# Last person standing says no -> company closes and rests 90 days
+_r2 = _rt_acct("Rotate Last Co", [])
+r = client.post("/reminders/quicklog", data={"account_id": str(_r2), "step_type": "Call & Text",
+                                             "outcome": "Not interested"}, follow_redirects=True)
+_ra = _rt.execute("SELECT * FROM accounts WHERE id=?", (_r2,)).fetchone()
+check("rotate: nobody left -> Not Interested, back as a follow-up in 90 days",
+      _ra["prospecting_status"] == "Not Interested"
+      and _ra["next_follow_up"] == (date.today() + timedelta(days=90)).isoformat()
+      and "Start again with the most senior" in _ra["follow_up_note"])
+
+# Finished cadence with no reply -> offer the next person
+_r3 = _rt_acct("Rotate Finished Co", [("Fin", "Manager", "fin@x.com")])
+for _st in [s for _, s in cadence.CADENCE_STEPS]:
+    _rt.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at)"
+                " VALUES (?,?,'',?)", (_r3, _st, db.now_iso()))
+_rt.commit()
+_d = client.get("/").data.decode()
+check("finished: the dashboard lists accounts whose cadence ran out, with the next person",
+      "Cadence finished, no reply" in _d and "Rotate Finished Co" in _d and "Start Fin" in _d)
+_p = client.get(f"/accounts/{_r3}").data.decode()
+check("finished: the account page offers the next contact", "Start next contact" in _p)
+client.post(f"/accounts/{_r3}/next-contact", data={})
+_ra = _rt.execute("SELECT * FROM accounts WHERE id=?", (_r3,)).fetchone()
+check("finished: one tap starts the next person, the old one marked No reply",
+      _ra["first_name"] == "Fin" and _rt.execute(
+          "SELECT tried_status FROM contacts WHERE account_id=? AND first_name='Pat'",
+          (_r3,)).fetchone()[0] == "No reply")
+check("finished: the old steps are kept as history, the new cadence starts at Email 1",
+      [x["step_type"] for x in cadence.get_due_reminders(_rt, account_id=_r3)] == ["Email 1"]
+      and _rt.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
+                      "interaction_type='General Note'", (_r3,)).fetchone()[0] == 5)
+check("finished: it leaves the finished list", not _app_mod._finished_cadences(_rt, _r3))
+
+# Finished with nobody left -> rest
+_r4 = _rt_acct("Rotate Rest Co", [])
+for _st in [s for _, s in cadence.CADENCE_STEPS]:
+    _rt.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at)"
+                " VALUES (?,?,'',?)", (_r4, _st, db.now_iso()))
+_rt.commit()
+check("rest: nobody left -> the offer is to rest it",
+      f"/accounts/{_r4}/rest" in client.get(f"/accounts/{_r4}").data.decode())
+client.post(f"/accounts/{_r4}/rest", data={})
+_ra = _rt.execute("SELECT * FROM accounts WHERE id=?", (_r4,)).fetchone()
+check("rest: comes back as a follow-up in 90 days, and leaves the finished list",
+      _ra["next_follow_up"] == (date.today() + timedelta(days=90)).isoformat()
+      and not _app_mod._finished_cadences(_rt, _r4))
+_rt.execute("DELETE FROM accounts WHERE company_name LIKE 'Rotate %' OR company_name='Fresh Co'")
+_rt.commit(); _rt.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

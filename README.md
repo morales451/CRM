@@ -185,6 +185,14 @@ computer's firewall (Windows will usually prompt you the first time — choose
   (default mail app, **Gmail** or **Outlook** web compose with the subject and
   body filled in). Nothing is ever sent automatically. Accounts with no email
   say so instead of hiding the button.
+- **One person at a time** — contacts at an account are worked in order
+  (Directors and Managers first, the C-suite last). "Not interested" / "Wrong
+  person" on a call, or a finished cadence with no reply, hands over to the
+  next person: they become primary and their cadence restarts today, with an
+  "Email 1 (next contact)" template that mentions the first person
+  (`{previous_contact}`). Each person shows how and when their turn ended.
+  When nobody is left, the company rests for 90 days and returns as a
+  follow-up. All of it is undoable.
 - **Door knocking** — accounts carry an office address (street, city, state,
   zip) from CoStar imports, ZoomInfo uploads or by hand. A 🚪 Door knock
   button logs a visit with an outcome, outside the cadence. Accounts show
@@ -334,4 +342,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-690 checks, about two seconds.
+709 checks, about two seconds.
