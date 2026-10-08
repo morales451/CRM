@@ -23,7 +23,8 @@ import excel_export
 import importer
 import undo as undo_module
 import warranty_calc
-from db import (ARCHIVE_REASONS, CALL_OUTCOMES, CALL_STEPS, CONNECT_OUTCOMES,
+from db import (ALL_OUTCOMES, ARCHIVE_REASONS, CALL_OUTCOMES, CALL_STEPS,
+                CONNECT_OUTCOMES, DOOR_KNOCK, DOOR_OUTCOMES,
                 DEFAULT_PROJECT_TASKS, INTERACTION_TYPES,
                 INVOICE_STATUSES,
                 PIPELINE_MILESTONES, PREFERRED_CONTACT_METHODS,
@@ -270,6 +271,7 @@ def inject_constants():
         "ARCHIVE_REASONS": ARCHIVE_REASONS,
         "INVOICE_STATUSES": INVOICE_STATUSES,
         "CALL_OUTCOMES": CALL_OUTCOMES,
+        "DOOR_OUTCOMES": DOOR_OUTCOMES,
         "CALL_STEPS": CALL_STEPS,
         "today": today_iso(),
     }
@@ -420,6 +422,10 @@ def _account_fields_from_form(form, previous=None):
         "linkedin_url": form.get("linkedin_url", "").strip(),
         "seniority": form.get("seniority", "").strip(),
         "website": form.get("website", "").strip(),
+        "street": form.get("street", "").strip(),
+        "city": form.get("city", "").strip(),
+        "state": form.get("state", "").strip(),
+        "zip": form.get("zip", "").strip(),
         "zoominfo_url": (importer.zoominfo_company_url(form.get("zoominfo_url", ""))
                          or form.get("zoominfo_url", "").strip()),
         "preferred_contact": form.get("preferred_contact", "Unknown"),
@@ -613,7 +619,7 @@ def _log_interaction(conn, account_id, itype: str, notes: str,
 
     Returns a sentence describing any knock-on change, for the flash message.
     """
-    outcome = outcome if outcome in CALL_OUTCOMES else ""
+    outcome = outcome if outcome in ALL_OUTCOMES else ""
     before = conn.execute(
         "SELECT id, prospecting_status, pipeline_milestone, cadence_start, notes "
         "FROM accounts WHERE id=?", (account_id,)).fetchone()
@@ -681,7 +687,7 @@ def quick_log():
         conn.commit()
     finally:
         conn.close()
-    flash(f"Logged “{step_type}”" + (f" — {outcome}" if outcome in CALL_OUTCOMES else "")
+    flash(f"Logged “{step_type}”" + (f" — {outcome}" if outcome in ALL_OUTCOMES else "")
           + "." + effect, "success")
     return redirect(request.form.get("next") or url_for("dashboard"))
 
@@ -1116,7 +1122,7 @@ def new_bid(account_id):
         acct = _account_or_404(conn, account_id)
         ts = now_iso()
         address = (request.form.get("roof_address", "").strip()
-                   or _address_from_notes(acct["notes"]))
+                   or account_address(acct))
         sqft_raw = request.form.get("roof_size_sqft", "").strip()
         surface = request.form.get("surface_type", "").strip()
         cur = conn.execute(
@@ -1683,6 +1689,29 @@ def invoice_status(invoice_id):
                     or url_for("project_detail", project_id=inv["project_id"]))
 
 
+def account_address(acct) -> str:
+    """One-line office address: the address fields, else the Notes line."""
+    keys = acct.keys()
+    parts = [acct[k] for k in ("street", "city") if k in keys and acct[k]]
+    state_zip = " ".join(acct[k] for k in ("state", "zip") if k in keys and acct[k])
+    if state_zip:
+        parts.append(state_zip)
+    return ", ".join(parts) or _address_from_notes(acct["notes"] if "notes" in keys else "")
+
+
+app.add_template_global(account_address)
+
+
+@app.template_global()
+def map_link(acct):
+    """Google Maps for the account's office (directions are one tap away)."""
+    addr = account_address(acct)
+    if not addr:
+        return ""
+    return _attrs("https://www.google.com/maps/search/?api=1&query="
+                  + quote(acct["company_name"] + ", " + addr), True)
+
+
 def _address_from_notes(notes):
     """Pull the 'Address: ...' line that imports write into account notes."""
     for line in (notes or "").splitlines():
@@ -1712,7 +1741,7 @@ def print_invoice(invoice_id):
                and inv["due_date"] < today_iso())
     return render_template("invoice_print.html", inv=inv, account=acct,
                            settings=settings, overdue=overdue,
-                           bill_address=_address_from_notes(acct["notes"]),
+                           bill_address=account_address(acct),
                            number=inv["invoice_number"] or f"INV-{inv['id']:04d}")
 
 
@@ -1855,7 +1884,8 @@ def _search_clause(q: str):
     """
     like = f"%{q}%"
     cols = ["a.company_name", "a.first_name", "a.last_name", "a.email",
-            "a.title", "a.notes", "a.seniority", "a.website"]
+            "a.title", "a.notes", "a.seniority", "a.website", "a.street",
+            "a.city", "a.zip"]
     parts = [f"{c} LIKE ?" for c in cols]
     params = [like] * len(cols)
 
@@ -1957,7 +1987,14 @@ def _account_filters(args) -> dict:
         clause, search_params = _search_clause(q)
         where += " AND " + clause
         params += search_params
-    return {"status": status, "milestone": milestone, "q": q,
+    visited = args.get("visited", "")
+    if visited in ("no", "yes"):
+        where += (" AND " + ("NOT " if visited == "no" else "")
+                  + f"EXISTS (SELECT 1 FROM interactions dk WHERE dk.account_id = a.id "
+                    f"AND dk.interaction_type = '{DOOR_KNOCK}')")
+    else:
+        visited = ""
+    return {"status": status, "visited": visited, "milestone": milestone, "q": q,
             "min_matching_raw": min_matching_raw, "sort": sort, "view": view,
             "where": where, "params": params}
 
@@ -1968,6 +2005,7 @@ def accounts():
     status, milestone, q = f["status"], f["milestone"], f["q"]
     min_matching_raw, sort, view = f["min_matching_raw"], f["sort"], f["view"]
     where, params = f["where"], f["params"]
+    visited = f["visited"]
 
     page = _parse_int(request.args.get("page", "1"), on_error=1) or 1
     page = max(1, page)
@@ -1985,7 +2023,10 @@ def accounts():
         rows = conn.execute(
             f"""SELECT a.*,
                        (SELECT MAX(created_at) FROM interactions i
-                        WHERE i.account_id = a.id) AS last_activity
+                        WHERE i.account_id = a.id) AS last_activity,
+                       (SELECT MAX(created_at) FROM interactions dk
+                        WHERE dk.account_id = a.id
+                          AND dk.interaction_type = '{DOOR_KNOCK}') AS last_visit
                 FROM accounts a WHERE 1=1{where}
                 ORDER BY {ACCOUNT_SORTS[sort]}
                 LIMIT ? OFFSET ?""",
@@ -2002,7 +2043,7 @@ def accounts():
     finally:
         conn.close()
     return render_template("accounts.html", accounts=rows,
-                           status=status, milestone=milestone, q=q,
+                           status=status, milestone=milestone, q=q, visited=visited,
                            min_matching=min_matching_raw, sort=sort,
                            total_matching=total_matching, view=view,
                            archived_count=archived_count,
@@ -2010,6 +2051,43 @@ def accounts():
                            match_hints=match_hints,
                            total=total, page=page, pages=pages,
                            per_page=ACCOUNTS_PER_PAGE)
+
+
+@app.route("/accounts/door-knock.csv")
+def door_knock_list():
+    """The accounts on screen with their office address, sorted by zip code
+    then street, so neighbouring offices sit together for planning a route.
+    Defaults to the active accounts you haven't visited yet."""
+    args = request.args.to_dict()
+    args.setdefault("visited", "no")
+    f = _account_filters(args)
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            f"""SELECT a.*, (SELECT MAX(created_at) FROM interactions dk
+                    WHERE dk.account_id = a.id AND dk.interaction_type = '{DOOR_KNOCK}')
+                    AS last_visit
+                FROM accounts a WHERE 1=1{f['where']}""", f["params"]).fetchall()
+    finally:
+        conn.close()
+    data = []
+    for r in rows:
+        if not account_address(r):
+            continue
+        street, city, state, zip_ = r["street"], r["city"], r["state"], r["zip"]
+        if not (street or city):
+            a = importer.address_from_notes(r["notes"])
+            street, city, state, zip_ = a["street"], a["city"], a["state"], a["zip"]
+        data.append([zip_ or "", street or "", city or "", state or "", r["company_name"],
+                     " ".join(x for x in (r["first_name"], r["last_name"]) if x),
+                     r["title"] or "", r["work_phone"] or r["mobile_phone"] or "",
+                     r["matching_properties"] or "", (r["last_visit"] or "")[:10],
+                     r["prospecting_status"], r["pipeline_milestone"]])
+    data.sort(key=lambda d: (d[0] == "", d[0], d[2].lower(), d[1].lower()))
+    return _csv_response(data, ["Zip", "Street", "City", "State", "Company", "Contact",
+                                "Title", "Phone", "Matching buildings", "Last visit",
+                                "Status", "Milestone"],
+                         f"door-knock-list-{today_iso()}.csv")
 
 
 # Columns ZoomInfo's company-list upload recognizes on its own.
@@ -2028,14 +2106,17 @@ def zoominfo_list():
     conn = get_db()
     try:
         rows = conn.execute(
-            f"SELECT a.company_name, a.website, a.notes FROM accounts a "
+            f"SELECT a.company_name, a.website, a.notes, a.street, a.city, a.state, a.zip "
+            f"FROM accounts a "
             f"WHERE 1=1{f['where']} ORDER BY {ACCOUNT_SORTS[f['sort']]}",
             f["params"]).fetchall()
     finally:
         conn.close()
     data = []
     for r in rows:
-        addr = importer.address_from_notes(r["notes"])
+        addr = ({"street": r["street"], "city": r["city"], "state": r["state"],
+                 "zip": r["zip"]} if (r["street"] or r["city"])
+                else importer.address_from_notes(r["notes"]))
         data.append([r["company_name"], r["website"] or "", addr["street"],
                      addr["city"], addr["state"], addr["zip"], "United States"])
     return _csv_response(data, ZOOMINFO_LIST_HEADERS,
@@ -2094,6 +2175,10 @@ def _render_account_detail(account_id, **extra):
             "ORDER BY created_at DESC, id DESC" +
             ("" if show_all_history else f" LIMIT {TIMELINE_ROWS}"),
             (account_id,)).fetchall()
+        visits = conn.execute(
+            "SELECT created_at, outcome FROM interactions WHERE account_id = ? "
+            "AND interaction_type = ? ORDER BY created_at DESC, id DESC",
+            (account_id, DOOR_KNOCK)).fetchall()
         steps = cadence.get_cadence_progress(conn, account_id)
         in_cadence = (acct["prospecting_status"] == cadence.ACTIVE_STATUS
                       and acct["pipeline_milestone"] == cadence.ACTIVE_MILESTONE)
@@ -2107,7 +2192,7 @@ def _render_account_detail(account_id, **extra):
     return render_template("account_detail.html", account=acct,
                            contacts=contacts, interactions=interactions,
                            steps=steps, in_cadence=in_cadence, project=project,
-                           bids=bids, history_total=history_total,
+                           bids=bids, history_total=history_total, visits=visits,
                            show_all_history=show_all_history, **extra)
 
 
@@ -2451,7 +2536,7 @@ def log_interaction(account_id):
         conn.commit()
     finally:
         conn.close()
-    flash(f"Logged “{itype}”" + (f" — {outcome}" if outcome in CALL_OUTCOMES else "")
+    flash(f"Logged “{itype}”" + (f" — {outcome}" if outcome in ALL_OUTCOMES else "")
           + "." + effect, "success")
     return redirect(request.form.get("next")
                     or url_for("account_detail", account_id=account_id))
@@ -2483,7 +2568,7 @@ def edit_interaction(interaction_id):
                 flash(f"Couldn't read the date “{new_date}” — kept the original.",
                       "warning")
         outcome = request.form.get("outcome", row["outcome"] or "")
-        if outcome not in CALL_OUTCOMES:
+        if outcome not in ALL_OUTCOMES:
             outcome = ""
         # Editing only corrects the record; it doesn't re-run what the outcome
         # did at the time (moving the deal, etc.) — that would be surprising.

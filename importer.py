@@ -300,14 +300,15 @@ def import_accounts(conn, file_storage, per_day: int | None = None) -> dict:
             """INSERT INTO accounts
                (company_name, first_name, last_name, title, num_properties,
                 matching_properties, email, work_phone, mobile_phone,
-                linkedin_url, seniority, website,
+                linkedin_url, seniority, website, street, city, state, zip,
                 preferred_contact, notes, prospecting_status,
                 pipeline_milestone, cadence_start, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (company, person["first_name"], person["last_name"], field("title"),
              row_int("num_properties"), row_int("matching_properties"),
              person["email"], person["work_phone"], person["mobile_phone"],
              field("linkedin_url"), field("seniority"), ctx("website"),
+             ctx("address"), ctx("city"), ctx("state"), ctx("zip"),
              "Unknown", notes,
              "Prospecting", "None / In Cadence", start if ready else "", ts, ts),
         )
@@ -402,6 +403,10 @@ CONTACT_COMPANY_SYNONYMS = {
     "hq_phone": ["companyhqphone", "hqphone", "companyphone", "mainphone",
                  "companymainphone"],
     "zoominfo_url": ["zoominfocompanyprofileurl"],
+    "street": ["companystreetaddress", "companyaddress", "companystreet"],
+    "city": ["companycity"],
+    "state": ["companystate"],
+    "zip": ["companyzipcode", "companyzip", "companypostalcode"],
     "zoominfo_id": ["zoominfocompanyid"],
 }
 
@@ -456,7 +461,8 @@ def zoominfo_company_url(value) -> str:
 # Account columns a contact import can change, snapshotted for its undo.
 _UNDO_ACCOUNT_COLS = ("first_name", "last_name", "title", "email", "work_phone",
                       "mobile_phone", "linkedin_url", "seniority", "notes",
-                      "website", "zoominfo_url", "cadence_start", "updated_at")
+                      "website", "zoominfo_url", "street", "city", "state", "zip",
+                      "cadence_start", "updated_at")
 
 
 def import_contacts(conn, file_storage, create_missing: bool = False,
@@ -620,6 +626,11 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
         if account_id not in before and account_id not in new_accounts:
             before[account_id] = {"id": account_id,
                                   **{c: acct[c] for c in _UNDO_ACCOUNT_COLS}}
+        addr = {k: company_field(k) for k in ("street", "city", "state", "zip")}
+        if any(addr.values()) and not ((acct["street"] or "").strip()
+                                       or (acct["city"] or "").strip()):
+            conn.execute("UPDATE accounts SET street=?, city=?, state=?, zip=? WHERE id=?",
+                         (*addr.values(), account_id))
         if zi_url and not (acct["zoominfo_url"] or "").strip():
             conn.execute("UPDATE accounts SET zoominfo_url=? WHERE id=?",
                          (zi_url, account_id))

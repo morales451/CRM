@@ -18,6 +18,8 @@
       {% if in_cadence %}<span class="badge text-bg-primary ms-1">In Cadence</span>{% endif %}
       {% if account.matching_properties %}<span class="badge text-bg-warning ms-1">🎯 {{ account.matching_properties }} matching propert{{ 'y' if account.matching_properties == 1 else 'ies' }}</span>{% endif %}
       {% if account.num_properties %}<span class="badge text-bg-light border ms-1">{{ account.num_properties }} total</span>{% endif %}
+      {% if visits %}<span class="badge text-bg-success ms-1" title="{{ visits|length }} door knock{{ 's' if visits|length != 1 }}">🚪 Visited {{ visits[0].created_at|d }}{% if visits[0].outcome %} · {{ visits[0].outcome }}{% endif %}</span>
+      {% else %}<span class="badge text-bg-light border ms-1" title="No door knock logged yet">🚪 Never visited</span>{% endif %}
       {% if account.website %}· <a href="{{ account.website if '://' in account.website else 'https://' + account.website }}" target="_blank" rel="noopener">{{ account.website|replace('https://', '')|replace('http://', '') }}</a>{% endif %}
     </div>
   </div>
@@ -28,6 +30,24 @@
     {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary">✉️ Email</a>
     {% else %}<span class="btn btn-sm btn-outline-secondary disabled" title="Add an email in Account Info below">✉️ No email on file</span>{% endif %}
     <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-warning" title="Personalized call & email scripts">📄 Scripts</a>
+    {% set maplink = map_link(account) %}
+    {% if maplink %}<a {{ maplink }} class="btn btn-sm btn-outline-secondary" title="{{ account_address(account) }}">📍 Map</a>{% endif %}
+    <div class="btn-group">
+      <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle" data-bs-toggle="dropdown"
+              data-bs-popper-config='{"strategy":"fixed"}' title="Log a visit to their office">🚪 Door knock</button>
+      <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 16rem">
+        <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
+          <input type="hidden" name="interaction_type" value="Door Knock">
+          <div class="small fw-semibold mb-1">How did it go?</div>
+          {% for o in DOOR_OUTCOMES %}
+          <div class="form-check"><input class="form-check-input" type="radio" name="outcome" value="{{ o }}" id="dk{{ loop.index }}" {{ 'checked' if loop.first }}>
+            <label class="form-check-label small" for="dk{{ loop.index }}">{{ o }}</label></div>
+          {% endfor %}
+          <textarea name="notes" rows="2" class="form-control form-control-sm my-2" placeholder="Who you met, what you left…"></textarea>
+          <button class="btn btn-sm btn-success w-100">Log visit</button>
+        </form>
+      </div>
+    </div>
     <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary" title="{{ 'Open this company in ZoomInfo' if account.zoominfo_url else 'Search ZoomInfo for this company' }}">🔎 ZoomInfo</a>
     <a href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}"
        target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary" title="Find this company on LinkedIn">in</a>
@@ -49,6 +69,13 @@
             <label class="form-label small mb-0" title="Contact uploads match people to this account by its web domain">Website</label>
             <input name="website" class="form-control form-control-sm" value="{{ account.website or '' }}" placeholder="company.com">
           </div>
+          <div class="col-12">
+            <label class="form-label small mb-0">Office address <span class="text-muted">(for door knocking)</span></label>
+            <input name="street" class="form-control form-control-sm" value="{{ account.street or '' }}" placeholder="Street">
+          </div>
+          <div class="col-5"><input name="city" class="form-control form-control-sm" value="{{ account.city or '' }}" placeholder="City"></div>
+          <div class="col-3"><input name="state" class="form-control form-control-sm" value="{{ account.state or '' }}" placeholder="State"></div>
+          <div class="col-4"><input name="zip" class="form-control form-control-sm" value="{{ account.zip or '' }}" placeholder="Zip"></div>
           <div class="col-12">
             <label class="form-label small mb-0" title="The 🔎 ZoomInfo button opens this page">ZoomInfo company page</label>
             <input name="zoominfo_url" class="form-control form-control-sm" value="{{ account.zoominfo_url or '' }}"
@@ -517,8 +544,9 @@ Direct Phone: 713-555-0199</pre>
         </div>
         <div class="mb-2">
           <select name="outcome" class="form-select form-select-sm" title="For calls: how it went">
-            <option value="">Call outcome (optional)…</option>
-            {% for o in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}
+            <option value="">Outcome (optional)…</option>
+            <optgroup label="Call">{% for o in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
+            <optgroup label="Door knock">{% for o in DOOR_OUTCOMES if o not in CALL_OUTCOMES %}<option>{{ o }}</option>{% endfor %}</optgroup>
           </select>
           <div class="form-text">Meeting booked → Accepted Meeting · Not interested ends the
             cadence · Bad number sends the account back to Research.</div>
@@ -550,7 +578,7 @@ Direct Phone: 713-555-0199</pre>
               <span class="badge text-bg-secondary">{{ i.interaction_type }}</span>
               {% if i.outcome %}
               <span class="badge {{ 'text-bg-success' if i.outcome == 'Meeting booked'
-                                   else 'text-bg-primary' if i.outcome == 'Spoke'
+                                   else 'text-bg-primary' if i.outcome in ('Spoke', 'Met decision-maker')
                                    else 'text-bg-danger' if i.outcome in ('Not interested', 'Bad number')
                                    else 'text-bg-light border' }}">{{ i.outcome }}</span>
               {% endif %}
@@ -574,8 +602,8 @@ Direct Phone: 713-555-0199</pre>
               <div class="col-5"><input type="date" name="created_date" value="{{ i.created_at[:10] }}" class="form-control form-control-sm"></div>
               <div class="col-12">
                 <select name="outcome" class="form-select form-select-sm">
-                  <option value="">No call outcome</option>
-                  {% for o in CALL_OUTCOMES %}<option {{ 'selected' if o == i.outcome }}>{{ o }}</option>{% endfor %}
+                  <option value="">No outcome</option>
+                  {% for o in (DOOR_OUTCOMES if i.interaction_type == 'Door Knock' else CALL_OUTCOMES) %}<option {{ 'selected' if o == i.outcome }}>{{ o }}</option>{% endfor %}
                 </select>
               </div>
               <div class="col-12"><textarea name="notes" rows="2" class="form-control form-control-sm">{{ i.notes }}</textarea></div>

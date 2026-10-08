@@ -185,6 +185,11 @@ computer's firewall (Windows will usually prompt you the first time — choose
   (default mail app, **Gmail** or **Outlook** web compose with the subject and
   body filled in). Nothing is ever sent automatically. Accounts with no email
   say so instead of hiding the button.
+- **Door knocking** — accounts carry an office address (street, city, state,
+  zip) from CoStar imports, ZoomInfo uploads or by hand. A 🚪 Door knock
+  button logs a visit with an outcome, outside the cadence. Accounts show
+  never visited / last visited, the list filters on it, 📍 Map opens
+  directions, and ⬇ Door-knock list exports the filtered offices sorted by zip.
 - **Outreach Templates & Scripts** — your cold call script, voicemail,
   text message, and three cadence emails live in the app (Templates page)
   and are fully editable, with placeholders like `{first_name}`, `{company}`,
@@ -329,4 +334,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-671 checks, about two seconds.
+684 checks, about two seconds.

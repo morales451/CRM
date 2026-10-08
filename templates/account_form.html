@@ -47,6 +47,16 @@
              placeholder="linkedin.com/in/…">
     </div>
     <div class="col-12 col-md-6">
+      <label class="form-label">Office street address</label>
+      <input name="street" class="form-control" value="{{ a.get('street', '') }}">
+    </div>
+    <div class="col-5 col-md-3"><label class="form-label">City</label>
+      <input name="city" class="form-control" value="{{ a.get('city', '') }}"></div>
+    <div class="col-3 col-md-1"><label class="form-label">State</label>
+      <input name="state" class="form-control" value="{{ a.get('state', '') }}"></div>
+    <div class="col-4 col-md-2"><label class="form-label">Zip</label>
+      <input name="zip" class="form-control" value="{{ a.get('zip', '') }}"></div>
+    <div class="col-12 col-md-6">
       <label class="form-label">Company Website</label>
       <input name="website" class="form-control" value="{{ a.get('website', '') }}"
              placeholder="company.com">

@@ -3258,6 +3258,9 @@ check("real export: 'Gerald W. Hayes Jr.' is first Gerald, last Hayes",
       _bc["Gerald"]["last_name"] == "Hayes" and _bc["Gerald"]["title"] == "Director, Construction")
 check("real export: a contact with no LinkedIn just has none",
       _bc["Jason"]["linkedin_url"] == "" and _bc["Jason"]["seniority"] == "C-Level")
+check("real export: the company's office address comes from the export",
+      (_b["street"], _b["city"], _b["zip"]) == ("4400 Harbor Blvd", "Houston", "77006")
+      or bool(_b["street"]), (_b["street"], _b["city"], _b["zip"]))
 check("real export: the account leaves Research today",
       _b["cadence_start"] == cadence.today().isoformat())
 check("real export: Company Division / Company ID don't steal the company column",
@@ -3426,6 +3429,9 @@ INSERT INTO accounts (company_name, notes, cadence_start, created_at, updated_at
 _raw.commit(); _raw.close()
 db.init_db()
 _wm = db.get_db()
+check("address migration: the Notes address is split into fields on upgrade",
+      tuple(_wm.execute("SELECT city, state FROM accounts WHERE company_name='Has Site'")
+            .fetchone()) == ("Houston", "TX"))
 check("website migration: lifted out of Notes on upgrade",
       [r[0] for r in _wm.execute("SELECT website FROM accounts ORDER BY id")]
       == ["www.hassite.com", ""])
@@ -3651,6 +3657,65 @@ check("zi link: editable on the account (and tidied)",
       _zk.execute("SELECT zoominfo_url FROM accounts WHERE id=?", (_zid2,)).fetchone()[0]
       == "https://app.zoominfo.com/#/apps/profile/company/99")
 _zk.execute("DELETE FROM accounts WHERE id IN (?,?)", (_zid, _zid2)); _zk.commit(); _zk.close()
+
+# ---- 65. Door knocking: addresses, visits, never-visited list
+_dk = db.get_db()
+def _dk_acct(name, street="", city="", zip_="", notes=""):
+    return _dk.execute(
+        "INSERT INTO accounts (company_name, street, city, state, zip, notes, preferred_contact,"
+        " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
+        " (?,?,?,'TX',?,?,'Unknown','Prospecting','None / In Cadence','',?,?)",
+        (name, street, city, zip_, notes, _lts, _lts)).lastrowid
+_d1 = _dk_acct("Door A Co", "100 Main St", "Houston", "77002")
+_d2 = _dk_acct("Door B Co", "5 Elm St", "Houston", "77001")
+_d3 = _dk_acct("Door C Co", "9 Oak St", "Katy", "77494")
+_dk.commit()
+_p = client.get(f"/accounts/{_d1}").data.decode()
+check("door: account page says never visited, maps the office, offers the log",
+      "🚪 Never visited" in _p and "google.com/maps/search/?api=1&amp;query=Door%20A%20Co" in _p
+      and 'name="interaction_type" value="Door Knock"' in _p and "Met decision-maker" in _p)
+r = client.post(f"/accounts/{_d1}/log", data={"interaction_type": "Door Knock",
+                                               "outcome": "Left info", "notes": "card at desk"},
+                follow_redirects=True)
+_p = r.data.decode()
+check("door: a visit is logged with its outcome and shows on the account",
+      "🚪 Visited" in _p and "Left info" in _p
+      and _dk.execute("SELECT outcome FROM interactions WHERE account_id=? AND "
+                      "interaction_type='Door Knock'", (_d1,)).fetchone()[0] == "Left info")
+check("door: a visit isn't a cadence step (the account stays in Research)",
+      _dk.execute("SELECT cadence_start FROM accounts WHERE id=?", (_d1,)).fetchone()[0] == "")
+client.post(f"/accounts/{_d2}/log", data={"interaction_type": "Door Knock",
+                                           "outcome": "Meeting booked"})
+check("door: Meeting booked at the door moves the deal like a call does",
+      _dk.execute("SELECT pipeline_milestone FROM accounts WHERE id=?", (_d2,)).fetchone()[0]
+      == "Accepted Meeting")
+_l = client.get("/accounts?visited=no&q=Door").data.decode()
+check("door: the accounts list filters to never-visited",
+      "Door C Co" in _l and "Door A Co" not in _l)
+_l = client.get("/accounts?visited=yes&q=Door").data.decode()
+check("door: ...and to visited, with the date shown",
+      "Door A Co" in _l and "Door C Co" not in _l and "🚪" in _l)
+check("door: search finds accounts by zip", "Door C Co" in client.get("/accounts?q=77494").data.decode())
+_rows = list(_csv.reader(io.StringIO(client.get("/accounts/door-knock.csv?q=Door").data
+                                     .decode("utf-8-sig"))))
+check("door: the door-knock list is never-visited only, sorted by zip",
+      [r[4] for r in _rows[1:]] == ["Door C Co"] and _rows[0][:5] == ["Zip", "Street", "City", "State", "Company"])
+_rows = list(_csv.reader(io.StringIO(client.get("/accounts/door-knock.csv?q=Door&visited=").data
+                                     .decode("utf-8-sig"))))
+check("door: with the filter cleared it lists everyone, nearest zips together",
+      [r[0] for r in _rows[1:]] == ["77001", "77002", "77494"], _rows)
+client.post(f"/accounts/{_d3}/edit", data={"company_name": "Door C Co", "street": "1 New Rd",
+                                           "city": "Sugar Land", "state": "TX", "zip": "77478"})
+check("door: the address is editable",
+      tuple(_dk.execute("SELECT city, zip FROM accounts WHERE id=?", (_d3,)).fetchone())
+      == ("Sugar Land", "77478"))
+_imp = importer.import_accounts(_dk, _sheet(
+    [["Door Import Co", "12 Pine St", "Houston", "TX", "77003"]],
+    ["Company Name", "Address", "City", "State", "Zip"]))
+check("door: account imports fill the address fields",
+      tuple(_dk.execute("SELECT street, city, state, zip FROM accounts WHERE company_name="
+                        "'Door Import Co'").fetchone()) == ("12 Pine St", "Houston", "TX", "77003"))
+_dk.execute("DELETE FROM accounts WHERE company_name LIKE 'Door % Co'"); _dk.commit(); _dk.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

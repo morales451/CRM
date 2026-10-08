@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Accounts — Roof CRM{% endblock %}
 {% block content %}
+{% set filters = {'q': q, 'status': status, 'milestone': milestone, 'visited': visited or none,
+                  'min_matching': min_matching, 'sort': sort,
+                  'view': view if view in ('archived', 'research') else none} %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ total }})</span>
     {% if total_matching %}<span class="badge text-bg-warning fs-6" title="Total buildings matching your criteria in this view">🎯 {{ total_matching }} buildings</span>{% endif %}
@@ -12,6 +15,8 @@
          title="Accounts with nobody to contact yet — their cadence starts when you add one">🔎 Research{% if research_count %} ({{ research_count }}){% endif %}</a>
       <a href="{{ url_for('accounts', view='archived') }}" class="btn {{ 'btn-warning' if view == 'archived' else 'btn-outline-secondary' }}">🗄 Archived{% if archived_count %} ({{ archived_count }}){% endif %}</a>
     </div>
+    {% if view != 'archived' %}<a href="{{ url_for('door_knock_list', **filters) }}" class="btn btn-outline-success btn-sm"
+       title="These accounts with their office address, sorted by zip for planning a route (never-visited unless you filter otherwise)">⬇ Door-knock list</a>{% endif %}
     <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
   </div>
 </div>
@@ -42,6 +47,13 @@
       </div>
     </div>
     <div class="col-6 col-md-2">
+      <select name="visited" class="form-select form-select-sm" title="Door knocks">
+        <option value="">🚪 Any</option>
+        <option value="no" {{ 'selected' if visited == 'no' }}>🚪 Never visited</option>
+        <option value="yes" {{ 'selected' if visited == 'yes' }}>🚪 Visited</option>
+      </select>
+    </div>
+    <div class="col-6 col-md-2">
       <select name="sort" class="form-select form-select-sm" title="Sort order">
         <option value="priority" {{ 'selected' if sort == 'priority' }}>🎯 Most buildings</option>
         <option value="name" {{ 'selected' if sort == 'name' }}>A–Z</option>
@@ -55,9 +67,6 @@
   </div>
 </form>
 
-{% set filters = {'q': q, 'status': status, 'milestone': milestone,
-                  'min_matching': min_matching, 'sort': sort,
-                  'view': view if view in ('archived', 'research') else none} %}
 {% macro pager() %}
   {% if pages > 1 %}
   <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 px-2 py-2 small">
@@ -140,6 +149,9 @@
           <td><input type="checkbox" class="form-check-input rowcheck" name="account_ids" value="{{ a.id }}"></td>
           <td>
             <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a>
+            {% if a.city or a.zip %}<div class="small text-muted">{{ a.city }}{% if a.zip %} {{ a.zip }}{% endif %}
+              {% if a.last_visit %}<span class="text-success" title="Last door knock">· 🚪 {{ a.last_visit|d }}</span>{% endif %}</div>
+            {% elif a.last_visit %}<div class="small text-success">🚪 {{ a.last_visit|d }}</div>{% endif %}
             {% if match_hints and match_hints.get(a.id) %}
             <div class="small text-muted">matched contact: {{ match_hints[a.id] }}</div>
             {% endif %}

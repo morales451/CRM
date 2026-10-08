@@ -112,6 +112,7 @@ INTERACTION_TYPES = [
     "Breakup Email",
     "General Note",
     "Meeting",
+    "Door Knock",
 ]
 
 PROJECT_STATUSES = [
@@ -138,6 +139,19 @@ CALL_OUTCOMES = [
     "Not interested",
     "Bad number",
 ]
+# What happened at the door. Meeting booked / Not interested move the account
+# exactly as they do on a call.
+DOOR_OUTCOMES = [
+    "Met decision-maker",
+    "Left info",
+    "Gatekeeper",
+    "Closed / no access",
+    "Wrong address",
+    "Meeting booked",
+    "Not interested",
+]
+ALL_OUTCOMES = list(dict.fromkeys(CALL_OUTCOMES + DOOR_OUTCOMES))
+DOOR_KNOCK = "Door Knock"
 # Outcomes where you actually reached the decision-maker.
 CONNECT_OUTCOMES = ("Spoke", "Meeting booked", "Not interested")
 # Cadence steps that are phone calls, and so get outcome buttons.
@@ -186,6 +200,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     seniority TEXT DEFAULT '',             -- ZoomInfo "Management Level" (C-Level, VP-Level, ...)
     website TEXT DEFAULT '',               -- company website; contact imports match on its domain
     zoominfo_url TEXT DEFAULT '',          -- the company's ZoomInfo profile page
+    street TEXT DEFAULT '',                -- office address, for door knocking
+    city TEXT DEFAULT '',
+    state TEXT DEFAULT '',
+    zip TEXT DEFAULT '',
     preferred_contact TEXT NOT NULL DEFAULT 'Unknown',
     notes TEXT DEFAULT '',
     prospecting_status TEXT NOT NULL DEFAULT 'Prospecting',
@@ -540,6 +558,21 @@ def _migrate(conn) -> None:
     for name in ("linkedin_url", "seniority"):
         if name not in cols:
             conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} TEXT DEFAULT ''")
+    if "street" not in cols:
+        for name in ("street", "city", "state", "zip"):
+            if name not in cols:
+                conn.execute(f"ALTER TABLE accounts ADD COLUMN {name} TEXT DEFAULT ''")
+        # Imports filed the address as an "Address: ..." line in Notes; split
+        # it into the new fields so door-knock lists can sort and filter on it.
+        if "notes" in cols:
+            import importer           # here, not at the top: importer imports db
+            for row in conn.execute("SELECT id, notes FROM accounts "
+                                    "WHERE notes LIKE '%Address:%'").fetchall():
+                a = importer.address_from_notes(row[1])
+                if any(a.values()):
+                    conn.execute("UPDATE accounts SET street=?, city=?, state=?, zip=? "
+                                 "WHERE id=?", (a["street"], a["city"], a["state"],
+                                                a["zip"], row[0]))
     if "zoominfo_url" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN zoominfo_url TEXT DEFAULT ''")
     if "website" not in cols:
