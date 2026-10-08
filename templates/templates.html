@@ -29,7 +29,8 @@
         {% for k, v in EMAIL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('email_app', 'default') == k }}>{{ v }}</option>{% endfor %}
       </select>
       <div class="small text-muted">Gmail and Outlook open a new message in a browser tab with the subject
-        and email already written. Nothing is sent until you press Send.</div>
+        and email already written. On an iPhone or iPad they open the Gmail or Outlook app's
+        new-message screen instead. Nothing is sent until you press Send.</div>
     </div>
     <div class="col-12">
       <label class="form-label small mb-0 text-muted">Invoice payment terms (printed at the bottom of every invoice)</label>

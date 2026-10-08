@@ -97,6 +97,14 @@ def _link_prefs() -> dict:
     return g.link_prefs
 
 
+def _device() -> str:
+    """'ios', 'android' or 'desktop', from the browser's user agent."""
+    ua = request.headers.get("User-Agent", "") if request else ""
+    if any(k in ua for k in ("iPhone", "iPad", "iPod")):
+        return "ios"
+    return "android" if "Android" in ua else "desktop"
+
+
 def _e164(phone: str) -> str:
     """+17135550100 from any US-style number; the extension is dropped."""
     digits = re.sub(r"\D", "", clean_tel(phone).split(",")[0])
@@ -135,6 +143,18 @@ def email_link(email: str, subject: str = "", body: str = "") -> tuple[str, bool
     if not email:
         return "", False
     app_ = _link_prefs()["email_app"]
+    fields = "subject=" + quote(subject) + "&body=" + quote(body)
+    # On a phone the web compose page is handed to the Gmail/Outlook APP,
+    # which opens on the inbox and drops the draft. Those apps have their
+    # own compose links that keep everything, so phones get those instead.
+    device = _device()
+    if app_ == "gmail" and device == "ios":
+        return f"googlegmail:///co?to={quote(email)}&{fields}", False
+    if app_ == "outlook" and device == "ios":
+        return f"ms-outlook://compose?to={quote(email)}&{fields}", False
+    if app_ in ("gmail", "outlook") and device == "android":
+        # Android offers the installed mail apps for a mailto, draft intact.
+        return f"mailto:{email}?{fields}", False
     if app_ == "gmail":
         return ("https://mail.google.com/mail/?view=cm&fs=1&to=" + quote(email)
                 + "&su=" + quote(subject) + "&body=" + quote(body)), True

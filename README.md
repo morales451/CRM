@@ -329,4 +329,4 @@ backups against a throwaway database (your `crm.db` is never touched):
 python3 tests/test_crm.py
 ```
 
-647 checks, about two seconds.
+650 checks, about two seconds.

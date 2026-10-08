@@ -3514,6 +3514,19 @@ _s = client.get(f"/accounts/{_lid}/scripts").data.decode()
 check("links: Gmail compose opens with the email written",
       "https://mail.google.com/mail/?view=cm&amp;fs=1&amp;to=lena%40linkpref.com&amp;su=" in _s
       and "&amp;body=" in _s and "Write this email" in _s)
+_IOS = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"}
+_AND = {"User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile"}
+_s = client.get(f"/accounts/{_lid}/scripts", headers=_IOS).data.decode()
+check("links: on an iPhone, Gmail opens the Gmail app's compose with the draft",
+      "googlegmail:///co?to=lena%40linkpref.com&amp;subject=" in _s and "&amp;body=" in _s
+      and "mail.google.com" not in _s)
+_s = client.get(f"/accounts/{_lid}/scripts", headers=_AND).data.decode()
+check("links: on Android, Gmail uses mailto with the draft (the app picker keeps it)",
+      'href="mailto:lena@linkpref.com?subject=' in _s)
+client.post("/settings", data={"email_app": "outlook"})
+check("links: on an iPhone, Outlook opens the Outlook app's compose",
+      "ms-outlook://compose?to=lena%40linkpref.com" in
+      client.get(f"/accounts/{_lid}/scripts", headers=_IOS).data.decode())
 client.post("/settings", data={"email_app": "outlook", "call_app": "bogus"})
 _s = client.get(f"/accounts/{_lid}/scripts").data.decode()
 check("links: Outlook web compose works too", "outlook.office.com/mail/deeplink/compose?to=" in _s)
