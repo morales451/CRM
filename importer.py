@@ -466,7 +466,8 @@ _UNDO_ACCOUNT_COLS = ("first_name", "last_name", "title", "email", "work_phone",
 
 
 def import_contacts(conn, file_storage, create_missing: bool = False,
-                    per_day: int | None = None, record_undo=None) -> dict:
+                    per_day: int | None = None, record_undo=None,
+                    to_account: int | None = None) -> dict:
     """Attach a contact export (e.g. from ZoomInfo) to accounts.
 
     Each row is matched to an account by normalized company name (see
@@ -488,6 +489,10 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
     per_day staggers the cadence starts of accounts leaving Research, so a
     300-company upload doesn't land 300 Day-1 tasks on one morning.
     record_undo(ops) is called before the commit with what undoes it all.
+
+    to_account attaches EVERY row to that one account, whatever company the
+    file names: the upload box on an account page, for an export you pulled
+    for that company.
     """
     df = read_file(file_storage)
     mapping = map_columns(df.columns)
@@ -495,7 +500,7 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
         [c for c in df.columns if c not in mapping.values()],
         CONTACT_COMPANY_SYNONYMS)
 
-    if "company_name" not in mapping:
+    if "company_name" not in mapping and to_account is None:
         raise ValueError(
             "Could not find a company column to match contacts against. "
             f"Found columns: {', '.join(str(c) for c in df.columns)}")
@@ -542,8 +547,9 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
     ts = now_iso()
 
     for _, row in df.iterrows():
-        company = _clean(row.get(mapping["company_name"]))
-        if not company:
+        company = (_clean(row.get(mapping["company_name"]))
+                   if "company_name" in mapping else "")
+        if not company and to_account is None:
             skipped_blank += 1
             continue
 
@@ -569,7 +575,7 @@ def import_contacts(conn, file_storage, create_missing: bool = False,
                        if d]
 
         key = normalize_company(company)
-        account_id = accounts_by_key.get(key)
+        account_id = to_account if to_account is not None else accounts_by_key.get(key)
         if account_id is None:
             for d in row_domains:
                 ids = active_domains.get(d, set())

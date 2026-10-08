@@ -3717,6 +3717,41 @@ check("door: account imports fill the address fields",
                         "'Door Import Co'").fetchone()) == ("12 Pine St", "Houston", "TX", "77003"))
 _dk.execute("DELETE FROM accounts WHERE company_name LIKE 'Door % Co'"); _dk.commit(); _dk.close()
 
+# ---- 66. Upload a ZoomInfo export straight onto one account
+_ua = db.get_db()
+_uid = _ua.execute(
+    "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, pipeline_milestone,"
+    " cadence_start, created_at, updated_at) VALUES ('Totally Different Name LLC','Unknown',"
+    "'Prospecting','None / In Cadence','',?,?)", (_lts, _lts)).lastrowid
+_ua.commit()
+_pg = client.get(f"/accounts/{_uid}").data.decode()
+check("account upload: the account page has the upload box",
+      f"/accounts/{_uid}/contacts/upload" in _pg and 'enctype="multipart/form-data"' in _pg)
+r = client.post(f"/accounts/{_uid}/contacts/upload",
+                data={"file": (io.BytesIO(_FIX.read_bytes()), "export.csv")},
+                content_type="multipart/form-data", follow_redirects=True)
+_ua2 = _ua.execute("SELECT * FROM accounts WHERE id=?", (_uid,)).fetchone()
+check("account upload: everyone lands on THIS account whatever company the file names",
+      _ua2["first_name"] == "Danny" and _ua.execute(
+          "SELECT COUNT(*) FROM contacts WHERE account_id=?", (_uid,)).fetchone()[0] == 3)
+check("account upload: says what it did, and the cadence starts",
+      b"Added 4 contact(s)" in r.data and _ua2["cadence_start"] != "")
+r = client.post(f"/accounts/{_uid}/contacts/upload",
+                data={"file": (io.BytesIO(_FIX.read_bytes()), "export.csv")},
+                content_type="multipart/form-data", follow_redirects=True)
+check("account upload: uploading it again skips everyone", b"4 already on this account" in r.data)
+client.post("/undo/" + str(_ua.execute("SELECT MAX(id) m FROM undo_log WHERE COALESCE(used_at, '') = ''").fetchone()["m"]))
+client.post("/undo/" + str(_ua.execute(
+    "SELECT MAX(id) m FROM undo_log WHERE label LIKE 'Contact upload to%' AND COALESCE(used_at, '') = ''").fetchone()["m"]))
+check("account upload: undoable",
+      _ua.execute("SELECT COUNT(*) FROM contacts WHERE account_id=?", (_uid,)).fetchone()[0] == 0)
+_csv_noco = b"First Name,Last Name,Email Address\r\nNo,Company,nc@x.com\r\n"
+r = client.post(f"/accounts/{_uid}/contacts/upload",
+                data={"file": (io.BytesIO(_csv_noco), "x.csv")},
+                content_type="multipart/form-data", follow_redirects=True)
+check("account upload: a file with no company column still works here", b"Added 1 contact" in r.data)
+_ua.execute("DELETE FROM accounts WHERE id=?", (_uid,)); _ua.commit(); _ua.close()
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

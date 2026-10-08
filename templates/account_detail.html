@@ -445,6 +445,17 @@
       </script>
       {% endif %}
 
+      <form method="post" action="{{ url_for('upload_account_contacts', account_id=account.id) }}"
+            enctype="multipart/form-data" class="mt-2 p-2 border rounded bg-light">
+        <label class="form-label small fw-semibold mb-1">📥 Upload a ZoomInfo export for this company</label>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+          <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control form-control-sm" style="max-width: 20rem" required>
+          <button class="btn btn-sm btn-primary">Add everyone in the file</button>
+        </div>
+        <div class="form-text">The file exactly as ZoomInfo downloaded it. Everyone goes on this account,
+          people already here are skipped, and the Undo bar takes it back.</div>
+      </form>
+
       {% set pre = contact_prefill | default({}) %}
       <details class="mt-2" {{ 'open' if pre or not (account.first_name or account.last_name or account.email) }}>
         <summary class="fw-semibold" style="cursor:pointer">+ Add Contact</summary>

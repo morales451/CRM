@@ -3415,6 +3415,36 @@ def import_contacts_route():
                            backup_dir=_backup_dir_setting())
 
 
+@app.route("/accounts/<int:account_id>/contacts/upload", methods=["POST"])
+def upload_account_contacts(account_id):
+    """A ZoomInfo export pulled for this one company, attached straight to
+    it: no company-name matching, people already here skipped, undoable."""
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Choose the .xlsx or .csv file ZoomInfo gave you first.", "warning")
+        return redirect(url_for("account_detail", account_id=account_id))
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        try:
+            res = importer.import_contacts(
+                conn, file, to_account=account_id,
+                record_undo=lambda ops: _offer_undo(
+                    conn, f"Contact upload to {acct['company_name']}", ops))
+        except ValueError as e:
+            flash(str(e), "danger")
+            return redirect(url_for("account_detail", account_id=account_id))
+    finally:
+        conn.close()
+    msg = f"Added {res['attached']} contact(s) from {file.filename}."
+    if res["skipped_duplicates"]:
+        msg += f" {res['skipped_duplicates']} already on this account were skipped."
+    if res["cadence_started"]:
+        msg += " It has someone to contact now, so its cadence starts today."
+    flash(msg, "success" if res["attached"] else "warning")
+    return redirect(url_for("account_detail", account_id=account_id))
+
+
 @app.route("/import/template")
 def import_template():
     csv = ("Company Name,First Name,Last Name,Job Title,Number of Properties,"
