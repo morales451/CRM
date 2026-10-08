@@ -10,6 +10,7 @@ target_fingerprint: "sha256:8779250f87c931690a5c11bb5aee786488c9666bfaa631b35ad8
 target_path: /home/user/CRM/templates/account_detail.html
 timestamp: 2026-10-08T22-08-16Z
 slug: templates-account-detail-html
+closed: true
 ---
 Method: dual-agent (A: design review · B: detector + browser)
 
