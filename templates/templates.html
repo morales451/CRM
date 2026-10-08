@@ -48,6 +48,14 @@
         window, even while your personal Gmail is signed in too. Blank uses the Email above.</div>
     </div>
     <div class="col-12">
+      <label class="form-label small mb-0 text-muted">✍️ Email signature (added to the end of every email template)</label>
+      <textarea name="email_signature" rows="5" class="form-control form-control-sm">{{ settings.get('email_signature', '') }}</textarea>
+      <div class="small text-muted">Use <code>{my_name}</code>, <code>{my_title}</code>, <code>{my_company}</code>,
+        <code>{my_phone}</code>, <code>{my_website}</code>, <code>{my_email}</code> or plain text. It replaces a
+        template's closing name lines, so "Best," is followed by the signature only once. Put
+        <code>{signature}</code> in a template to place it yourself, or leave this blank for none.</div>
+    </div>
+    <div class="col-12">
       <label class="form-label small mb-0 text-muted">Invoice payment terms (printed at the bottom of every invoice)</label>
       <textarea name="invoice_terms" rows="2" class="form-control form-control-sm">{{ settings.get('invoice_terms', '') }}</textarea>
     </div>

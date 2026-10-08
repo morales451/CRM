@@ -3555,6 +3555,38 @@ check("links: switching back restores tel: links",
       'href="tel:7135550100,32"' in client.get(f"/accounts/{_lid}").data.decode())
 _lc.execute("DELETE FROM accounts WHERE id IN (?,?)", (_lid, _nid)); _lc.commit(); _lc.close()
 
+# ---- 63. Email signature
+from app import with_signature
+_sg = {"email_signature": "{my_name}\n{my_title}\n{my_company}"}
+check("signature: replaces the closing name lines once",
+      with_signature("Hi,\n\nBest,\n{my_name}\n{my_company}\n{my_phone}", _sg)
+      == "Hi,\n\nBest,\n{my_name}\n{my_title}\n{my_company}")
+check("signature: {signature} places it explicitly",
+      with_signature("Hi\n{signature}\nPS", _sg) == "Hi\n{my_name}\n{my_title}\n{my_company}\nPS")
+check("signature: blank means none", with_signature("Best,\n{my_name}", {}) == "Best,\n{my_name}")
+_gc = db.get_db()
+_gid = _gc.execute(
+    "INSERT INTO accounts (company_name, first_name, email, preferred_contact, prospecting_status,"
+    " pipeline_milestone, cadence_start, created_at, updated_at) VALUES ('Sig Co','Sam',"
+    "'sam@sigco.com','Unknown','Prospecting','None / In Cadence',?,?,?)",
+    (date.today().isoformat(), _lts, _lts)).lastrowid
+_gc.commit()
+client.post("/settings", data={"email_signature": "{my_name}\n{my_title}\nSilicone Roof Pros",
+                               "my_title": "Owner"})
+_s = client.get(f"/accounts/{_gid}/scripts?step=Email+1").data.decode()
+check("signature: shows in the email and goes into the compose link",
+      "Owner\nSilicone Roof Pros</textarea>" in _s and "Owner%0ASilicone%20Roof%20Pros" in _s)
+_myname = _gc.execute("SELECT value FROM settings WHERE key='my_name'").fetchone()[0]
+_mail = _s.split("Silicone Roof Pros</textarea>")[0].rsplit(">", 1)[1]
+check("signature: the name isn't doubled",
+      _mail.count(_myname) == 1 and _mail.endswith(_myname + "\nOwner\n"), _mail[-80:])
+_c = client.get(f"/accounts/{_gid}/scripts").data.decode()
+check("signature: calls and texts don't get one", "Silicone Roof Pros</textarea>" not in
+      _c.split("Cold Call Script")[1].split("</textarea>")[0] + "</textarea>")
+check("signature: editable on the Templates page", 'name="email_signature"' in
+      client.get("/templates").data.decode())
+_gc.execute("DELETE FROM accounts WHERE id=?", (_gid,)); _gc.commit(); _gc.close()
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)

@@ -383,6 +383,9 @@ DEFAULT_SETTINGS = {
     "my_email": "sales@siliconeroofpros.com",
     "my_website": "siliconeroofpros.com",
     "my_address": "",
+    # Added to the end of every email template ({my_...} placeholders work).
+    # Blank turns it off.
+    "email_signature": "{my_name}\n{my_title}\n{my_company}\n{my_phone}\n{my_website}",
     # Logged touches that count as a full day's outreach (0 hides the goal).
     "daily_goal": "20",
     # Sell price per sq ft of coated roof (see warranty_calc.DEFAULT_PRICING)

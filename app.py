@@ -2791,8 +2791,30 @@ PLACEHOLDER_LABELS = {
     "company": "company", "num_properties": "total properties",
     "matching_properties": "matching properties",
     "email": "email", "my_name": "your name", "my_company": "your company",
-    "my_phone": "your phone number",
+    "my_phone": "your phone number", "my_title": "your title",
+    "my_website": "your website", "my_email": "your email",
 }
+
+# Sign-off lines a template may end with. With a signature set they're
+# dropped, so "Best,\n{my_name}" becomes "Best,\n<signature>" rather than
+# the name twice.
+_SIGNOFF_LINE = re.compile(r"^\s*(\{my_(name|title|company|phone|website|email)\}\s*)+$")
+
+
+def with_signature(body: str, settings: dict) -> str:
+    """An email template body with the saved signature at the end.
+
+    {signature} in a template places it explicitly; otherwise any trailing
+    {my_name}/{my_company}/{my_phone} lines are replaced by it."""
+    sig = (settings.get("email_signature") or "").strip("\n")
+    if "{signature}" in body:
+        return body.replace("{signature}", sig)
+    if not sig.strip():
+        return body
+    lines = body.rstrip().split("\n")
+    while lines and _SIGNOFF_LINE.match(lines[-1]):
+        lines.pop()
+    return "\n".join(lines).rstrip() + "\n" + sig
 
 
 def _get_settings(conn) -> dict:
@@ -2818,6 +2840,9 @@ def render_script(text: str, acct, settings: dict):
         "my_name": settings.get("my_name", ""),
         "my_company": settings.get("my_company", ""),
         "my_phone": settings.get("my_phone", ""),
+        "my_title": settings.get("my_title", ""),
+        "my_website": settings.get("my_website", ""),
+        "my_email": settings.get("my_email", ""),
     }
     missing = []
 
@@ -2883,7 +2908,7 @@ def save_settings():
                     "my_website", "my_address", "invoice_terms", "backup_dir",
                     "price_capsheet_base", "price_other_base", "price_add_15",
                     "price_add_20", "daily_goal", "call_app", "email_app",
-                    "email_app_phone", "send_from"):
+                    "email_app_phone", "send_from", "email_signature"):
             if key not in request.form:  # only touch submitted fields
                 continue
             value = request.form.get(key, "").strip()
@@ -2926,7 +2951,8 @@ def _build_scripts(acct, settings, rows, step=""):
         if step and step not in t_steps:
             continue
         subject, missing_s = render_script(t["subject"], acct, settings)
-        body, missing_b = render_script(t["body"], acct, settings)
+        raw_body = with_signature(t["body"], settings) if t["kind"] == "email" else t["body"]
+        body, missing_b = render_script(raw_body, acct, settings)
         if t["kind"] == "email":
             action_url, external = email_link(acct["email"], subject, body)
             missing_target = "" if action_url else "email address"
