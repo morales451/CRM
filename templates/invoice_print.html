@@ -8,7 +8,8 @@
     :root { --brand: #0088df; --brand-dark: #0070b8; --navy: #1a1a2e; --light: #e8f4fc; }
     * { box-sizing: border-box; }
     body { font-family: "Segoe UI", Arial, sans-serif; color: #1a1a2e; margin: 0;
-           background: #f0f2f5; }
+           background: #f0f2f5; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    ::selection { background: #b9ddf6; color: var(--navy); }
     .sheet { max-width: 800px; margin: 1.5rem auto; background: #fff; padding: 2.5rem 3rem;
              box-shadow: 0 2px 12px rgba(0,0,0,.12); position: relative; }
     .topbar { height: 8px; background: linear-gradient(90deg, var(--brand), var(--navy));
@@ -19,12 +20,16 @@
     .inv-title { text-align: right; }
     .inv-title h1 { margin: 0; color: var(--brand); font-size: 2.2rem;
                     letter-spacing: .12em; }
-    .inv-title .num { font-size: 1.05rem; color: #555; }
+    .inv-title .num { font-size: 1.05rem; color: #4a4f5c; }
+    .status { display: inline-block; margin-top: .5rem; font-size: .8rem; font-weight: 700;
+              letter-spacing: .06em; text-transform: uppercase; padding: .2rem .55rem; border-radius: 4px; }
+    .status.paid { background: #e3f4e8; color: #0a5c24; }
+    .status.overdue { background: #fbe4e4; color: #8f1d1d; }
     .meta { margin-top: .6rem; font-size: .9rem; color: #333; }
     .meta strong { display: inline-block; min-width: 70px; }
     .parties { display: flex; justify-content: space-between; gap: 2rem;
                margin: 2rem 0 1.5rem; flex-wrap: wrap; }
-    .party h3 { margin: 0 0 .35rem; font-size: .78rem; text-transform: uppercase;
+    .party h2 { margin: 0 0 .35rem; font-size: .78rem; text-transform: uppercase;
                 letter-spacing: .1em; color: var(--brand-dark); }
     .party div { font-size: .95rem; line-height: 1.45; }
     table.lines { width: 100%; border-collapse: collapse; margin: .5rem 0 0; }
@@ -32,29 +37,44 @@
                      padding: .6rem .8rem; font-size: .82rem; letter-spacing: .05em;
                      text-transform: uppercase; }
     table.lines th:last-child, table.lines td:last-child { text-align: right; }
-    table.lines td { padding: .8rem; border-bottom: 1px solid #e4e7ec; font-size: .95rem; }
+    table.lines td { padding: .8rem; border-bottom: 1px solid #e4e7ec; font-size: .95rem; vertical-align: top; }
+    table.lines td:last-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .sub { color: #5f6470; font-size: .85rem; }
     .totalrow { display: flex; justify-content: flex-end; margin-top: .8rem; }
-    .totalbox { background: var(--light); border-left: 4px solid var(--brand);
+    .totalrow { break-inside: avoid; }
+    .totalbox { background: var(--light); border: 1px solid #cfe4f5; border-radius: 6px;
                 padding: .7rem 1.2rem; font-size: 1.15rem; }
-    .totalbox strong { font-size: 1.35rem; color: var(--brand-dark); margin-left: 1.2rem; }
+    .totalbox strong { font-size: 1.35rem; color: var(--brand-dark); margin-left: 1.2rem;
+                       font-variant-numeric: tabular-nums; }
     .stamp { position: absolute; top: 42%; left: 50%; transform: translate(-50%,-50%) rotate(-18deg);
              font-size: 4.2rem; font-weight: 800; letter-spacing: .2em; opacity: .13;
              border: 6px solid; border-radius: 12px; padding: .2em .5em; pointer-events: none; }
     .stamp.paid { color: #0a7a2f; }
     .stamp.overdue { color: #c22; }
-    .terms { margin-top: 2.2rem; font-size: .78rem; color: #555; line-height: 1.5;
+    .terms { margin-top: 2.2rem; font-size: .78rem; color: #4a4f5c; line-height: 1.5; break-inside: avoid;
              border-top: 1px solid #e4e7ec; padding-top: .9rem; }
     .thanks { margin-top: 1.4rem; font-size: .95rem; }
     .foot { margin-top: .8rem; font-size: .82rem; color: var(--brand-dark); }
     .no-print { text-align: center; margin: 1rem 0 2rem; }
-    .no-print a, .no-print button { display: inline-block; background: var(--brand); color: #fff;
+    .no-print a, .no-print button { display: inline-block; background: var(--brand-dark); color: #fff;
       border: 0; border-radius: 6px; padding: .55rem 1.3rem; font-size: 1rem;
       text-decoration: none; cursor: pointer; margin: 0 .3rem; }
-    .no-print a.gray { background: #6c757d; }
+    .no-print a.gray { background: #5a6270; }
+    .no-print a:focus-visible, .no-print button:focus-visible { outline: 3px solid var(--navy); outline-offset: 2px; }
+    @media (max-width: 600px) {
+      .sheet { margin: 0; padding: 1.5rem 1.1rem; box-shadow: none; }
+      .topbar { margin: -1.5rem -1.1rem 1.5rem; }
+      .inv-title { text-align: left; }
+      .inv-title h1 { font-size: 1.8rem; }
+      .stamp { font-size: 2.6rem; }
+      .totalrow { justify-content: stretch; }
+      .totalbox { width: 100%; display: flex; justify-content: space-between; align-items: baseline; }
+    }
+    @page { size: letter; margin: .6in .65in; }
     @media print {
       body { background: #fff; }
-      .sheet { box-shadow: none; margin: 0; max-width: none; padding: 1.2rem 1.5rem; }
-      .topbar { margin: -1.2rem -1.5rem 1.5rem; }
+      .sheet { box-shadow: none; margin: 0; max-width: none; padding: 0; }
+      .topbar { margin: 0 0 1.5rem; }
       .no-print { display: none; }
     }
   </style>
@@ -62,8 +82,10 @@
 <body>
 <div class="sheet">
   <div class="topbar"></div>
-  {% if inv.status == 'Paid' %}<div class="stamp paid">PAID</div>
-  {% elif overdue %}<div class="stamp overdue">OVERDUE</div>{% endif %}
+  {# The stamp is a faint watermark on purpose; the status line under the
+     invoice number says the same thing in readable text. #}
+  {% if inv.status == 'Paid' %}<div class="stamp paid" aria-hidden="true">PAID</div>
+  {% elif overdue %}<div class="stamp overdue" aria-hidden="true">OVERDUE</div>{% endif %}
   <div class="head">
     <div>
       <img src="{{ url_for('static', filename='brand-logo.png') }}" alt="{{ settings.get('my_company', '') }}">
@@ -76,12 +98,14 @@
         {% if inv.due_date %}<div><strong>Due:</strong> {{ inv.due_date|d }}</div>{% endif %}
         {% if inv.status == 'Paid' and inv.paid_date %}<div><strong>Paid:</strong> {{ inv.paid_date|d }}</div>{% endif %}
       </div>
+      {% if inv.status == 'Paid' %}<div class="status paid">Paid in full</div>
+      {% elif overdue %}<div class="status overdue">Past due</div>{% endif %}
     </div>
   </div>
 
   <div class="parties">
     <div class="party">
-      <h3>From</h3>
+      <h2>From</h2>
       <div>
         <strong>{{ settings.get('my_company', '') }}</strong><br>
         {{ settings.get('my_name', '') }}{% if settings.get('my_title') %}, {{ settings.get('my_title') }}{% endif %}<br>
@@ -92,7 +116,7 @@
       </div>
     </div>
     <div class="party">
-      <h3>Bill To</h3>
+      <h2>Bill To</h2>
       <div>
         <strong>{{ account.company_name }}</strong><br>
         {% if account.first_name or account.last_name %}{{ account.first_name }} {{ account.last_name }}{% if account.title %}, {{ account.title }}{% endif %}<br>{% endif %}
@@ -109,7 +133,7 @@
       <tr>
         <td>
           {{ inv.notes or 'Roof restoration services' }}
-          <div style="color:#777; font-size:.85rem;">{{ inv.project_name }}</div>
+          <div class="sub">{{ inv.project_name }}</div>
         </td>
         <td>{{ inv.amount|money }}</td>
       </tr>
@@ -127,7 +151,7 @@
   {% endif %}
 </div>
 <div class="no-print">
-  <button onclick="window.print()">🖨 Print / Save as PDF</button>
+  <button onclick="window.print()">Print / Save as PDF</button>
   <a class="gray" href="{{ url_for('project_detail', project_id=inv.project_id) }}">← Back to Project</a>
 </div>
 </body>
