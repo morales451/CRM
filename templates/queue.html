@@ -13,6 +13,14 @@
 <style>
   /* Phone: a one-handed calling tool. The two actions that matter for this
      step live in a bar under the thumb; desktop keeps the keyboard flow. */
+  .q-callee { margin-bottom: .5rem; }
+  .q-name { font-size: 2.25rem; font-weight: 750; line-height: 1.1; letter-spacing: -.02em; color: var(--ink); }
+  .q-title { font-size: 1.375rem; font-weight: 600; line-height: 1.25; color: var(--ink-2); margin-top: .2rem; }
+  .q-company.h3 { font-size: 1.0625rem; font-weight: 600; }
+  @media (max-width: 767.98px) {
+    .q-name { font-size: 1.875rem; }
+    .q-title { font-size: 1.1875rem; }
+  }
   .q-bar { display: none; }
   @media (max-width: 767.98px) {
     .q-page { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
@@ -27,7 +35,7 @@
     /* The email reads as one page: the box grows to its text instead of scrolling inside the page */
     .q-page textarea.q-body { max-height: none; overflow: hidden; }
     .q-page h2.h5 { font-size: 1.0625rem; }
-    .q-page h1.h3 { font-size: 1.375rem; }
+    .q-page h1.h3:not(.q-company) { font-size: 1.375rem; }
     .q-page .btn-sm { min-height: 44px; }
     .q-desk-only, .q-page kbd, #k-help-btn, #k-help { display: none !important; }
     .q-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
@@ -71,12 +79,21 @@
   Shortcuts are off while you're typing in a box.
 </div>
 
+{% set phone = account.mobile_phone or account.work_phone %}
+{% set is_call = task.kind == 'cadence' and task.reminder.step_type in CALL_STEPS %}
 <div class="card p-3 mb-3">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <div>
-      <h1 class="h3 mb-1"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h1>
+      {% if is_call %}
+      {# Cold calling: who you're talking to, readable at a glance mid-call. #}
+      <div class="q-callee">
+        <div class="q-name">{% if account.first_name or account.last_name %}{{ account.first_name }} {{ account.last_name }}{% else %}[No name on file]{% endif %}</div>
+        <div class="q-title">{{ account.title or '[No title on file]' }}</div>
+      </div>
+      {% endif %}
+      <h1 class="h3 mb-1 {{ 'q-company' if is_call }}"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h1>
       <div class="small text-muted">
-        {{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}
+        {% if not is_call %}{{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}{% elif phone %}{{ phone }}{% endif %}
         {% if account.matching_properties %} · {{ icon('target') }}{{ account.matching_properties }} matching{% endif %}
         {% if account.num_properties %} · {{ account.num_properties }} total properties{% endif %}
         {% if account.preferred_contact|pref %}<span class="badge text-bg-light border">{{ account.preferred_contact|pref }}</span>{% endif %}
@@ -94,9 +111,7 @@
       </div>
     </div>
     <div class="d-flex gap-1 flex-wrap q-contact">
-      {% set phone = account.mobile_phone or account.work_phone %}
       {# Only a call step gets a filled Call here; otherwise the script below carries the main action. #}
-      {% set is_call = task.kind == 'cadence' and task.reminder.step_type in CALL_STEPS %}
       {% if phone %}<a {{ dial(phone) }} class="btn btn-sm {{ 'btn-success' if is_call else 'btn-outline-success' }}">{{ icon('phone') }}Call</a>
       <a {{ text_to(phone) }} class="btn btn-sm btn-outline-secondary" aria-label="Text {{ account.first_name or 'them' }}">{{ icon('message-square') }}Text</a>{% endif %}
       {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-secondary" aria-label="Email {{ account.first_name or 'them' }}">{{ icon('mail') }}Email</a>{% endif %}
@@ -123,10 +138,10 @@
       <div class="d-flex gap-1 flex-wrap q-outcomes">
         {% for o in CALL_OUTCOMES %}
         <button name="outcome" value="{{ o }}" id="k-o{{ loop.index }}"
-                class="btn btn-sm {{ 'btn-success' if o == 'Meeting booked'
-                                     else 'btn-primary' if o == 'Spoke'
-                                     else 'btn-outline-danger' if o in ('Not interested', 'Bad number')
-                                     else 'btn-outline-secondary' }}">
+                {# Alike, so none reads as already picked; text color marks the ones that change the account. #}
+                class="btn btn-sm btn-outline-secondary {{ 'text-success' if o == 'Meeting booked'
+                                     else 'text-danger' if o in ('Not interested', 'Bad number') }}"
+                {% if o == 'Bad number' %}onclick="return confirm('Mark this number as bad? The account goes back to Research.')"{% endif %}>
           <kbd class="me-1">{{ loop.index }}</kbd>{{ o }}</button>
         {% endfor %}
       </div>

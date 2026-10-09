@@ -4000,6 +4000,25 @@ check("shell: the top-bar buttons are full-size phone targets", 'topbar-btn topb
 check("account and queue: the action bar can open the menu", 'class="btn btn-outline-secondary bar-menu"' in _ap)
 _px.execute("DELETE FROM accounts WHERE id=?", (_pid,)); _px.commit(); _px.close()
 
+# ---- 73. Queue call tasks: who you're calling, big enough to glance at
+_qx = db.get_db()
+_qts = db.now_iso()
+_qid = _qx.execute(
+    "INSERT INTO accounts (company_name, first_name, last_name, title, work_phone, preferred_contact,"
+    " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
+    " ('Glance Call Co','Gerald','Hayes','Director, Construction','713-555-0141','Unknown','Prospecting',"
+    "'None / In Cadence','2026-10-01',?,?)", (_qts, _qts)).lastrowid
+_qx.commit()
+_q = ""
+for _i in range(400):
+    _r = client.get(f"/queue?pos={_i}")
+    if _r.status_code != 200 or b"Glance Call Co" in _r.data or b"Task " not in _r.data:
+        _q = _r.data.decode(); break
+check("queue: a call task leads with the person's name and title, large",
+      '<div class="q-name">Gerald Hayes</div>' in _q
+      and '<div class="q-title">Director, Construction</div>' in _q, "Glance Call Co" in _q)
+_qx.execute("DELETE FROM accounts WHERE id=?", (_qid,)); _qx.commit(); _qx.close()
+
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")
 sys.exit(1 if failures else 0)
