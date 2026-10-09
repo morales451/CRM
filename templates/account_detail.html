@@ -84,7 +84,7 @@
     </div>
     {# Desktop shows the rest inline; phones tuck them under More. #}
     <span class="acct-desk-only d-inline-flex flex-wrap gap-1">
-      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-primary">✉️ Email</a>{% endif %}
+      {% if account.email and not account.email_bounced %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-primary">✉️ Email</a>{% endif %}
       <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-outline-primary">📄 Scripts</a>
       {% if maplink %}<a {{ maplink }} class="btn btn-sm btn-outline-secondary" title="{{ account_address(account) }}">📍 Map</a>{% endif %}
       <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary">🔎 ZoomInfo</a>
@@ -95,8 +95,8 @@
       <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
               data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">More</button>
       <ul class="dropdown-menu dropdown-menu-end">
-        {% if account.email %}<li><a class="dropdown-item" {{ mail_to(account.email) }}>✉️ Email</a></li>
-        {% else %}<li><span class="dropdown-item-text text-body-secondary">No email on file</span></li>{% endif %}
+        {% if account.email and not account.email_bounced %}<li><a class="dropdown-item" {{ mail_to(account.email) }}>✉️ Email</a></li>
+        {% else %}<li><span class="dropdown-item-text text-body-secondary">{{ 'Email bounced' if account.email_bounced else 'No email on file' }}</span></li>{% endif %}
         <li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=account.id) }}">📄 Scripts</a></li>
         {% if maplink %}<li><a class="dropdown-item" {{ maplink }}>📍 Map</a></li>{% endif %}
         <li><a class="dropdown-item" {{ zoominfo_link(account) }}>🔎 ZoomInfo</a></li>
@@ -178,6 +178,9 @@
         <button class="btn btn-outline-success">✓ Log it as sent</button>
         <button class="btn btn-outline-secondary" formaction="{{ url_for('dismiss_reminder') }}"
                 title="Clear without logging (you can undo)">Skip</button>
+        <button class="btn btn-outline-danger" formaction="{{ url_for('email_bounced', account_id=account.id) }}"
+                title="Stop emailing {{ account.first_name or 'them' }}; calls and texts continue"
+                onclick="return confirm('Mark {{ account.email }} as bounced? No more emails to {{ account.first_name or 'them' }}; calls and texts continue.')">Email bounced</button>
       </form>
     {% endif %}
   {% elif next_step %}
@@ -202,7 +205,16 @@
         <div class="col-6"><dt>Primary contact</dt><dd>{{ account.first_name }} {{ account.last_name }}{% if not (account.first_name or account.last_name) %}<span class="text-body-secondary">None yet</span>{% endif %}{% if account.title %}<br><span class="small">{{ account.title }}</span>{% endif %}</dd></div>
         <div class="col-6"><dt>Status</dt><dd>{{ account.prospecting_status }}<br><span class="small">{{ account.pipeline_milestone }}</span></dd></div>
         <div class="col-6"><dt>Phone</dt><dd>{% if account.work_phone %}<a {{ dial(account.work_phone) }}>{{ account.work_phone }}</a> <span class="small text-body-secondary">work</span><br>{% endif %}{% if account.mobile_phone %}<a {{ dial(account.mobile_phone) }}>{{ account.mobile_phone }}</a> <span class="small text-body-secondary">mobile</span>{% endif %}{% if not phone %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
-        <div class="col-6"><dt>Email</dt><dd class="text-break">{% if account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a>{% else %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
+        <div class="col-6"><dt>Email</dt><dd class="text-break">
+          {% if account.email and account.email_bounced %}<s>{{ account.email }}</s>{% if account.email_bounced %} <span class="badge text-bg-danger" title="Bounced {{ account.email_bounced|d }}">Bounced</span>{% endif %}
+            <form method="post" action="{{ url_for('email_bounced', account_id=account.id) }}" class="d-inline">
+              <input type="hidden" name="clear" value="1">
+              <button class="btn btn-link btn-sm p-0 align-baseline">It works again</button></form>
+          {% elif account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a>
+            <form method="post" action="{{ url_for('email_bounced', account_id=account.id) }}" class="d-inline"
+                  onsubmit="return confirm('Mark {{ account.email }} as bounced? No more emails to {{ account.first_name or 'them' }}; calls and texts continue.')">
+              <button class="btn btn-link btn-sm p-0 align-baseline text-danger">Email bounced?</button></form>
+          {% else %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
         <div class="col-6"><dt>Office</dt><dd>{{ account_address(account) or '—' }}</dd></div>
         <div class="col-6"><dt>Buildings</dt><dd>{{ account.matching_properties or 0 }} matching{% if account.num_properties %} of {{ account.num_properties }}{% endif %}</dd></div>
         {% if account.notes %}<div class="col-12"><dt>Notes</dt><dd class="small" style="white-space: pre-line">{{ account.notes }}</dd></div>{% endif %}
@@ -420,7 +432,7 @@
         <li class="list-group-item d-flex justify-content-between align-items-center px-0">
           <span>
             {% if s.state == 'done' %}✅
-            {% elif s.state == 'skipped' %}⏭️
+            {% elif s.state in ('skipped', 'no_email') %}⏭️
             {% elif s.state == 'due' %}🔴
             {% elif s.state == 'inactive' %}⏸️
             {% elif s.state == 'waiting' %}⏳
@@ -429,10 +441,11 @@
           </span>
           <span class="small text-body-secondary">
             {% if s.state == 'done' and s.done_on %}{{ s.done_on|d }} ·
-            {% elif s.due_date %}{{ s.due_date|d }} ·{% endif %}
+            {% elif s.due_date and s.state != 'no_email' %}{{ s.due_date|d }} ·{% endif %}
             {% if s.state == 'done' %}Done
             {% elif s.state == 'waiting' %}Starts when a contact is added
             {% elif s.state == 'skipped' %}Checked off
+            {% elif s.state == 'no_email' %}Skipped: {{ 'email bounced' if account.email_bounced else 'no email' }}
             {% elif s.state == 'due' %}<span class="overdue">Due</span>
             {% elif s.state == 'inactive' %}Cadence stopped
             {% else %}Upcoming{% endif %}
@@ -505,7 +518,8 @@
               {% if account.seniority %}<span class="badge text-bg-light border">{{ account.seniority }}</span>{% endif %}
               {% if account.title %}<div class="small text-body-secondary">{{ account.title }}</div>{% endif %}
               <div class="small">
-                {% if account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a><br>{% endif %}
+                {% if account.email and account.email_bounced %}<s>{{ account.email }}</s>{% if account.email_bounced %} <span class="badge text-bg-danger" title="Bounced {{ account.email_bounced|d }}">Bounced</span>{% endif %}<br>
+                {% elif account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a><br>{% endif %}
                 {% if account.work_phone %}<a {{ dial(account.work_phone) }}>{{ account.work_phone }}</a> (work) {% endif %}
                 {% if account.mobile_phone %}<a {{ dial(account.mobile_phone) }}>{{ account.mobile_phone }}</a> (mobile){% endif %}
                 {% if account.linkedin_url %}<br><a href="{{ account.linkedin_url if '://' in account.linkedin_url else 'https://' + account.linkedin_url }}" target="_blank" rel="noopener">LinkedIn profile</a>{% endif %}

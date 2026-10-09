@@ -63,16 +63,39 @@ def step_due(start: date, day: int) -> date:
     return start if day <= 1 else add_business_days(start, day - 1)
 
 
-def schedule(start: date, done_on: dict[str, date]) -> dict[str, date]:
+# Cadence steps that are emails. They drop out for a contact with no usable
+# address (none on file, or marked bounced); calls and texts carry on.
+EMAIL_STEPS = tuple(st for _, st in CADENCE_STEPS if "Email" in st)
+
+
+def skips_email(acct) -> bool:
+    """True when this account's contact can't be emailed."""
+    try:
+        email = (acct["email"] or "").strip()
+        bounced = (acct["email_bounced"] or "").strip()
+    except (KeyError, IndexError):
+        return False
+    return not email or bool(bounced)
+
+
+def schedule(start: date, done_on: dict[str, date],
+             skip: frozenset | set = frozenset()) -> dict[str, date]:
     """Due date of every step, given when the finished steps were done.
 
     Each step's due date is counted from the step before it: from the day
     that step was done if it's done, otherwise from its own due date. With
     nothing done this is the plain Day 1/3/6/8/10 business-day schedule.
+
+    Steps in `skip` (emails to someone who can't be emailed) take up no
+    time: the step after them counts from the step before them, so a
+    bounced address doesn't leave a two-day hole where Email 1 was.
     """
     dues: dict[str, date] = {}
     anchor, prev_day = start, None
     for day, step_type in CADENCE_STEPS:
+        if step_type in skip and step_type not in done_on:
+            dues[step_type] = anchor
+            continue
         due = start if prev_day is None else add_business_days(anchor, day - prev_day)
         dues[step_type] = due
         anchor = done_on.get(step_type, due)
@@ -198,7 +221,7 @@ def get_due_reminders(conn, account_id: int | None = None,
 
     sql = """
         SELECT id, company_name, first_name, last_name, work_phone,
-               mobile_phone, email, preferred_contact, cadence_start,
+               mobile_phone, email, email_bounced, preferred_contact, cadence_start,
                matching_properties, num_properties
         FROM accounts
         WHERE prospecting_status = ? AND pipeline_milestone = ?
@@ -234,8 +257,11 @@ def get_due_reminders(conn, account_id: int | None = None,
     reminders = []
     for acct in accounts:
         start = _parse_date(acct["cadence_start"])
-        dues = schedule(start, done.get(acct["id"], {}))
+        skip = frozenset(EMAIL_STEPS) if skips_email(acct) else frozenset()
+        dues = schedule(start, done.get(acct["id"], {}), skip)
         for day, step_type in CADENCE_STEPS:
+            if step_type in skip:
+                continue
             due = dues[step_type]
             if due > now:
                 continue
@@ -288,8 +314,8 @@ def get_due_reminders(conn, account_id: int | None = None,
 def get_cadence_progress(conn, account_id: int) -> list[dict]:
     """Full cadence step status for one account's detail page."""
     acct = conn.execute(
-        "SELECT prospecting_status, pipeline_milestone, cadence_start "
-        "FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        "SELECT prospecting_status, pipeline_milestone, cadence_start, email, "
+        "email_bounced FROM accounts WHERE id = ?", (account_id,)).fetchone()
     if acct is None:
         return []
     active = (acct["prospecting_status"] == ACTIVE_STATUS
@@ -306,7 +332,8 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
         (account_id,))}
 
     done_on = _done_dates(conn, [account_id]).get(account_id, {})
-    dues = schedule(start, done_on) if started else {}
+    skip = frozenset(EMAIL_STEPS) if skips_email(acct) else frozenset()
+    dues = schedule(start, done_on, skip) if started else {}
     steps = []
     for day, step_type in CADENCE_STEPS:
         due = dues.get(step_type)
@@ -318,6 +345,8 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
             state = "inactive"
         elif not started:
             state = "waiting"          # in Research: no clock yet
+        elif step_type in skip:
+            state = "no_email"         # can't be emailed: skipped automatically
         elif due <= now:
             state = "due"
         else:

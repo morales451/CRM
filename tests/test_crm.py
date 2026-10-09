@@ -2459,10 +2459,10 @@ _pile_start = (date.today() - timedelta(days=16)).isoformat()
 _ts = db.now_iso()
 for _i in range(40):
     _pile.execute(
-        "INSERT INTO accounts (company_name, preferred_contact, prospecting_status, "
+        "INSERT INTO accounts (company_name, email, preferred_contact, prospecting_status, "
         "pipeline_milestone, cadence_start, matching_properties, created_at, "
-        "updated_at) VALUES (?,'Email','Prospecting','None / In Cadence',?,?,?,?)",
-        (f"Untouched Import {_i:03d}", _pile_start, _i, _ts, _ts))
+        "updated_at) VALUES (?,?,'Email','Prospecting','None / In Cadence',?,?,?,?)",
+        (f"Untouched Import {_i:03d}", f"owner{_i}@untouched.com", _pile_start, _i, _ts, _ts))
 _pile.commit()
 _ids = [r["id"] for r in _pile.execute(
     "SELECT id FROM accounts WHERE company_name LIKE 'Untouched Import%'")]
@@ -3920,6 +3920,45 @@ _prog = {p_["step_type"]: p_ for p_ in cadence.get_cadence_progress(_ap, _apid)}
 check("account: finished steps carry the day they were done",
       _prog["Email 1"]["done_on"] == (date.today() - timedelta(days=10)).isoformat())
 _ap.execute("DELETE FROM accounts WHERE id=?", (_apid,)); _ap.commit(); _ap.close()
+
+# ---- 71. Bounced email: stop emailing, keep calling and texting
+_bx = db.get_db()
+cadence.today = lambda: date(2026, 10, 14)            # Wednesday
+_bid = _bx.execute(
+    "INSERT INTO accounts (company_name, first_name, email, work_phone, mobile_phone, preferred_contact,"
+    " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
+    " ('Bounce Co','Bo','bo@bounce.com','713-555-0121','281-555-0121','Unknown','Prospecting',"
+    "'None / In Cadence','2026-10-14',?,?)", (_lts, _lts)).lastrowid
+_bx.commit()
+check("bounce: before, Email 1 is due", [r["step_type"] for r in
+      cadence.get_due_reminders(_bx, account_id=_bid)] == ["Email 1"])
+r = client.post(f"/accounts/{_bid}/email-bounced", data={}, follow_redirects=True)
+check("bounce: marking it says what happens", b"marked as bounced" in r.data)
+check("bounce: the email steps drop out and the call is due right away (no gap left)",
+      [r_["step_type"] for r_ in cadence.get_due_reminders(_bx, account_id=_bid)] == ["Call & Text"])
+_pr = {p_["step_type"]: p_ for p_ in cadence.get_cadence_progress(_bx, _bid)}
+check("bounce: progress shows the email steps skipped, calls still scheduled",
+      _pr["Email 1"]["state"] == "no_email" and _pr["Email 2"]["state"] == "no_email"
+      and _pr["Breakup Email"]["state"] == "no_email" and _pr["Call 2"]["state"] == "upcoming"
+      and _pr["Call 2"]["due_date"] == "2026-10-19", _pr)
+cadence.today = _real_cadence_today
+_pg = client.get(f"/accounts/{_bid}").data.decode()
+check("bounce: the address is struck through and not offered as a link",
+      "<s>bo@bounce.com</s>" in _pg and 'href="mailto:bo@bounce.com"' not in _pg
+      and "Skipped: email bounced" in _pg)
+_sc = client.get(f"/accounts/{_bid}/scripts?step=Email+2").data.decode()
+check("bounce: scripts don't offer to write to it", "working email address (it bounced)" in _sc)
+client.post("/undo/" + str(_bx.execute("SELECT MAX(id) FROM undo_log").fetchone()[0]))
+check("bounce: undoable", _bx.execute("SELECT email_bounced FROM accounts WHERE id=?", (_bid,)).fetchone()[0] == "")
+client.post(f"/accounts/{_bid}/email-bounced", data={})
+client.post(f"/accounts/{_bid}/edit", data={"company_name": "Bounce Co", "first_name": "Bo",
+                                           "email": "bo@newbounce.com", "work_phone": "713-555-0121",
+                                           "prospecting_status": "Prospecting",
+                                           "pipeline_milestone": "None / In Cadence",
+                                           "preferred_contact": "Unknown"})
+check("bounce: a new email address clears the bounce",
+      _bx.execute("SELECT email_bounced FROM accounts WHERE id=?", (_bid,)).fetchone()[0] == "")
+_bx.execute("DELETE FROM accounts WHERE id=?", (_bid,)); _bx.commit(); _bx.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

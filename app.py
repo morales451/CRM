@@ -689,7 +689,10 @@ def _finished_cadences(conn, account_id=None) -> list[dict]:
     n_steps = len(cadence.CADENCE_STEPS)
     out = []
     for r in rows:
-        if len(done.get(r["id"], {})) < n_steps:
+        finished_steps = set(done.get(r["id"], {}))
+        if cadence.skips_email(r):
+            finished_steps |= set(cadence.EMAIL_STEPS)
+        if len(finished_steps) < n_steps or not done.get(r["id"]):
             continue
         if r["next_follow_up"] and r["next_follow_up"] > today_iso():
             continue                     # already resting
@@ -2344,6 +2347,8 @@ def edit_account(account_id):
             f"UPDATE accounts SET {','.join(c + '=?' for c in fields)}, "
             f"updated_at=? WHERE id=?",
             (*fields.values(), now_iso(), account_id))
+        if fields["email"].lower() != (existing["email"] or "").strip().lower():
+            conn.execute("UPDATE accounts SET email_bounced='' WHERE id=?", (account_id,))
         started = cadence.start_cadence_if_ready(conn, account_id)
         conn.commit()
     finally:
@@ -2404,6 +2409,32 @@ def next_contact(account_id):
                   f"{RECYCLE_DAYS} days, or add someone new.", "warning")
     finally:
         conn.close()
+    return redirect(request.form.get("next") or url_for("account_detail", account_id=account_id))
+
+
+@app.route("/accounts/<int:account_id>/email-bounced", methods=["POST"])
+def email_bounced(account_id):
+    """The primary's email bounced: stop emailing them, keep calling and
+    texting. The cadence skips its email steps from here on. Undoable;
+    "undo" also un-marks it (e.g. after fixing a typo, edit the email)."""
+    clear = bool(request.form.get("clear"))
+    conn = get_db()
+    try:
+        acct = _account_or_404(conn, account_id)
+        _offer_undo(conn, ("un-marking" if clear else "marking") + f" {acct['email']} as bounced",
+                    [undo_module.update_op("accounts", [{"id": account_id,
+                                                         "email_bounced": acct["email_bounced"]}])])
+        conn.execute("UPDATE accounts SET email_bounced=?, updated_at=? WHERE id=?",
+                     ("" if clear else today_iso(), now_iso(), account_id))
+        conn.commit()
+    finally:
+        conn.close()
+    if clear:
+        flash("Email marked as working again. Email steps are back in the cadence.", "success")
+    else:
+        flash(f"{acct['email']} marked as bounced. No more emails to "
+              f"{acct['first_name'] or 'them'}: the cadence skips its email steps and "
+              f"keeps the calls and texts.", "success")
     return redirect(request.form.get("next") or url_for("account_detail", account_id=account_id))
 
 
@@ -2809,9 +2840,10 @@ def _demote_primary_to_contact(conn, acct):
 
 
 def _set_primary_contact(conn, account_id, person: dict):
+    # A new person means a new address: a bounce belonged to the old one.
     conn.execute(
         f"UPDATE accounts SET {','.join(c + '=?' for c in CONTACT_COLS)}, "
-        f"updated_at=? WHERE id=?",
+        f"email_bounced='', updated_at=? WHERE id=?",
         (*(person.get(c, "") for c in CONTACT_COLS), now_iso(), account_id))
 
 
@@ -3253,8 +3285,10 @@ def _build_scripts(acct, settings, rows, step=""):
         raw_body = with_signature(t["body"], settings) if t["kind"] == "email" else t["body"]
         body, missing_b = render_script(raw_body, acct, settings)
         if t["kind"] == "email":
-            action_url, external = email_link(acct["email"], subject, body)
-            missing_target = "" if action_url else "email address"
+            bounced = "email_bounced" in acct.keys() and bool(acct["email_bounced"])
+            action_url, external = email_link("" if bounced else acct["email"], subject, body)
+            missing_target = ("" if action_url else
+                              "working email address (it bounced)" if bounced else "email address")
         elif t["kind"] == "text":
             action_url, external = phone_link(acct["mobile_phone"], "text", body)
             missing_target = "" if action_url else "mobile number"

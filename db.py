@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     website TEXT DEFAULT '',               -- company website; contact imports match on its domain
     zoominfo_url TEXT DEFAULT '',          -- the company's ZoomInfo profile page
     previous_contact TEXT DEFAULT '',      -- first name of the last person tried here
+    email_bounced TEXT DEFAULT '',         -- ISO date the primary's email bounced; '' = fine
     street TEXT DEFAULT '',                -- office address, for door knocking
     city TEXT DEFAULT '',
     state TEXT DEFAULT '',
@@ -600,6 +601,8 @@ def _migrate(conn) -> None:
                     conn.execute("UPDATE accounts SET street=?, city=?, state=?, zip=? "
                                  "WHERE id=?", (a["street"], a["city"], a["state"],
                                                 a["zip"], row[0]))
+    if "email_bounced" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN email_bounced TEXT DEFAULT ''")
     if "previous_contact" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN previous_contact TEXT DEFAULT ''")
     if "zoominfo_url" not in cols:
