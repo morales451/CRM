@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}New Account — Roof CRM{% endblock %}
 {% block content %}
-<h1 class="mb-3">Add Account</h1>
+<div class="page-head">
+  <h1>Add account</h1>
+</div>
 <form method="post" class="card p-3">
   {% set a = account or {} %}
   <div class="row g-3">

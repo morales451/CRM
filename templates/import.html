@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Import Accounts — Roof CRM{% endblock %}
 {% block content %}
-<h1 class="mb-3">Import</h1>
+<div class="page-head">
+  <div>
+    <h1>Import &amp; export</h1>
+    <div class="sub">Bring in CoStar and ZoomInfo lists, re-pace the cadence, and download your data.</div>
+  </div>
+</div>
 
 <div class="card p-3 mb-3">
   <h2 class="h5">Import Accounts <span class="text-muted fs-6">(prospecting list)</span></h2>
@@ -102,14 +107,14 @@
   <h2 class="h5">Export & Backup</h2>
   <p class="small text-muted mb-2">Your entire CRM lives in the single file <code>crm.db</code>; a dated copy is
     saved automatically to the <code>backups/</code> folder each day the app starts (newest 14 kept).
-    Download your data as spreadsheets any time. <strong>Export Everything</strong> builds one Excel
+    Download your data as spreadsheets any time. <strong>Export everything</strong> builds one Excel
     workbook with a summary tab plus accounts, contacts, full interaction history, roof reports,
     projects, invoices and today's tasks — a birds-eye view of the whole business.</p>
   <div class="d-flex gap-2 flex-wrap mb-3">
-    <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-outline-secondary">{{ icon('download') }}Export Everything (Excel)</a>
-    <a href="{{ url_for('download_backup') }}" class="btn btn-sm btn-primary">{{ icon('download') }}Download Full Backup (.db)</a>
-    <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">{{ icon('download') }}Export Accounts (CSV)</a>
-    <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">{{ icon('download') }}Export Interaction History (CSV)</a>
+    <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-outline-secondary">{{ icon('download') }}Export everything (Excel)</a>
+    <a href="{{ url_for('download_backup') }}" class="btn btn-sm btn-primary">{{ icon('download') }}Download full backup (.db)</a>
+    <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">{{ icon('download') }}Export accounts (CSV)</a>
+    <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">{{ icon('download') }}Export interaction history (CSV)</a>
   </div>
   <h3 class="h6">Off-Machine Backup Folder</h3>
   <p class="small text-muted mb-2">Point this at a folder that syncs off this computer — OneDrive, Google Drive, or Dropbox
@@ -250,7 +255,7 @@
         <a href="{{ url_for('account_detail', account_id=a.id) }}">{{ a.company_name }}</a>
         {% if a.suggested %}<span class="badge text-bg-light border">suggested</span>{% endif %}
         <span class="small text-muted">
-          — {{ a.prospecting_status }} / {{ a.pipeline_milestone }}
+          — {{ a.prospecting_status }}{% if a.pipeline_milestone != MILESTONES[0] %} / {{ a.pipeline_milestone }}{% endif %}
           {% if a.matching_properties %} · {{ icon('target') }}{{ a.matching_properties }}{% endif %}
           · {{ a.touches }} touch{{ 'es' if a.touches != 1 }}
           · {{ a.people }} {{ 'person' if a.people == 1 else 'people' }}

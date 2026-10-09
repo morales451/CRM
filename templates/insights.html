@@ -24,7 +24,7 @@
 
 <div class="page-head">
   <h1>Insights</h1>
-  <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-outline-secondary">{{ icon('download') }}Export Everything (Excel)</a>
+  <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-outline-secondary">{{ icon('download') }}Export everything (Excel)</a>
 </div>
 
 <div class="viz">
@@ -101,7 +101,7 @@
       {% if activity.goal %}
       <!-- The goal line: every bar that reaches it was a full day. -->
       <div style="position:absolute; left:0; right:0; bottom:{{ activity.goal_pct }}%;
-                  border-top:2px dashed #dc3545; opacity:.6"
+                  border-top:1px dashed var(--ink-3)"
            title="Daily goal: {{ activity.goal }}"></div>
       {% endif %}
       {% for d in activity.days %}

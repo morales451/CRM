@@ -58,8 +58,9 @@
       </form>
       {% endif %}
       <div class="ms-auto d-flex align-items-center gap-2">
-        <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-outline-secondary d-lg-none" aria-label="Search accounts">{{ icon('search') }}</a>
-        <button class="btn btn-sm btn-outline-secondary d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#side"
+        <a href="{{ url_for('accounts') }}" class="btn btn-outline-secondary topbar-btn" aria-label="Search accounts">{{ icon('search') }}</a>
+        {# Pages with a tab bar reach the menu through More; the others need it here. #}
+        <button class="btn btn-outline-secondary topbar-btn topbar-menu" type="button" data-bs-toggle="offcanvas" data-bs-target="#side"
                 aria-controls="side" aria-label="Menu">{{ icon('menu') }}</button>
       </div>
     </header>

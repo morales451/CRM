@@ -44,7 +44,7 @@ Color is for the primary action and for status. Every Bootstrap secondary varian
 - **Table:** 12px grey header row on `--surface-2`, 1px row rules and hover highlight. Numbers are right-aligned.
 - **View tabs** (`.viewtabs`): saved views above a list, with an underline marking the active one and pill counts.
 - **KPI tile** (`.kpi`): the label sits above the number.
-- **Pipeline board** (`.board` / `.lane` / `.deal`): column headers with a 2px rule and white deal cards on the canvas.
+- **Pipeline board** (`.board` / `.lane` / `.deal`): deal stages only (the cold-cadence pool is a count). Column headers carry the count and bid total over a 2px rule; white deal cards show the bid (`.deal-value`) and days in stage, with a Move menu. On phones the lanes stack, with stage jump tabs.
 - **Record header** (account page): an initials tile, the company name, status pills, then the action row.
 - **Status dots** (`.dot-done/-due/-wait/-skip`): cadence progress.
 - **Undo bar** (`.undo-bar`): a dark toast-style bar at the top of the page.
@@ -55,4 +55,7 @@ Color is for the primary action and for status. Every Bootstrap secondary varian
 - **Browser surfaces:** focus rings, text selection, scrollbars and `kbd`/`code` all use the palette.
 - **Motion:** respects `prefers-reduced-motion`.
 - **Print:** the shell is hidden when printing.
-- **Phones:** the bottom bars respect safe-area insets.
+- **Phones:** the bottom bars respect safe-area insets. Every control is a 44px target, including the top-bar buttons, checkboxes and inline phone and email links. The undo bar sits above the bottom bar, by the thumb. Pages with their own action bar put a menu button at its left end.
+- **Focus and borders:** focus is a solid 2px accent ring. Things you press or type in use `--control-line` (#a3acb9), which holds up in glare.
+- **Button rule:** one filled button per region. Choice grids (call outcomes) stay neutral and put meaning in a colored second line.
+- **Labels:** the empty milestone ("None / In Cadence" in the database) shows as a dash, via the `ms` filter.

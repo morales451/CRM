@@ -1,33 +1,51 @@
 {% extends "base.html" %}
 {% block title %}Pipeline — Roof CRM{% endblock %}
 {% block content %}
+{% set open_total = columns|rejectattr('milestone', 'in', ['Closed Won', 'Closed Lost'])|sum(attribute='total') %}
 <div class="page-head">
   <div>
     <h1>Pipeline</h1>
-    <div class="sub">Every live deal by milestone. Change a card's milestone to move it.</div>
+    <div class="sub">
+      {% if open_total %}{{ open_total|money }} in open bids · {% endif %}
+      <a href="{{ url_for('accounts', milestone=milestones[0]) }}">{{ in_cadence }} account{{ 's' if in_cadence != 1 }} still in the cold cadence</a>
+    </div>
   </div>
 </div>
+
+{# Phones: jump straight to a stage instead of scrolling sideways. #}
+<nav class="viewtabs mb-3 d-lg-none" aria-label="Stages">
+  {% for col in columns %}<a href="#stage-{{ loop.index }}">{{ col.milestone }} <span class="count">{{ col.count }}</span></a>{% endfor %}
+</nav>
+
 <div class="board">
   {% for col in columns %}
-  <section class="lane" aria-label="{{ col.milestone }}">
+  <section class="lane" id="stage-{{ loop.index }}" aria-label="{{ col.milestone }}">
     <div class="lane-head">
-      <span>{{ col.milestone }}</span>
-      <span class="badge text-bg-light border">{{ col.count }}</span>
+      <span>{{ col.milestone }} <span class="badge text-bg-light border ms-1">{{ col.count }}</span></span>
+      {% if col.total %}<span class="lane-total">{{ col.total|money }}</span>{% endif %}
     </div>
     <div class="lane-body">
       {% for a in col.accounts %}
       <div class="deal">
-        <a href="{{ url_for('account_detail', account_id=a.id) }}" class="name">{{ a.company_name }}</a>
+        <div class="d-flex justify-content-between gap-2 align-items-start">
+          <a href="{{ url_for('account_detail', account_id=a.id) }}" class="name">{{ a.company_name }}</a>
+          {% if a.bid_price %}<span class="deal-value">{{ a.bid_price|money }}</span>{% endif %}
+        </div>
         <div class="meta">
-          {{ a.first_name }} {{ a.last_name }}
-          {% if a.last_activity %}<br>Last touch {{ a.last_activity|d }}{% endif %}
+          {% if a.first_name or a.last_name %}{{ a.first_name }} {{ a.last_name }}<br>{% endif %}
+          {% if a.days_in_stage is not none %}<span class="{{ 'overdue-soft' if a.days_in_stage >= 14 and col.milestone not in ('Closed Won', 'Closed Lost', 'On Hold') }}">{{ a.days_in_stage }} day{{ 's' if a.days_in_stage != 1 }} in stage</span>{% endif %}
           {% if a.next_follow_up %}<br>{{ icon('calendar') }}Follow up {{ a.next_follow_up|d }}{% endif %}
         </div>
-        <form method="post" action="{{ url_for('move_milestone', account_id=a.id) }}" class="mt-2">
+        <form method="post" action="{{ url_for('move_milestone', account_id=a.id) }}" class="mt-2 dropdown">
           <input type="hidden" name="next" value="{{ url_for('pipeline') }}">
-          <select name="pipeline_milestone" class="form-select form-select-sm" onchange="this.form.submit()" aria-label="Move {{ a.company_name }} to milestone">
-            {% for m in MILESTONES %}<option {{ 'selected' if m == a.pipeline_milestone }}>{{ m }}</option>{% endfor %}
-          </select>
+          <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
+                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">Move</button>
+          <ul class="dropdown-menu">
+            <li><span class="dropdown-header d-block">Move {{ a.company_name }} to</span></li>
+            {% for m in milestones if m != a.pipeline_milestone %}
+            <li><button class="dropdown-item" name="pipeline_milestone" value="{{ m }}">{{ 'Back to the cold cadence' if m == milestones[0] else m }}</button></li>
+            {% endfor %}
+          </ul>
         </form>
       </div>
       {% else %}

@@ -200,7 +200,12 @@
       <form method="post" action="{{ url_for('quick_log') }}" class="d-flex gap-2 mt-2 acts">
         <input type="hidden" name="account_id" value="{{ r.account_id }}">
         <input type="hidden" name="step_type" value="{{ r.step_type }}">
+        {# The big button is the step itself: Call for a call, the email for an email. #}
+        {% if r.step_type in CALL_STEPS %}
         {% if phone %}<a {{ dial(phone) }} class="btn btn-success flex-fill">{{ icon('phone') }}Call</a>{% endif %}
+        {% else %}
+        <a href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}" class="btn btn-primary flex-fill">{{ icon('mail' if 'Email' in r.step_type else 'file-text') }}{{ 'Write email' if 'Email' in r.step_type else 'Script' }}</a>
+        {% endif %}
         {% if r.step_type in CALL_STEPS %}
         <div class="btn-group flex-fill">
           <button type="button" class="btn btn-outline-success dropdown-toggle w-100" data-bs-toggle="dropdown"
@@ -210,14 +215,14 @@
           </ul>
         </div>
         {% else %}
-        <button class="btn btn-outline-success flex-fill">{{ icon('check') }}Log</button>
+        <button class="btn btn-outline-success flex-fill">{{ icon('check') }}Log{{ ' sent' if 'Email' in r.step_type }}</button>
         {% endif %}
         <div class="btn-group">
           <button type="button" class="btn btn-outline-secondary" data-bs-toggle="dropdown"
                   data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false" aria-label="More for {{ r.company_name }}">{{ icon('ellipsis') }}</button>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}">Open script</a></li>
-            {% if r.email %}<li><a class="dropdown-item" {{ mail_to(r.email) }}>Email {{ r.first_name or 'them' }}</a></li>{% endif %}
+            {% if r.step_type in CALL_STEPS %}<li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}">{{ icon('file-text') }}Open script</a></li>
+            {% elif phone %}<li><a class="dropdown-item" {{ dial(phone) }}>{{ icon('phone') }}Call {{ r.first_name or 'them' }}</a></li>{% endif %}
             <li><button class="dropdown-item" formaction="{{ url_for('dismiss_reminder') }}">Skip this step</button></li>
           </ul>
         </div>
@@ -242,7 +247,7 @@
 
 {% if owed %}
 <div class="card mb-4">
-  <div class="card-header bg-white fw-bold">Outstanding Invoices</div>
+  <div class="card-header bg-white fw-bold">Outstanding invoices</div>
   <ul class="list-group list-group-flush">
     {% for i in owed %}
     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -256,7 +261,7 @@
       <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
         <input type="hidden" name="status" value="Paid">
         <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
-        <button class="btn btn-sm btn-outline-success">{{ icon('check') }}Mark Paid</button>
+        <button class="btn btn-sm btn-outline-success">{{ icon('check') }}Mark paid</button>
       </form>
     </li>
     {% endfor %}
@@ -265,7 +270,7 @@
 {% endif %}
 
 <div class="card mb-4">
-  <div class="card-header bg-white fw-bold">Follow-Ups Due</div>
+  <div class="card-header bg-white fw-bold">Follow-ups due</div>
   {% if followups %}
   <ul class="list-group list-group-flush">
     {% for f in followups %}
@@ -326,7 +331,7 @@
       {% else %}
       <form method="post" action="{{ url_for('rest_account', account_id=f.account.id) }}" class="d-inline">
         <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
-        <button class="btn btn-sm btn-outline-dark" title="Nobody else on file">Rest {{ RECYCLE_DAYS }} days</button>
+        <button class="btn btn-sm btn-outline-secondary" title="Nobody else on file">Rest {{ RECYCLE_DAYS }} days</button>
       </form>
       {% endif %}
     </li>
@@ -370,14 +375,14 @@
 <details class="more mb-4">
   <summary class="fw-bold py-2 px-1 border-bottom">Going stale: {{ totals.stale }} deal{{ 's' if totals.stale != 1 }} untouched 14+ days</summary>
 <div class="card mb-2 mt-2 border-warning">
-  <div class="card-header bg-warning-subtle fw-bold">Going Stale — no touch in 14+ days</div>
+  <div class="card-header bg-warning-subtle fw-bold">Going stale: no touch in 14+ days</div>
   <ul class="list-group list-group-flush">
     {% for s in stale %}
     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
       <span>
         <a href="{{ url_for('account_detail', account_id=s.id) }}" class="fw-semibold text-decoration-none">{{ s.company_name }}</a>
         {% if s.matching_properties %}<span class="badge text-bg-warning">{{ icon('target') }}{{ s.matching_properties }}</span>{% endif %}
-        <span class="badge text-bg-secondary">{{ s.pipeline_milestone }}</span>
+        <span class="badge text-bg-secondary">{{ s.pipeline_milestone|ms }}</span>
         <span class="small text-body-secondary">last touch {{ s.last_touch|d }}</span>
       </span>
       <form method="post" action="{{ url_for('set_followup', account_id=s.id) }}" class="d-inline">
@@ -402,7 +407,7 @@
   <summary class="fw-bold py-2 px-1 border-bottom">Top accounts by matching buildings</summary>
 <div class="card mb-2 mt-2 border-warning">
   <div class="card-header bg-warning-subtle fw-bold d-flex justify-content-between flex-wrap gap-1">
-    <span>Top Priority Accounts — most matching buildings</span>
+    <span>Top priority accounts — most matching buildings</span>
     <a href="{{ url_for('accounts', sort='priority') }}" class="small">See all →</a>
   </div>
   <div class="table-responsive">

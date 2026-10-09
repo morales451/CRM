@@ -24,7 +24,10 @@
     .q-outcomes .btn { min-height: 52px; font-size: 1rem; font-weight: 550; }
     .q-page .form-control, .q-page .form-select { font-size: 16px; }   /* no iOS focus zoom */
     .q-page .form-control-sm { min-height: 44px; }
-    .q-page textarea.form-control { max-height: 16rem; }
+    /* The email reads as one page: the box grows to its text instead of scrolling inside the page */
+    .q-page textarea.q-body { max-height: none; overflow: hidden; }
+    .q-page h2.h5 { font-size: 1.0625rem; }
+    .q-page h1.h3 { font-size: 1.375rem; }
     .q-page .btn-sm { min-height: 44px; }
     .q-desk-only, .q-page kbd, #k-help-btn, #k-help { display: none !important; }
     .q-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
@@ -32,6 +35,7 @@
              background: var(--surface); border-top: 1px solid var(--line);
              box-shadow: 0 -2px 10px rgba(16, 24, 40, .06); }
     .q-bar > *, .q-bar form { flex: 1 1 0; margin: 0; }
+    .q-bar > .bar-menu { flex: 0 0 56px; }
     .q-bar .btn { width: 100%; min-height: 52px; font-size: 1rem; font-weight: 600;
                   display: flex; align-items: center; justify-content: center; gap: .4rem; }
   }
@@ -41,10 +45,6 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 q-head">
   <div class="d-flex align-items-center gap-2">
     <p class="mb-0 fw-semibold text-body-secondary">Task {{ pos + 1 }} of {{ total }}</p>
-    <div class="progress d-none d-sm-flex" style="width: 8rem; height: 6px" role="progressbar" aria-label="Queue position"
-         aria-valuenow="{{ pos + 1 }}" aria-valuemin="1" aria-valuemax="{{ total }}">
-      <div class="progress-bar" style="width: {{ ((pos + 1) * 100 / total)|round }}%"></div>
-    </div>
   </div>
   <div class="d-flex gap-1 align-items-center flex-wrap">
     {% if pos > 0 %}
@@ -95,9 +95,11 @@
     </div>
     <div class="d-flex gap-1 flex-wrap q-contact">
       {% set phone = account.mobile_phone or account.work_phone %}
-      {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>
-      <a {{ text_to(phone) }} class="btn btn-sm btn-info" aria-label="Text {{ account.first_name or 'them' }}">{{ icon('message-square') }}Text</a>{% endif %}
-      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary" aria-label="Email {{ account.first_name or 'them' }}">{{ icon('mail') }}Email</a>{% endif %}
+      {# Only a call step gets a filled Call here; otherwise the script below carries the main action. #}
+      {% set is_call = task.kind == 'cadence' and task.reminder.step_type in CALL_STEPS %}
+      {% if phone %}<a {{ dial(phone) }} class="btn btn-sm {{ 'btn-success' if is_call else 'btn-outline-success' }}">{{ icon('phone') }}Call</a>
+      <a {{ text_to(phone) }} class="btn btn-sm btn-outline-secondary" aria-label="Text {{ account.first_name or 'them' }}">{{ icon('message-square') }}Text</a>{% endif %}
+      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-secondary" aria-label="Email {{ account.first_name or 'them' }}">{{ icon('mail') }}Email</a>{% endif %}
     </div>
   </div>
   {% if account.notes %}
@@ -138,12 +140,9 @@
   {% for s in scripts %}
   <div class="card p-3 mb-3">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <h2 class="h5 mb-0">
-        {% if s.template.kind == 'email' %}{% elif s.template.kind == 'text' %}{% else %}{% endif %}
-        {{ s.template.name }}
-      </h2>
+      <h2 class="h5 mb-0">{{ s.template.name }}</h2>
       {% if s.action_url %}
-      <a {{ s.action_attrs }} class="btn btn-sm btn-primary">
+      <a {{ s.action_attrs }} class="btn btn-sm {{ 'btn-primary q-desk-only' if loop.first else 'btn-outline-primary' }}">
         {% if s.template.kind == 'email' %}{{ icon('mail') }}Write this email{% elif s.template.kind == 'text' %}{{ icon('message-square') }}Text this{% else %}{{ icon('phone') }}Dial{% endif %}
         </a>
       {% else %}
@@ -163,7 +162,7 @@
     </div>
     {% endif %}
     <div class="mt-2">
-      <textarea id="body-{{ s.template.id }}" class="form-control" readonly
+      <textarea id="body-{{ s.template.id }}" class="form-control q-body" readonly
                 rows="{{ [s.body.count('\n') + 2, 14]|min }}">{{ s.body }}</textarea>
       <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy</button>
     </div>
@@ -225,6 +224,8 @@
 {# Thumb bar (phones only): this step's two actions, always in reach. #}
 {% set phone = account.mobile_phone or account.work_phone %}
 <nav class="q-bar" aria-label="Actions for this task">
+  <button type="button" class="btn btn-outline-secondary bar-menu" data-bs-toggle="offcanvas" data-bs-target="#side"
+          aria-controls="side" aria-label="Menu">{{ icon('menu') }}</button>
   {% if task.kind == 'cadence' and task.reminder.step_type in CALL_STEPS %}
     {% if phone %}<a {{ dial(phone) }} class="btn btn-success">{{ icon('phone') }}Call</a>{% endif %}
     <a href="#outcomes" class="btn btn-outline-success"
@@ -285,6 +286,10 @@ function copyField(id, btn) {
   if (navigator.clipboard) navigator.clipboard.writeText(el.value).catch(() => {});
   btn.textContent = 'Copied';
   setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+}
+// Phones: let each script box grow to fit its text (no scroll inside a scroll).
+if (window.matchMedia('(max-width: 767.98px)').matches) {
+  document.querySelectorAll('textarea.q-body').forEach(el => { el.style.height = el.scrollHeight + 2 + 'px'; });
 }
 </script>
 {% endif %}

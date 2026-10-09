@@ -392,7 +392,7 @@ check("followup: stored", a["next_follow_up"] == date.today().isoformat()
       and a["follow_up_note"] == "call about bid")
 conn.close()
 r = client.get("/")
-check("dashboard: follow-up shown", b"Follow-Ups Due" in r.data and b"call about bid" in r.data)
+check("dashboard: follow-up shown", b"Follow-ups due" in r.data and b"call about bid" in r.data)
 r = client.post(f"/accounts/{fid}/followup", data={"days": "3"}, follow_redirects=True)
 conn = db.get_db()
 a = conn.execute("SELECT * FROM accounts WHERE id=?", (fid,)).fetchone()
@@ -423,7 +423,7 @@ conn.execute("""INSERT INTO accounts (company_name, pipeline_milestone, prospect
     (date.today().isoformat(), old, old))
 conn.commit(); conn.close()
 r = client.get("/")
-check("dashboard: stale deal flagged", b"Going Stale" in r.data and b"Stale Deal Co" in r.data)
+check("dashboard: stale deal flagged", b"Going stale" in r.data and b"Stale Deal Co" in r.data)
 conn = db.get_db()
 sid = conn.execute("SELECT id FROM accounts WHERE company_name='Stale Deal Co'").fetchone()["id"]
 conn.execute("UPDATE accounts SET next_follow_up=? WHERE id=?",
@@ -727,7 +727,7 @@ check("invoice: sent stamps dates", inv["status"] == "Sent"
       and inv["due_date"] == (date.today() + timedelta(days=30)).isoformat())
 conn.close()
 check("dashboard: outstanding invoice shown",
-      b"Outstanding Invoices" in client.get("/").data and b"$12,250" in client.get("/").data)
+      b"Outstanding invoices" in client.get("/").data and b"$12,250" in client.get("/").data)
 # overdue rendering
 conn = db.get_db()
 conn.execute("UPDATE invoices SET due_date=? WHERE id=?",
@@ -741,7 +741,7 @@ inv = conn.execute("SELECT * FROM invoices WHERE id=?", (inv["id"],)).fetchone()
 check("invoice: paid stamps date", inv["status"] == "Paid"
       and inv["paid_date"] == date.today().isoformat())
 conn.close()
-check("dashboard: paid invoice cleared", b"Outstanding Invoices" not in client.get("/").data)
+check("dashboard: paid invoice cleared", b"Outstanding invoices" not in client.get("/").data)
 # money rollups
 r = client.post(f"/projects/{proj['id']}/invoices/add", data={"amount": "12250"},
                 follow_redirects=True)
@@ -1088,7 +1088,7 @@ check("backup: download snapshot", r.status_code == 200
 _sh.rmtree(db.BACKUP_DIR, ignore_errors=True); _sh.rmtree(mirror_dir, ignore_errors=True)
 r = client.get("/import")
 check("import page: backup UI present", b"Off-Machine Backup Folder" in r.data
-      and b"Download Full Backup" in r.data)
+      and b"Download full backup" in r.data)
 
 # ---- 23b. Priority by matching buildings
 conn = db.get_db()
@@ -1132,7 +1132,7 @@ check("dashboard: priority toggle + matching column", "Biggest first" in html
       and "matching buildings in today" in html)
 check("dashboard: big portfolio listed before tiny one",
       html.index("Big Portfolio Co") < html.index("Tiny Single Co"))
-check("dashboard: top priority card", "Top Priority Accounts" in html
+check("dashboard: top priority card", "Top priority accounts" in html
       and "40" in html)
 conn = db.get_db()
 qt = app_mod._build_queue(conn)
@@ -1592,7 +1592,7 @@ r = client.post(f"/accounts/{bnog['id']}/contacts/add", data={
     "paste": "Dana Price\nChief Operating Officer\ndana@bnog.com\n(713) 555-7777"},
     follow_redirects=True)
 dana = conn.execute("SELECT * FROM contacts WHERE email='dana@bnog.com'").fetchone()
-check("paste: Add Contact fills itself in from the paste",
+check("paste: Add contact fills itself in from the paste",
       dana is not None and dana["first_name"] == "Dana"
       and dana["title"] == "Chief Operating Officer"
       and dana["work_phone"] == "(713) 555-7777"
@@ -1942,7 +1942,7 @@ check("preview: fills the form instead of saving straight away",
       'value="Marco"' in _html and 'value="Webb"' in _html
       and 'value="Senior Property Manager"' in _html
       and 'value="mwebb@example.com"' in _html)
-check("preview: says what it read", "Read:" in _html and "press Add Contact" in _html)
+check("preview: says what it read", "Read:" in _html and "press Add contact" in _html)
 check("preview: nothing was saved yet",
       db.get_db().execute("SELECT 1 FROM contacts WHERE email='mwebb@example.com'"
                           ).fetchone() is None)
@@ -3959,6 +3959,46 @@ client.post(f"/accounts/{_bid}/edit", data={"company_name": "Bounce Co", "first_
 check("bounce: a new email address clears the bounce",
       _bx.execute("SELECT email_bounced FROM accounts WHERE id=?", (_bid,)).fetchone()[0] == "")
 _bx.execute("DELETE FROM accounts WHERE id=?", (_bid,)); _bx.commit(); _bx.close()
+
+# ---- 72. CRM look follow-ups: pipeline as deals, plain labels, phone buttons
+_px = db.get_db()
+_pts = db.now_iso()
+_pid = _px.execute(
+    "INSERT INTO accounts (company_name, first_name, email, work_phone, preferred_contact,"
+    " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
+    " ('Deal Board Co','Dee','dee@dealboard.com','713-555-0131','Unknown','Prospecting',"
+    "'None / In Cadence','2026-10-01',?,?)", (_pts, _pts)).lastrowid
+_px.execute("""INSERT INTO bids (account_id, roof_size_sqft, coating_system, roof_type,
+    warranty_years, price, created_at, updated_at) VALUES (?,8000,'Silicone','Capsheet',10,36000,?,?)""",
+    (_pid, _pts, _pts))
+_px.commit()
+_pl = client.get("/pipeline").data.decode()
+check("pipeline: cold-cadence accounts aren't a lane, just a count",
+      "Deal Board Co" not in _pl and "still in the cold cadence" in _pl
+      and ">None / In Cadence<" not in _pl and "Accepted Meeting" in _pl)
+check("pipeline: the milestone stamp starts empty",
+      _px.execute("SELECT milestone_at FROM accounts WHERE id=?", (_pid,)).fetchone()[0] == "")
+client.post(f"/accounts/{_pid}/milestone", data={"pipeline_milestone": "Created Report/Bid"})
+check("pipeline: moving a deal stamps when it entered the stage",
+      _px.execute("SELECT milestone_at FROM accounts WHERE id=?", (_pid,)).fetchone()[0][:10] == date.today().isoformat())
+_pl = client.get("/pipeline").data.decode()
+check("pipeline: the card shows the bid, its age and a Move menu",
+      "Deal Board Co" in _pl and "$36,000" in _pl and "0 days in stage" in _pl
+      and ">Move</button>" in _pl and "onchange" not in _pl)
+check("pipeline: open bids are totalled", "in open bids" in _pl)
+_al = client.get("/accounts?q=Deal+Board").data.decode()
+check("accounts: the empty milestone shows as a dash, not the database value",
+      "Created Report/Bid" in _al and 'table-cell">None / In Cadence</td>' not in _al)
+client.post(f"/accounts/{_pid}/milestone", data={"pipeline_milestone": "None / In Cadence"})
+_ap = client.get(f"/accounts/{_pid}").data.decode()
+check("account: Status matches the header pill", "<dt>Status</dt><dd>In cadence" in _ap)
+_tpl = (Path(__file__).resolve().parent.parent / "templates" / "account_detail.html").read_text()
+_grid = _tpl[_tpl.index('<div class="outcome-grid">'):_tpl.index('</div>', _tpl.index('<div class="outcome-grid">'))]
+check("account: no outcome tile is filled, so none looks already picked",
+      "btn-outline-secondary" in _grid and "btn-primary" not in _grid and "btn-success" not in _grid)
+check("shell: the top-bar buttons are full-size phone targets", 'topbar-btn topbar-menu' in _ap)
+check("account and queue: the action bar can open the menu", 'class="btn btn-outline-secondary bar-menu"' in _ap)
+_px.execute("DELETE FROM accounts WHERE id=?", (_pid,)); _px.commit(); _px.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

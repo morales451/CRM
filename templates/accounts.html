@@ -13,7 +13,7 @@
   <div class="actions">
     {% if view != 'archived' %}<a href="{{ url_for('door_knock_list', **filters) }}" class="btn btn-outline-secondary btn-sm"
        title="These accounts with their office address, sorted by zip for planning a route (never-visited unless you filter otherwise)">{{ icon('download') }}Door-knock list</a>{% endif %}
-    <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">{{ icon('plus') }}Add account</a>
+    <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm d-lg-none">{{ icon('plus') }}Add account</a>
   </div>
 </div>
 <nav class="viewtabs mb-3" aria-label="Account views">
@@ -26,7 +26,7 @@
 <form method="get" class="card p-2 mb-3 filterbar">
   <div class="row g-2">
     {% if view in ('archived', 'research') %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
-    <div class="col-12 col-md-4 d-flex gap-2">
+    <div class="col-12 col-md-4 d-flex gap-2 align-items-start">
       <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm"
              placeholder="Search company, contact, phone, notes…" aria-label="Search accounts">
       <button type="button" class="btn btn-sm btn-outline-secondary d-md-none" data-bs-toggle="collapse"
@@ -170,7 +170,7 @@
             {% if phone %}<a {{ dial(phone) }}>{{ phone }}</a>{% endif %}
           </td>
           <td class="d-none d-sm-table-cell"><span class="badge text-bg-{{ 'success' if a.prospecting_status.startswith('Interested') else 'danger' if a.prospecting_status == 'Not Interested' else 'warning' if a.prospecting_status == 'Might be Interested' else 'primary' }}">{{ a.prospecting_status }}</span></td>
-          <td class="small d-none d-md-table-cell">{{ a.pipeline_milestone }}</td>
+          <td class="small d-none d-md-table-cell">{{ a.pipeline_milestone|ms }}</td>
           {% if view == 'archived' %}
           <td class="small text-muted">{{ a.archived_at|d }}{% if a.archive_reason %}<div>{{ a.archive_reason }}</div>{% endif %}</td>
           <td class="text-end">

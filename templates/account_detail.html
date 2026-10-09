@@ -13,7 +13,9 @@
   .outcome-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .4rem; }
   .outcome-grid .btn { min-height: 48px; line-height: 1.15; display: flex; flex-direction: column;
                        justify-content: center; }
-  .outcome-grid .effect { font-size: .72rem; font-weight: 400; opacity: .85; }
+  .outcome-grid .effect { font-size: .75rem; font-weight: 500; color: var(--muted); }
+  .outcome-grid .out-good .effect { color: var(--green); }
+  .outcome-grid .out-bad .effect { color: var(--red); }
   .ttype-email { background: var(--accent-soft); color: #00508a; }
   .ttype-call { background: var(--green-soft); color: #0b5e41; }
   .ttype-door { background: var(--amber-soft); color: var(--amber); }
@@ -34,6 +36,7 @@
                 padding: .6rem .75rem calc(.6rem + env(safe-area-inset-bottom));
                 background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -2px 10px rgba(16,24,40,.06); }
     .acct-bar > * { flex: 1 1 0; }
+    .acct-bar > .bar-menu { flex: 0 0 56px; }
     .acct-bar .btn { width: 100%; min-height: 52px; font-size: 1rem; font-weight: 600;
                      display: flex; align-items: center; justify-content: center; }
   }
@@ -72,7 +75,9 @@
   </div>
   </div>
   <div class="acct-actions">
-    {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>
+    {# When a call is due, the next-step panel below carries the Call button. #}
+    {% set call_due = next_step and next_step.state == 'due' and next_step.step_type in CALL_STEPS %}
+    {% if phone %}{% if not call_due %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>{% endif %}
     <a {{ text_to(phone) }} class="btn btn-sm btn-outline-success">{{ icon('message-square') }}Text</a>{% endif %}
     <div class="btn-group">
       <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
@@ -142,7 +147,7 @@
     {% else %}
     <p class="mb-2 small">Everyone on file has been tried. Rest the company, or add someone new and restart.</p>
     <form method="post" action="{{ url_for('rest_account', account_id=account.id) }}">
-      <button class="btn btn-outline-dark">Rest {{ RECYCLE_DAYS }} days</button>
+      <button class="btn btn-outline-secondary">Rest {{ RECYCLE_DAYS }} days</button>
     </form>
     {% endif %}
   {% elif next_step and next_step.state == 'due' %}
@@ -165,15 +170,18 @@
         <input name="notes" class="form-control mb-2" placeholder="Notes from the call (optional)">
         <div class="small fw-semibold mb-1">How did it go? One tap logs it.</div>
         <div class="outcome-grid">
-          {% for o, effect, style in [('No answer', '', 'btn-outline-secondary'),
-                                      ('Voicemail', '', 'btn-outline-secondary'),
-                                      ('Gatekeeper', '', 'btn-outline-secondary'),
-                                      ('Spoke', '', 'btn-primary'),
-                                      ('Meeting booked', '→ Accepted Meeting', 'btn-success'),
-                                      ('Not interested', '→ next person', 'btn-outline-danger'),
-                                      ('Wrong person', '→ next person', 'btn-outline-secondary'),
-                                      ('Bad number', '→ back to Research', 'btn-outline-danger')] %}
-          <button name="outcome" value="{{ o }}" class="btn {{ style }}">{{ o }}{% if effect %}<span class="effect">{{ effect }}</span>{% endif %}</button>
+          {# All tiles look alike so none reads as already chosen; the ones that
+             change the account say so in their colored line. #}
+          {% for o, effect, tone in [('No answer', '', ''),
+                                     ('Voicemail', '', ''),
+                                     ('Gatekeeper', '', ''),
+                                     ('Spoke', '', ''),
+                                     ('Meeting booked', '→ Accepted Meeting', 'good'),
+                                     ('Not interested', '→ next person', 'bad'),
+                                     ('Wrong person', '→ next person', ''),
+                                     ('Bad number', '→ back to Research', 'bad')] %}
+          <button name="outcome" value="{{ o }}" class="btn btn-outline-secondary {{ 'out-' ~ tone if tone }}"
+                  {% if o == 'Bad number' %}onclick="return confirm('Mark this number as bad? The account goes back to Research.')"{% endif %}>{{ o }}{% if effect %}<span class="effect">{{ effect }}</span>{% endif %}</button>
           {% endfor %}
         </div>
       </form>
@@ -211,7 +219,7 @@
       <h2 class="h5">Account info</h2>
       <dl class="info-dl row mb-1">
         <div class="col-6"><dt>Primary contact</dt><dd>{{ account.first_name }} {{ account.last_name }}{% if not (account.first_name or account.last_name) %}<span class="text-body-secondary">None yet</span>{% endif %}{% if account.title %}<br><span class="small">{{ account.title }}</span>{% endif %}</dd></div>
-        <div class="col-6"><dt>Status</dt><dd>{{ account.prospecting_status }}<br><span class="small">{{ account.pipeline_milestone }}</span></dd></div>
+        <div class="col-6"><dt>Status</dt><dd>{% if in_research %}Research <span class="small text-body-secondary">(nobody to contact yet)</span>{% elif in_cadence %}In cadence{% else %}{{ account.prospecting_status }}{% endif %}{% if account.pipeline_milestone != MILESTONES[0] %}<br><span class="small">{{ account.pipeline_milestone }}</span>{% endif %}</dd></div>
         <div class="col-6"><dt>Phone</dt><dd>{% if account.work_phone %}<a {{ dial(account.work_phone) }}>{{ account.work_phone }}</a> <span class="small text-body-secondary">work</span><br>{% endif %}{% if account.mobile_phone %}<a {{ dial(account.mobile_phone) }}>{{ account.mobile_phone }}</a> <span class="small text-body-secondary">mobile</span>{% endif %}{% if not phone %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
         <div class="col-6"><dt>Email</dt><dd class="text-break">
           {% if account.email and account.email_bounced %}<s>{{ account.email }}</s>{% if account.email_bounced %} <span class="badge text-bg-danger" title="Bounced {{ account.email_bounced|d }}">Bounced</span>{% endif %}
@@ -221,10 +229,10 @@
           {% elif account.email %}<a {{ mail_to(account.email) }}>{{ account.email }}</a>
             <form method="post" action="{{ url_for('email_bounced', account_id=account.id) }}" class="d-inline"
                   onsubmit="return confirm('Mark {{ account.email }} as bounced? No more emails to {{ account.first_name or 'them' }}; calls and texts continue.')">
-              <button class="btn btn-link btn-sm p-0 align-baseline text-danger">Email bounced?</button></form>
+              <button class="btn btn-link btn-sm p-0 align-baseline text-decoration-none">Email bounced?</button></form>
           {% else %}<span class="text-body-secondary">None</span>{% endif %}</dd></div>
         <div class="col-6"><dt>Office</dt><dd>{{ account_address(account) or '—' }}</dd></div>
-        <div class="col-6"><dt>Buildings</dt><dd>{{ account.matching_properties or 0 }} matching{% if account.num_properties %} of {{ account.num_properties }}{% endif %}</dd></div>
+        <div class="col-6"><dt>Buildings</dt><dd>{% if account.num_properties %}{{ account.num_properties }} owned, {% endif %}{{ account.matching_properties or 'none' }} matching your criteria</dd></div>
         {% if account.notes %}<div class="col-12"><dt>Notes</dt><dd class="small" style="white-space: pre-line">{{ account.notes }}</dd></div>{% endif %}
       </dl>
       <details id="edit-info">
@@ -333,7 +341,7 @@
       <div class="d-flex gap-2 flex-wrap">
         <form method="post" action="{{ url_for('restart_cadence', account_id=account.id) }}"
               onsubmit="return confirm('Restart the cadence from today? Status resets to Prospecting / None-In Cadence.')">
-          <button class="btn btn-sm btn-outline-primary">{{ icon('rotate-ccw') }}Restart Cadence</button>
+          <button class="btn btn-sm btn-outline-primary">{{ icon('rotate-ccw') }}Restart cadence</button>
         </form>
         <details>
           <summary class="btn btn-sm btn-outline-danger">Archive / Remove</summary>
@@ -373,7 +381,7 @@
           <span class="input-group-text">$</span>
           <input name="contract_amount" class="form-control" placeholder="Contract amount">
         </div>
-        <button class="btn btn-sm btn-primary">{{ icon('plus') }}Create Project</button>
+        <button class="btn btn-sm btn-primary">{{ icon('plus') }}Create project</button>
       </form>
       <div class="form-text">Creates the job checklist (deposit → crew → completion → final payment → warranty) and invoice tracking.</div>
     </div>
@@ -400,7 +408,7 @@
       <form method="post" action="{{ url_for('new_bid', account_id=account.id) }}" class="row g-2">
         <div class="col-12 col-md-6"><input name="roof_address" class="form-control form-control-sm" placeholder="Roof address (auto-fills from notes)"></div>
         <div class="col-6 col-md-3"><input name="roof_size_sqft" type="number" min="0" class="form-control form-control-sm" placeholder="Sq ft"></div>
-        <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">{{ icon('plus') }}New Report</button></div>
+        <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">{{ icon('plus') }}New report</button></div>
       </form>
       <div class="form-text">Creates a roof report with your full proposal: CEO letter, process, spec, materials quote (computed from square footage), warranty, site assessment photos, and signature page.</div>
       </details>
@@ -529,7 +537,9 @@
               </div>
             </div>
             <div class="d-flex gap-1 flex-wrap">
-              {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>{% endif %}
+              {# When a call is due, the next-step panel below carries the Call button. #}
+    {% set call_due = next_step and next_step.state == 'due' and next_step.step_type in CALL_STEPS %}
+    {% if phone %}{% if not call_due %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>{% endif %}{% endif %}
               <a href="#edit-info" class="btn btn-sm btn-outline-primary"
                  onclick="document.getElementById('edit-info').open=true">{{ icon('pencil') }}Edit</a>
             </div>
@@ -648,7 +658,7 @@
           {% endfor %}
           </tbody>
         </table>
-        <button class="btn btn-sm btn-primary" id="rosteradd" disabled>{{ icon('plus') }}Add Selected</button>
+        <button class="btn btn-sm btn-primary" id="rosteradd" disabled>{{ icon('plus') }}Add selected</button>
         <a href="{{ url_for('account_detail', account_id=account.id) }}"
            class="btn btn-sm btn-outline-secondary">Cancel</a>
       </form>
@@ -659,7 +669,7 @@
         const refresh = () => {
           const n = picks().filter(c => c.checked).length;
           add.disabled = n === 0;
-          add.textContent = n ? '+ Add ' + n + ' Selected' : '+ Add Selected';
+          add.textContent = n ? '+ Add ' + n + ' selected' : '+ Add selected';
         };
         picks().forEach(c => c.addEventListener('change', refresh));
         document.getElementById('pickdm').addEventListener('click', () => {
@@ -758,7 +768,7 @@ Direct Phone: 713-555-0199</pre>
             <div class="col-6"><input name="mobile_phone" type="tel" class="form-control form-control-sm" placeholder="Mobile phone" value="{{ pre.get('mobile_phone', '') }}"></div>
             <div class="col-12"><input name="linkedin_url" class="form-control form-control-sm" placeholder="LinkedIn profile URL" value="{{ pre.get('linkedin_url', '') }}"></div>
             <div class="col-12 d-flex align-items-center gap-2">
-              <button class="btn btn-sm btn-primary">{{ icon('plus') }}Add Contact</button>
+              <button class="btn btn-sm btn-primary">{{ icon('plus') }}Add contact</button>
               <label class="small"><input type="checkbox" name="set_primary" value="1"> Make primary</label>
             </div>
           </div>
@@ -839,6 +849,8 @@ Direct Phone: 713-555-0199</pre>
 </div>
 {# Thumb bar (phones): call and log without scrolling. #}
 <nav class="acct-bar" aria-label="Quick actions">
+  <button type="button" class="btn btn-outline-secondary bar-menu" data-bs-toggle="offcanvas" data-bs-target="#side"
+          aria-controls="side" aria-label="Menu">{{ icon('menu') }}</button>
   {% if phone %}<a {{ dial(phone) }} class="btn btn-success">{{ icon('phone') }}Call</a>{% endif %}
   {% if next_step and next_step.state == 'due' and not in_research and not account.archived_at %}
   <a href="#nextup" class="btn btn-outline-success"

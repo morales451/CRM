@@ -268,6 +268,13 @@ def pref_badge(method):
     return icons.get(method, "")
 
 
+@app.template_filter("ms")
+def milestone_label(milestone):
+    """How a pipeline milestone reads on screen. The first one is the database's
+    "nothing yet" value, so it shows as a dash instead of "None / In Cadence"."""
+    return "—" if milestone == PIPELINE_MILESTONES[0] else (milestone or "—")
+
+
 @app.template_filter("d")
 def format_date(iso_str):
     try:
@@ -1039,9 +1046,12 @@ def insights():
             f"""SELECT COALESCE(i.outcome, '') AS outcome FROM interactions i
                 JOIN accounts a ON a.id = i.account_id
                 WHERE COALESCE(a.archived_at, '') = '' AND i.created_at >= ?
+                  AND i.interaction_type != 'Door Knock'
                   AND (i.interaction_type IN ({ph}) OR COALESCE(i.outcome, '') != '')""",
             (month_back, *CALL_STEPS)).fetchall()
-        tagged = [r["outcome"] for r in call_rows if r["outcome"]]
+        # Only call outcomes count toward the rates, so the breakdown below
+        # always adds up to the "logged with an outcome" figure.
+        tagged = [r["outcome"] for r in call_rows if r["outcome"] in CALL_OUTCOMES]
         connects = sum(1 for o in tagged if o in CONNECT_OUTCOMES)
         meetings = sum(1 for o in tagged if o == "Meeting booked")
         calls = {
@@ -1110,20 +1120,39 @@ def insights():
 
 @app.route("/pipeline")
 def pipeline():
-    """Board view: one column per milestone (cadence pool shown as a count)."""
+    """Deal board: one column per milestone from Accepted Meeting on. Accounts
+    still in the cold cadence aren't deals yet, so they show as a count."""
     conn = get_db()
     try:
+        in_cadence = conn.execute(
+            "SELECT COUNT(*) FROM accounts WHERE COALESCE(archived_at, '') = '' "
+            "AND pipeline_milestone = ?", (PIPELINE_MILESTONES[0],)).fetchone()[0]
         columns = []
-        for m in PIPELINE_MILESTONES:
+        today = datetime.fromisoformat(today_iso())
+        for m in PIPELINE_MILESTONES[1:]:
             rows = conn.execute(
                 """SELECT a.*, (SELECT MAX(created_at) FROM interactions i
-                                WHERE i.account_id = a.id) AS last_activity
+                                WHERE i.account_id = a.id) AS last_activity,
+                          (SELECT price FROM bids b WHERE b.account_id = a.id
+                           ORDER BY b.created_at DESC, b.id DESC LIMIT 1) AS bid_price,
+                          COALESCE(NULLIF(a.milestone_at, ''), a.updated_at) AS stage_since
                    FROM accounts a WHERE COALESCE(a.archived_at, '') = '' AND a.pipeline_milestone = ?
                    ORDER BY a.updated_at DESC""", (m,)).fetchall()
-            columns.append({"milestone": m, "count": len(rows), "accounts": rows[:20]})
+            deals = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["days_in_stage"] = (today - datetime.fromisoformat(
+                        (r["stage_since"] or "")[:10])).days
+                except ValueError:
+                    d["days_in_stage"] = None
+                deals.append(d)
+            columns.append({"milestone": m, "count": len(rows), "accounts": deals[:20],
+                            "total": sum(d["bid_price"] or 0 for d in deals)})
     finally:
         conn.close()
-    return render_template("pipeline.html", columns=columns)
+    return render_template("pipeline.html", columns=columns, in_cadence=in_cadence,
+                           milestones=PIPELINE_MILESTONES)
 
 
 @app.route("/accounts/<int:account_id>/milestone", methods=["POST"])
@@ -2963,7 +2992,7 @@ def parse_contact(account_id):
                    if not parsed.get(c)]
         if missing:
             msg += " Didn't find: " + ", ".join(missing) + " — add below if you have it."
-        msg += " Check it over, then press Add Contact."
+        msg += " Check it over, then press Add contact."
         flash(msg, "warning" if guessed_name else "info")
     return _render_account_detail(account_id, contact_prefill=parsed,
                                   contact_paste=paste)
@@ -3008,7 +3037,7 @@ def roster_contacts(account_id):
     detailed = sum(1 for p in people if p["has_details"])
     msg = (f"Found {len(people)} people"
            + (f", {len(people) - fresh} already on this account" if fresh < len(people) else "")
-           + ". Tick the ones worth contacting and press Add Selected.")
+           + ". Tick the ones worth contacting and press Add selected.")
     if not detailed:
         msg += (" None of the rows were expanded, so no emails or phone numbers "
                 "came through — expand the few you want on ZoomInfo before "

@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     zoominfo_url TEXT DEFAULT '',          -- the company's ZoomInfo profile page
     previous_contact TEXT DEFAULT '',      -- first name of the last person tried here
     email_bounced TEXT DEFAULT '',         -- ISO date the primary's email bounced; '' = fine
+    milestone_at TEXT DEFAULT '',          -- when pipeline_milestone last changed (set by a trigger)
     street TEXT DEFAULT '',                -- office address, for door knocking
     city TEXT DEFAULT '',
     state TEXT DEFAULT '',
@@ -603,6 +604,17 @@ def _migrate(conn) -> None:
                                                 a["zip"], row[0]))
     if "email_bounced" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN email_bounced TEXT DEFAULT ''")
+    if "milestone_at" not in cols:
+        conn.execute("ALTER TABLE accounts ADD COLUMN milestone_at TEXT DEFAULT ''")
+    # Every path that moves a deal (board, edit form, bulk, call outcomes)
+    # stamps the time here, so "days in stage" can't drift out of sync.
+    conn.execute("""CREATE TRIGGER IF NOT EXISTS trg_accounts_milestone_at
+        AFTER UPDATE OF pipeline_milestone ON accounts
+        WHEN NEW.pipeline_milestone IS NOT OLD.pipeline_milestone
+        BEGIN
+            UPDATE accounts SET milestone_at = strftime('%Y-%m-%dT%H:%M:%S', 'now', 'localtime')
+            WHERE id = NEW.id;
+        END""")
     if "previous_contact" not in cols:
         conn.execute("ALTER TABLE accounts ADD COLUMN previous_contact TEXT DEFAULT ''")
     if "zoominfo_url" not in cols:
