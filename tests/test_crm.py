@@ -444,7 +444,7 @@ n_tasks = len(__import__("app")._build_queue(conn))
 conn.close()
 r = client.get("/queue")
 check("queue: renders first task", r.status_code == 200 and b"Task 1 of" in r.data)
-check("queue: dashboard button", b"Work the Queue" in client.get("/").data)
+check("queue: dashboard button", b"Work the queue" in client.get("/").data)
 r = client.get(f"/queue?pos={n_tasks - 1}")
 check("queue: last pos ok", r.status_code == 200 and f"Task {n_tasks} of {n_tasks}".encode() in r.data)
 r = client.get("/queue?pos=9999")
@@ -794,7 +794,7 @@ check("invoice print: PAID stamp", b"stamp paid" in r.data and b"PAID" in r.data
 r = client.get("/invoices/99999/print")
 check("invoice print: missing 404", r.status_code == 404)
 r = client.get(f"/projects/{proj['id']}")
-check("project page: print button present", "🖨".encode() in r.data)
+check("project page: print button present", b"Printable invoice" in r.data)
 
 # delete cascade
 r = client.post(f"/projects/{proj['id']}/delete", follow_redirects=True)
@@ -1159,7 +1159,7 @@ client.post("/settings/task-order", data={"order": "priority"})
 r = client.get("/accounts?sort=priority")
 html = r.data.decode()
 check("accounts: priority sort", html.index("Big Portfolio Co") < html.index("Tiny Single Co"))
-check("accounts: total matching badge", "buildings" in html and "🎯" in html)
+check("accounts: total matching badge", "matching buildings in this view" in html)
 r = client.get("/accounts?min_matching=10")
 html = r.data.decode()
 check("accounts: min matching filter", "Big Portfolio Co" in html
@@ -1448,7 +1448,7 @@ db.APP_DIR, db.DATA_DIR, db.DB_PATH, db.BACKUP_DIR, db.UPLOAD_DIR = _prev
 
 # ---- 24. In-app guide
 r = client.get("/guide")
-check("guide: renders", r.status_code == 200 and b"Roof CRM Guide" in r.data
+check("guide: renders", r.status_code == 200 and b"Roof CRM guide" in r.data
       and b"The daily routine" in r.data and b"Roof reports / bids" in r.data
       and b"Data safety" in r.data)
 check("guide: nav link", b'href="/guide"' in client.get("/").data)
@@ -1777,7 +1777,7 @@ check("dashboard: progress counts what's left, not just what's done",
       (b"done today" in r.data and b"list is clear" not in r.data) if _rem
       else b"list is clear" in r.data, f"{_rem} outstanding")
 check("dashboard: progress states the remaining count",
-      (b" left" in r.data) if _rem else True)
+      (b" to go" in r.data) if _rem else True)
 client.post("/settings", data={"daily_goal": "12"}, follow_redirects=True)
 check("activity: the daily goal saves",
       conn.execute("SELECT value v FROM settings WHERE key='daily_goal'"
@@ -1893,7 +1893,7 @@ check("accounts: one page of rows at a time",
       _html.count('name="account_ids"') == _app.ACCOUNTS_PER_PAGE,
       _html.count('name="account_ids"'))
 check("accounts: the header counts every match, not the page",
-      f"({_active})" in _html, _active)
+      f'fw-normal">{_active}</span>' in _html, _active)
 check("accounts: a pager is offered", "Page 1 of" in _html)
 _p2 = client.get("/accounts?page=2").data.decode()
 check("accounts: page 2 shows different accounts",
@@ -3672,14 +3672,14 @@ _d3 = _dk_acct("Door C Co", "9 Oak St", "Katy", "77494")
 _dk.commit()
 _p = client.get(f"/accounts/{_d1}").data.decode()
 check("door: account page says never visited, maps the office, offers the log",
-      "🚪 Never visited" in _p and "google.com/maps/search/?api=1&amp;query=Door%20A%20Co" in _p
+      "Never visited" in _p and "google.com/maps/search/?api=1&amp;query=Door%20A%20Co" in _p
       and 'name="interaction_type" value="Door Knock"' in _p and "Met decision-maker" in _p)
 r = client.post(f"/accounts/{_d1}/log", data={"interaction_type": "Door Knock",
                                                "outcome": "Left info", "notes": "card at desk"},
                 follow_redirects=True)
 _p = r.data.decode()
 check("door: a visit is logged with its outcome and shows on the account",
-      "🚪 Visited" in _p and "Left info" in _p
+      "door-open" in _p and "Visited" in _p and "Left info" in _p
       and _dk.execute("SELECT outcome FROM interactions WHERE account_id=? AND "
                       "interaction_type='Door Knock'", (_d1,)).fetchone()[0] == "Left info")
 check("door: a visit isn't a cadence step (the account stays in Research)",
@@ -3694,7 +3694,7 @@ check("door: the accounts list filters to never-visited",
       "Door C Co" in _l and "Door A Co" not in _l)
 _l = client.get("/accounts?visited=yes&q=Door").data.decode()
 check("door: ...and to visited, with the date shown",
-      "Door A Co" in _l and "Door C Co" not in _l and "🚪" in _l)
+      "Door A Co" in _l and "Door C Co" not in _l and "Last door knock" in _l)
 check("door: search finds accounts by zip", "Door C Co" in client.get("/accounts?q=77494").data.decode())
 _rows = list(_csv.reader(io.StringIO(client.get("/accounts/door-knock.csv?q=Door").data
                                      .decode("utf-8-sig"))))

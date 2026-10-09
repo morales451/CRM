@@ -4,7 +4,7 @@
 <h1 class="mb-3">Outreach Templates</h1>
 
 <div class="card p-3 mb-3">
-  <h5>Your Info</h5>
+  <h2 class="h5">Your Info</h2>
   <p class="small text-muted mb-2">Fills into every script wherever <code>{my_name}</code>, <code>{my_company}</code>, or <code>{my_phone}</code> appears — and onto printed invoices.</p>
   <form method="post" action="{{ url_for('save_settings') }}" class="row g-2">
     <div class="col-6 col-md-3"><input name="my_name" class="form-control form-control-sm" placeholder="Your name" value="{{ settings.get('my_name', '') }}"></div>
@@ -15,7 +15,7 @@
     <div class="col-6 col-md-3"><input name="my_website" class="form-control form-control-sm" placeholder="Website" value="{{ settings.get('my_website', '') }}"></div>
     <div class="col-12 col-md-5"><input name="my_address" class="form-control form-control-sm" placeholder="Business address (shows on invoices)" value="{{ settings.get('my_address', '') }}"></div>
     <div class="col-12 col-md-6">
-      <label class="form-label small mb-0 text-muted">📞 Call and 💬 Text buttons use</label>
+      <label class="form-label small mb-0 text-muted">Call and Text buttons use</label>
       <select name="call_app" class="form-select form-select-sm">
         {% for k, v in CALL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('call_app', 'phone') == k }}>{{ v }}</option>{% endfor %}
       </select>
@@ -24,7 +24,7 @@
         empty, so use the script's Copy button.</div>
     </div>
     <div class="col-12 col-md-6">
-      <label class="form-label small mb-0 text-muted">✉️ Email buttons open</label>
+      <label class="form-label small mb-0 text-muted">Email buttons open</label>
       <select name="email_app" class="form-select form-select-sm">
         {% for k, v in EMAIL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('email_app', 'default') == k }}>{{ v }}</option>{% endfor %}
       </select>
@@ -33,7 +33,7 @@
         new-message screen instead. Nothing is sent until you press Send.</div>
     </div>
     <div class="col-12 col-md-6">
-      <label class="form-label small mb-0 text-muted">✉️ On a phone, Email buttons open</label>
+      <label class="form-label small mb-0 text-muted">On a phone, Email buttons open</label>
       <select name="email_app_phone" class="form-select form-select-sm">
         {% for k, v in PHONE_EMAIL_APPS.items() %}<option value="{{ k }}" {{ 'selected' if settings.get('email_app_phone', 'same') == k }}>{{ v }}</option>{% endfor %}
       </select>
@@ -48,7 +48,7 @@
         window, even while your personal Gmail is signed in too. Blank uses the Email above.</div>
     </div>
     <div class="col-12">
-      <label class="form-label small mb-0 text-muted">✍️ Email signature (added to the end of every email template)</label>
+      <label class="form-label small mb-0 text-muted">Email signature (added to the end of every email template)</label>
       <textarea name="email_signature" rows="5" class="form-control form-control-sm">{{ settings.get('email_signature', '') }}</textarea>
       <div class="small text-muted">Use <code>{my_name}</code>, <code>{my_title}</code>, <code>{my_company}</code>,
         <code>{my_phone}</code>, <code>{my_website}</code>, <code>{my_email}</code> or plain text. It replaces a
@@ -64,7 +64,7 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h5>🎯 Daily activity goal</h5>
+  <h2 class="h5">Daily activity goal</h2>
   <p class="small text-muted mb-2">How many logged touches make a full day of outreach. Insights
     charts your last 14 days against it so you can see whether a slow month is an activity
     problem or a conversion problem. Set it to 0 to hide the goal line.</p>
@@ -80,7 +80,7 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h5>💵 Pricing</h5>
+  <h2 class="h5">Pricing</h2>
   <p class="small text-muted mb-2">Sell price per square foot of coated roof. The CRM suggests a price on every roof report
     from these numbers; you can always override the quote.</p>
   <form method="post" action="{{ url_for('save_settings') }}" class="row g-2 align-items-end">
@@ -137,9 +137,9 @@
       <div class="col-12 col-md-6">
         <label class="form-label small mb-0">Type</label>
         <select name="kind" class="form-select form-select-sm">
-          <option value="email" {{ 'selected' if t.kind == 'email' }}>✉️ Email (opens email app)</option>
-          <option value="call" {{ 'selected' if t.kind == 'call' }}>📞 Call script (dial button)</option>
-          <option value="text" {{ 'selected' if t.kind == 'text' }}>💬 Text message (opens Messages)</option>
+          <option value="email" {{ 'selected' if t.kind == 'email' }}>Email (opens email app)</option>
+          <option value="call" {{ 'selected' if t.kind == 'call' }}>Call script (dial button)</option>
+          <option value="text" {{ 'selected' if t.kind == 'text' }}>Text message (opens Messages)</option>
         </select>
       </div>
       <div class="col-12">

@@ -33,6 +33,7 @@ Built around one roofer's real loop rather than a generic pipeline: owner portfo
 ## Brand Commitments
 - Company name "Silicone Roof Pros, Inc." and its logo (`static/brand-logo.png`) stay as they are, especially on customer-facing documents. Colors, type and the rest of the visual language are open.
 - Voice to owners: plain, direct, expert contractor, never salesy hype. Alexis signs as "Alex M".
+- The app itself looks like a real sales CRM, played straight: the category standard at the craft level of Pipedrive, HubSpot and Close. Left sidebar navigation (a bottom tab bar on the phone), quiet neutral surfaces, one blue accent taken from the logo (#0088DF), Inter, drawn line icons (no emoji), dense readable tables and record pages. No novelty styling in the working app.
 
 ## Evidence on Hand
 - Real product data lives only on the owner's machine. Test fixtures use fictional people and companies (`tests/fixtures/`).

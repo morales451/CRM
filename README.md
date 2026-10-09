@@ -107,7 +107,7 @@ computer's firewall (Windows will usually prompt you the first time — choose
   overdue ones flagged red. The Projects page and Insights show the money
   rollup: contracted, invoiced, collected, outstanding.
 - **Accounts** — searchable list with filters for Prospecting Status,
-  Pipeline Milestone and minimum matching buildings (🎯), sorted by
+  Pipeline Milestone and minimum matching buildings, sorted by
   opportunity size by default; tap-to-call / tap-to-text / tap-to-email
   links on mobile. Search covers the company name, **every contact on the
   account**, titles, management level, notes and phone numbers in any
@@ -123,7 +123,7 @@ computer's firewall (Windows will usually prompt you the first time — choose
   and date — or deleted; correcting a date corrects the cadence with it.
 - **Priority** — the criteria-matching building count drives what you work
   first: the dashboard, the queue and the accounts list all lead with the
-  biggest portfolios, and a 🎯 Priority / 📅 Due date toggle switches the
+  biggest portfolios, and a Biggest first / Oldest first toggle switches the
   ordering.
 - **Account Detail** — edit everything in place, log interactions, see a
   chronological history timeline and live cadence progress.
@@ -155,7 +155,7 @@ computer's firewall (Windows will usually prompt you the first time — choose
     account are greyed out.
   - **Batch loop (the main way)** — the Research list's **⬇ Download for
     ZoomInfo** button saves those companies (name, website, address; current
-    search and 🎯 filter applied) as a CSV. Upload it to ZoomInfo as a
+    search and buildings filter applied) as a CSV. Upload it to ZoomInfo as a
     company list, search contacts at those companies filtered to your
     management levels, export them, and upload the export on the Import page.
     People are matched to accounts by company name (legal suffixes like LLC,

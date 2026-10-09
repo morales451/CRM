@@ -3,18 +3,18 @@
 {% block content %}
 <style>
   /* "Next up" leads: the one task to do now, with its actions in reach. */
-  .nextup { border: 2px solid var(--brand); }
-  .nextup .company { font-size: 1.35rem; font-weight: 700; line-height: 1.25; }
-  .nextup .acts .btn { min-height: 48px; font-weight: 600; display: inline-flex;
-                       align-items: center; justify-content: center; gap: .35rem; }
-  .day-progress { height: .85rem; }
+  .nextup .company { font-size: 1.25rem; font-weight: 650; letter-spacing: -.01em; line-height: 1.25; color: var(--ink); }
+  .nextup .company:hover { color: var(--accent); }
+  .nextup .label { font-size: .75rem; font-weight: 600; color: var(--muted); }
+  .nextup .acts .btn { min-height: 44px; }
+  .day-progress { height: 6px; }
   .stat-line a { text-decoration: none; }
-  .task-card + .task-card { border-top: 1px solid #e3e7ed; }
+  .task-card + .task-card { border-top: 1px solid var(--line); }
   .task-card .acts .btn { min-height: 44px; min-width: 44px; }
   details.more > summary { list-style: none; cursor: pointer; }
   details.more > summary::-webkit-details-marker { display: none; }
   details.more > summary::after { content: "Show"; float: right; font-weight: 400;
-                                  font-size: .875rem; color: var(--brand); }
+                                  font-size: .8125rem; color: var(--accent); }
   details.more[open] > summary::after { content: "Hide"; }
   @media (max-width: 767.98px) {
     .dash .btn-sm { min-height: 44px; display: inline-flex; align-items: center; }
@@ -23,24 +23,27 @@
   }
 </style>
 <div class="dash">
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <h1 class="mb-0">Today</h1>
-  <div class="d-flex gap-2 align-items-center flex-wrap">
+<div class="page-head">
+  <div>
+    <h1>Today</h1>
+    <div class="sub">{{ today|d }}</div>
+  </div>
+  <div class="actions">
     {% if show_all %}
-    <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-secondary">↩ Back to the short list</a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-secondary">{{ icon('undo-2') }}Back to the short list</a>
     {% endif %}
     <form method="post" action="{{ url_for('set_task_order') }}" class="btn-group btn-group-sm" role="group"
           aria-label="Task order">
       <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
-      <button name="order" value="priority" class="btn btn-sm {{ 'btn-dark' if order == 'priority' else 'btn-outline-secondary' }}"
+      <button name="order" value="priority" class="btn btn-sm btn-outline-secondary {{ 'active' if order == 'priority' }}"
               aria-pressed="{{ 'true' if order == 'priority' else 'false' }}"
               title="Work the accounts with the most criteria-matching buildings first">Biggest first</button>
-      <button name="order" value="due" class="btn btn-sm {{ 'btn-dark' if order == 'due' else 'btn-outline-secondary' }}"
+      <button name="order" value="due" class="btn btn-sm btn-outline-secondary {{ 'active' if order == 'due' }}"
               aria-pressed="{{ 'true' if order == 'due' else 'false' }}"
               title="Work the oldest-due tasks first">Oldest first</button>
     </form>
     {% if totals.reminders or totals.followups %}
-    <a href="{{ url_for('queue') }}" class="btn btn-primary">▶ Work the Queue</a>
+    <a href="{{ url_for('queue') }}" class="btn btn-sm btn-primary">{{ icon('play') }}Work the queue</a>
     {% endif %}
   </div>
 </div>
@@ -51,7 +54,7 @@
   {% if progress.total %}
   <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2">
     <strong>
-      {% if progress.all_done %}✅ Today's list is clear: {{ progress.done }} logged.
+      {% if progress.all_done %}{{ icon('circle-check') }}Today's list is clear: {{ progress.done }} logged.
       {% else %}{{ progress.done }} of {{ progress.total }} done today{% endif %}
     </strong>
     <span class="small text-body-secondary">{% if progress.remaining %}{{ progress.remaining }} to go{% else %}nice work{% endif %}</span>
@@ -63,7 +66,7 @@
   </div>
   {% endif %}
   {% if nxt %}
-  <div class="small text-body-secondary fw-semibold mb-1">Next up</div>
+  <div class="label mb-1">Next up</div>
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
     <div>
       <a href="{{ url_for('account_detail', account_id=nxt.account_id) }}" class="company text-decoration-none">{{ nxt.company_name }}</a>
@@ -82,23 +85,23 @@
       <input type="hidden" name="step_type" value="{{ nxt.step_type }}">
       {% set phone = nxt.mobile_phone or nxt.work_phone %}
       {% if nxt.step_type in CALL_STEPS %}
-        {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call {{ nxt.first_name }}</a>{% endif %}
+        {% if phone %}<a {{ dial(phone) }} class="btn btn-success">{{ icon('phone') }}Call {{ nxt.first_name }}</a>{% endif %}
         <div class="btn-group">
           <button type="button" class="btn btn-outline-success dropdown-toggle" data-bs-toggle="dropdown"
-                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">✓ Log call</button>
+                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">{{ icon('check') }}Log call</button>
           <ul class="dropdown-menu dropdown-menu-end">
             {% for o in CALL_OUTCOMES %}<li><button class="dropdown-item" name="outcome" value="{{ o }}">{{ o }}</button></li>{% endfor %}
           </ul>
         </div>
       {% else %}
         <a href="{{ url_for('account_scripts', account_id=nxt.account_id, step=nxt.step_type) }}" class="btn btn-primary">
-          {% if 'Email' in nxt.step_type %}✉️ Write the email{% else %}📄 Open script{% endif %}</a>
-        <button class="btn btn-outline-success">✓ Log it</button>
+          {% if 'Email' in nxt.step_type %}{{ icon('mail') }}Write the email{% else %}{{ icon('file-text') }}Open script{% endif %}</a>
+        <button class="btn btn-outline-success">{{ icon('check') }}Log it</button>
       {% endif %}
     </form>
   </div>
   {% elif followups %}
-  <div class="small text-body-secondary fw-semibold mb-1">Next up</div>
+  <div class="label mb-1">Next up</div>
   <div><a href="{{ url_for('account_detail', account_id=followups[0].id) }}" class="company text-decoration-none">{{ followups[0].company_name }}</a>
     <div class="small">Follow-up{% if followups[0].follow_up_note %}: {{ followups[0].follow_up_note }}{% endif %}</div></div>
   {% elif not progress.total %}
@@ -157,9 +160,9 @@
               <input type="hidden" name="step_type" value="{{ r.step_type }}">
               {% if r.step_type in CALL_STEPS %}
               <div class="btn-group">
-                <button type="button" class="btn btn-sm btn-success dropdown-toggle"
+                <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle"
                         data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'
-                        aria-expanded="false" title="Log the call and how it went">✓ Log call</button>
+                        aria-expanded="false" title="Log the call and how it went">{{ icon('check') }}Log call</button>
                 <ul class="dropdown-menu dropdown-menu-end">
                   {% for o in CALL_OUTCOMES %}
                   <li><button class="dropdown-item" name="outcome" value="{{ o }}">{{ o }}</button></li>
@@ -167,7 +170,7 @@
                 </ul>
               </div>
               {% else %}
-              <button class="btn btn-sm btn-success" title="Log this step as done">✓ Log</button>
+              <button class="btn btn-sm btn-outline-success" title="Log this step as done">{{ icon('check') }}Log</button>
               {% endif %}
               <button class="btn btn-sm btn-outline-secondary" title="Clear without logging (you can undo)"
                       formaction="{{ url_for('dismiss_reminder') }}">Skip</button>
@@ -197,21 +200,21 @@
       <form method="post" action="{{ url_for('quick_log') }}" class="d-flex gap-2 mt-2 acts">
         <input type="hidden" name="account_id" value="{{ r.account_id }}">
         <input type="hidden" name="step_type" value="{{ r.step_type }}">
-        {% if phone %}<a {{ dial(phone) }} class="btn btn-success flex-fill">📞 Call</a>{% endif %}
+        {% if phone %}<a {{ dial(phone) }} class="btn btn-success flex-fill">{{ icon('phone') }}Call</a>{% endif %}
         {% if r.step_type in CALL_STEPS %}
         <div class="btn-group flex-fill">
           <button type="button" class="btn btn-outline-success dropdown-toggle w-100" data-bs-toggle="dropdown"
-                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">✓ Log call</button>
+                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">{{ icon('check') }}Log call</button>
           <ul class="dropdown-menu dropdown-menu-end">
             {% for o in CALL_OUTCOMES %}<li><button class="dropdown-item" name="outcome" value="{{ o }}">{{ o }}</button></li>{% endfor %}
           </ul>
         </div>
         {% else %}
-        <button class="btn btn-outline-success flex-fill">✓ Log</button>
+        <button class="btn btn-outline-success flex-fill">{{ icon('check') }}Log</button>
         {% endif %}
         <div class="btn-group">
           <button type="button" class="btn btn-outline-secondary" data-bs-toggle="dropdown"
-                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false" aria-label="More for {{ r.company_name }}">⋯</button>
+                  data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false" aria-label="More for {{ r.company_name }}">{{ icon('ellipsis') }}</button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}">Open script</a></li>
             {% if r.email %}<li><a class="dropdown-item" {{ mail_to(r.email) }}>Email {{ r.first_name or 'them' }}</a></li>{% endif %}
@@ -227,19 +230,19 @@
     <span>Showing the top <strong>{{ reminders|length }}</strong> of
       <strong>{{ totals.reminders }}</strong>. The rest are waiting in the Queue.</span>
     <span class="text-nowrap">
-      <a href="{{ url_for('queue') }}" class="btn btn-sm btn-primary">▶ Work the Queue</a>
+      <a href="{{ url_for('queue') }}" class="btn btn-sm btn-primary">{{ icon('play') }}Work the Queue</a>
       <a href="{{ url_for('dashboard', all=1) }}" class="btn btn-sm btn-outline-secondary">Show all {{ totals.reminders }}</a>
     </span>
   </div>
   {% endif %}
   {% else %}
-  <div class="card-body text-body-secondary">🎉 No cadence steps due. You're all caught up.</div>
+  <div class="card-body text-body-secondary">{{ icon('party-popper') }}No cadence steps due. You're all caught up.</div>
   {% endif %}
 </div>
 
 {% if owed %}
 <div class="card mb-4">
-  <div class="card-header bg-white fw-bold">💰 Outstanding Invoices</div>
+  <div class="card-header bg-white fw-bold">Outstanding Invoices</div>
   <ul class="list-group list-group-flush">
     {% for i in owed %}
     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -253,7 +256,7 @@
       <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
         <input type="hidden" name="status" value="Paid">
         <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
-        <button class="btn btn-sm btn-success">✓ Mark Paid</button>
+        <button class="btn btn-sm btn-outline-success">{{ icon('check') }}Mark Paid</button>
       </form>
     </li>
     {% endfor %}
@@ -262,7 +265,7 @@
 {% endif %}
 
 <div class="card mb-4">
-  <div class="card-header bg-white fw-bold">📅 Follow-Ups Due</div>
+  <div class="card-header bg-white fw-bold">Follow-Ups Due</div>
   {% if followups %}
   <ul class="list-group list-group-flush">
     {% for f in followups %}
@@ -270,7 +273,7 @@
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
           <a href="{{ url_for('account_detail', account_id=f.id) }}" class="fw-semibold text-decoration-none">{{ f.company_name }}</a>
-          {% if f.matching_properties %}<span class="badge text-bg-warning" title="Buildings matching your criteria">🎯 {{ f.matching_properties }}</span>{% endif %}
+          {% if f.matching_properties %}<span class="badge text-bg-warning" title="Buildings matching your criteria">{{ icon('target') }}{{ f.matching_properties }}</span>{% endif %}
           {% if f.first_name or f.last_name %}<span class="small text-muted">— {{ f.first_name }} {{ f.last_name }}</span>{% endif %}
           {% if f.preferred_contact|pref %}<span class="badge text-bg-light border">{{ f.preferred_contact|pref }}</span>{% endif %}
           <span class="small {{ 'overdue' if f.next_follow_up < today }}">· due {{ f.next_follow_up|d }}</span>
@@ -278,14 +281,14 @@
         </div>
         <div class="d-flex flex-wrap gap-1">
           {% set phone = f.mobile_phone or f.work_phone %}
-          {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>{% endif %}
+          {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>{% endif %}
           {# One form for all four buttons; each names its own value. #}
           <form method="post" action="{{ url_for('set_followup', account_id=f.id) }}" class="d-flex flex-wrap gap-1">
             <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
             {% for label, d in [('+1 day', 1), ('+3 days', 3), ('+1 week', 7)] %}
             <button class="btn btn-sm btn-outline-secondary" name="days" value="{{ d }}" title="Snooze (you can undo)">{{ label }}</button>
             {% endfor %}
-            <button class="btn btn-sm btn-success" name="clear" value="1" title="Done — clear follow-up">✓ Done</button>
+            <button class="btn btn-sm btn-outline-success" name="clear" value="1" title="Done — clear follow-up">{{ icon('check') }}Done</button>
           </form>
         </div>
       </div>
@@ -305,7 +308,7 @@
 {% if finished_cadences %}
 <div class="card mb-4 border-warning">
   <div class="card-header bg-warning-subtle fw-bold">
-    🔁 Cadence finished, no reply: try the next person ({{ finished_cadences|length }})
+    Cadence finished, no reply: try the next person ({{ finished_cadences|length }})
   </div>
   <ul class="list-group list-group-flush">
     {% for f in finished_cadences[:10] %}
@@ -318,7 +321,7 @@
       <form method="post" action="{{ url_for('next_contact', account_id=f.account.id) }}" class="d-inline">
         <input type="hidden" name="contact_id" value="{{ f.next[0].id }}">
         <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
-        <button class="btn btn-sm btn-primary">▶ Start {{ f.next[0].first_name or 'next' }}{% if f.next[0].title %} ({{ f.next[0].title }}){% endif %}</button>
+        <button class="btn btn-sm btn-primary">{{ icon('play') }}Start {{ f.next[0].first_name or 'next' }}{% if f.next[0].title %} ({{ f.next[0].title }}){% endif %}</button>
       </form>
       {% else %}
       <form method="post" action="{{ url_for('rest_account', account_id=f.account.id) }}" class="d-inline">
@@ -334,16 +337,16 @@
 
 {% if stats.research %}
 <details class="more mb-4">
-  <summary class="fw-bold py-2 px-1 border-bottom">🔎 Research: {{ stats.research }} account{{ 's' if stats.research != 1 }} to look up</summary>
+  <summary class="fw-bold py-2 px-1 border-bottom">Research: {{ stats.research }} account{{ 's' if stats.research != 1 }} to look up</summary>
 <div class="card mb-4 border-info">
   <div class="card-header bg-info-subtle fw-bold d-flex justify-content-between flex-wrap gap-1">
-    <span>🔎 Research — {{ stats.research }} account{{ 's' if stats.research != 1 }} with nobody to contact yet</span>
+    <span>Research — {{ stats.research }} account{{ 's' if stats.research != 1 }} with nobody to contact yet</span>
     <a href="{{ url_for('accounts', view='research') }}" class="small fw-normal">Research list →</a>
   </div>
   <div class="card-body py-2 small text-muted">
     These aren't on the clock. Find a decision-maker in ZoomInfo, add them,
     and the cadence starts that day. Doing many at once?
-    <a href="{{ url_for('zoominfo_list') }}">⬇ Download them for ZoomInfo</a>,
+    <a href="{{ url_for('zoominfo_list') }}">Download them for ZoomInfo</a>,
     export the people there, and upload that file on the Import page
     (<a href="{{ url_for('guide') }}#zoominfo-batch">how</a>). Biggest portfolios first:
   </div>
@@ -352,10 +355,10 @@
     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
       <span>
         <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a>
-        {% if a.matching_properties %}<span class="badge text-bg-warning">🎯 {{ a.matching_properties }}</span>{% endif %}
+        {% if a.matching_properties %}<span class="badge text-bg-warning">{{ icon('target') }}{{ a.matching_properties }}</span>{% endif %}
       </span>
       <a {{ zoominfo_link(a) }} class="btn btn-sm btn-outline-secondary"
-         title="Find people at this company on ZoomInfo">🔎 ZoomInfo</a>
+         title="Find people at this company on ZoomInfo">{{ icon('search') }}ZoomInfo</a>
     </li>
     {% endfor %}
   </ul>
@@ -365,22 +368,22 @@
 
 {% if stale %}
 <details class="more mb-4">
-  <summary class="fw-bold py-2 px-1 border-bottom">🥶 Going stale: {{ totals.stale }} deal{{ 's' if totals.stale != 1 }} untouched 14+ days</summary>
+  <summary class="fw-bold py-2 px-1 border-bottom">Going stale: {{ totals.stale }} deal{{ 's' if totals.stale != 1 }} untouched 14+ days</summary>
 <div class="card mb-2 mt-2 border-warning">
-  <div class="card-header bg-warning-subtle fw-bold">🥶 Going Stale — no touch in 14+ days</div>
+  <div class="card-header bg-warning-subtle fw-bold">Going Stale — no touch in 14+ days</div>
   <ul class="list-group list-group-flush">
     {% for s in stale %}
     <li class="list-group-item d-flex justify-content-between align-items-center flex-wrap gap-1">
       <span>
         <a href="{{ url_for('account_detail', account_id=s.id) }}" class="fw-semibold text-decoration-none">{{ s.company_name }}</a>
-        {% if s.matching_properties %}<span class="badge text-bg-warning">🎯 {{ s.matching_properties }}</span>{% endif %}
+        {% if s.matching_properties %}<span class="badge text-bg-warning">{{ icon('target') }}{{ s.matching_properties }}</span>{% endif %}
         <span class="badge text-bg-secondary">{{ s.pipeline_milestone }}</span>
         <span class="small text-body-secondary">last touch {{ s.last_touch|d }}</span>
       </span>
       <form method="post" action="{{ url_for('set_followup', account_id=s.id) }}" class="d-inline">
         <input type="hidden" name="days" value="0">
         <input type="hidden" name="next" value="{{ url_for('dashboard') }}">
-        <button class="btn btn-sm btn-outline-primary">📅 Follow up today</button>
+        <button class="btn btn-sm btn-outline-primary">{{ icon('calendar') }}Follow up today</button>
       </form>
     </li>
     {% endfor %}
@@ -396,16 +399,16 @@
 
 {% if top_priority %}
 <details class="more mb-4">
-  <summary class="fw-bold py-2 px-1 border-bottom">🎯 Top accounts by matching buildings</summary>
+  <summary class="fw-bold py-2 px-1 border-bottom">Top accounts by matching buildings</summary>
 <div class="card mb-2 mt-2 border-warning">
   <div class="card-header bg-warning-subtle fw-bold d-flex justify-content-between flex-wrap gap-1">
-    <span>🎯 Top Priority Accounts — most matching buildings</span>
+    <span>Top Priority Accounts — most matching buildings</span>
     <a href="{{ url_for('accounts', sort='priority') }}" class="small">See all →</a>
   </div>
   <div class="table-responsive">
     <table class="table table-hover table-sm mb-0">
       <thead class="table-light"><tr>
-        <th>Company</th><th title="Buildings matching your criteria">🎯 Matching</th>
+        <th>Company</th><th title="Buildings matching your criteria">Matching</th>
         <th class="d-none d-sm-table-cell">Total owned</th>
         <th class="d-none d-md-table-cell">Status</th>
         <th class="d-none d-lg-table-cell">Last touch</th>
@@ -428,7 +431,7 @@
 {% endif %}
 
 <details class="more mb-4">
-  <summary class="fw-bold py-2 px-1 border-bottom">🕘 Recent activity</summary>
+  <summary class="fw-bold py-2 px-1 border-bottom">Recent activity</summary>
 <div class="card mt-2">
   {% if recent %}
   <ul class="list-group list-group-flush">

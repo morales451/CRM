@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Roof Report — {{ bid.company_name }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+<div class="page-head">
   <div>
     <h1 class="mb-0">Roof Report</h1>
     <div class="text-muted small">for <a href="{{ url_for('account_detail', account_id=bid.account_id) }}">{{ bid.company_name }}</a></div>
   </div>
-  <a href="{{ url_for('bid_report', bid_id=bid.id) }}" target="_blank" class="btn btn-warning">📑 Open Report / Proposal</a>
+  <a href="{{ url_for('bid_report', bid_id=bid.id) }}" target="_blank" class="btn btn-warning">{{ icon('file-text') }}Open Report / Proposal</a>
 </div>
 
 <div class="row g-3">
@@ -135,14 +135,14 @@
       <hr>
       <form method="post" action="{{ url_for('delete_bid', bid_id=bid.id) }}"
             onsubmit="return confirm('Delete this roof report and its photos?')">
-        <button class="btn btn-sm btn-outline-danger">🗑 Delete Report</button>
+        <button class="btn btn-sm btn-outline-danger">{{ icon('trash-2') }}Delete Report</button>
       </form>
     </div>
   </div>
 
   <div class="col-12 col-lg-6">
     <div class="card p-3 mb-3">
-      <h5>🧮 Materials Plan <span class="text-muted fs-6">({{ bid.warranty_years }}-year {{ bid.coating_system }})</span></h5>
+      <h5>Materials Plan <span class="text-muted fs-6">({{ bid.warranty_years }}-year {{ bid.coating_system }})</span></h5>
       {% if plan %}
       <p class="small text-muted mb-2">
         {{ '{:,}'.format(plan.net_sqft) }} sq ft = {{ plan.squares }} squares{% if plan.factor != 1 %} · +{{ plan.waste_pct|int if plan.waste_pct == plan.waste_pct|int else plan.waste_pct }}% waste{% if plan.stretch_pct %} +{{ plan.stretch_pct|int if plan.stretch_pct == plan.stretch_pct|int else plan.stretch_pct }}% stretch{% endif %} → {{ plan.adjusted_squares }} squares{% endif %} · rounded up to 5-gal pails.
@@ -197,7 +197,7 @@
             {% endif %}
           </div>
           <form method="post" action="{{ url_for('use_suggested_price', bid_id=bid.id) }}">
-            <button class="btn btn-sm btn-success">Use this price</button>
+            <button class="btn btn-sm btn-primary">Use this price</button>
           </form>
         </div>
       </div>
@@ -212,7 +212,7 @@
       <form method="post" action="{{ url_for('add_bid_photos', bid_id=bid.id) }}" enctype="multipart/form-data"
             class="d-flex gap-2 flex-wrap align-items-center mb-3">
         <input type="file" name="photos" accept="image/*" multiple class="form-control form-control-sm" style="max-width: 340px;" required>
-        <button class="btn btn-sm btn-success">⬆ Upload</button>
+        <button class="btn btn-sm btn-primary">{{ icon('upload') }}Upload</button>
         <div class="form-text w-100">Take them straight from your phone — photos are automatically resized to fit the report. Add a caption under each (it prints beside the photo).</div>
       </form>
       <div class="row g-2">
@@ -222,11 +222,11 @@
             <img src="{{ url_for('bid_photo_file', filename=p.filename) }}" class="img-fluid rounded mb-1" alt="{{ p.caption }}" loading="lazy">
             <form method="post" action="{{ url_for('caption_bid_photo', photo_id=p.id) }}" class="d-flex gap-1">
               <input name="caption" class="form-control form-control-sm" placeholder="Caption…" value="{{ p.caption }}">
-              <button class="btn btn-sm btn-outline-primary" title="Save caption">💾</button>
+              <button class="btn btn-sm btn-outline-primary btn-icon" title="Save caption" aria-label="Save caption">{{ icon('save') }}</button>
             </form>
             <form method="post" action="{{ url_for('delete_bid_photo', photo_id=p.id) }}" class="mt-1"
                   onsubmit="return confirm('Remove this photo?')">
-              <button class="btn btn-sm btn-outline-danger w-100">✕ Remove</button>
+              <button class="btn btn-sm btn-outline-danger w-100">{{ icon('x') }}Remove</button>
             </form>
           </div>
         </div>

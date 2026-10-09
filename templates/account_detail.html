@@ -1,25 +1,30 @@
 {% extends "base.html" %}
 {% block title %}{{ account.company_name }} — Roof CRM{% endblock %}
+{% block body_class %}has-actionbar{% endblock %}
 {% block content %}
 <style>
   .acct-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
-  .nextup { border: 2px solid var(--brand); }
-  .nextup .what { font-size: 1.2rem; font-weight: 700; }
-  .nextup .btn { min-height: 44px; font-weight: 600; }
+  .nextup { border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .nextup .what { font-size: 1.0625rem; font-weight: 650; letter-spacing: -.01em; }
+  .nextup .btn { min-height: 40px; }
+  .rec-head { display: flex; gap: .875rem; align-items: flex-start; }
+  .rec-avatar { width: 48px; height: 48px; border-radius: 10px; flex: none; display: grid; place-items: center;
+                background: var(--accent-soft); color: var(--accent-hover); font-weight: 650; font-size: 1.05rem; }
   .outcome-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .4rem; }
   .outcome-grid .btn { min-height: 48px; line-height: 1.15; display: flex; flex-direction: column;
                        justify-content: center; }
   .outcome-grid .effect { font-size: .72rem; font-weight: 400; opacity: .85; }
-  .ttype-email { background: #e7f0fe; color: #0a3d91; }
-  .ttype-call { background: #e3f4e8; color: #0d5a2b; }
-  .ttype-door { background: #fff1d6; color: #6b4300; }
-  .ttype-note { background: #eceff3; color: #3d434b; }
-  .info-dl dt { font-weight: 600; font-size: .8rem; color: var(--bs-secondary-color); margin: 0; }
+  .ttype-email { background: var(--accent-soft); color: #00508a; }
+  .ttype-call { background: var(--green-soft); color: #0b5e41; }
+  .ttype-door { background: var(--amber-soft); color: var(--amber); }
+  .ttype-note { background: #eef0f3; color: var(--ink-2); }
+  .info-dl dt { font-weight: 550; font-size: .75rem; color: var(--muted); margin: 0; }
   .info-dl dd { margin: 0 0 .5rem; }
   .acct-bar { display: none; }
   @media (max-width: 767.98px) {
     .acct { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
-    .acct h1 { font-size: 1.6rem; }
+    .acct h1 { font-size: 1.25rem; }
+    .rec-avatar { width: 40px; height: 40px; font-size: .95rem; }
     .acct .btn-sm:not(summary), .acct .acct-actions .btn { min-height: 44px; display: inline-flex; align-items: center; }
     .acct summary.btn { padding-top: .6rem; padding-bottom: .6rem; }
     .acct .form-control, .acct .form-select { font-size: 16px; }
@@ -27,9 +32,9 @@
     .acct-desk-only { display: none !important; }
     .acct-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
                 padding: .6rem .75rem calc(.6rem + env(safe-area-inset-bottom));
-                background: #fff; border-top: 1px solid #d5dbe3; box-shadow: 0 -4px 16px rgba(26,26,46,.08); }
+                background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -2px 10px rgba(16,24,40,.06); }
     .acct-bar > * { flex: 1 1 0; }
-    .acct-bar .btn { width: 100%; min-height: 56px; font-size: 1.1rem; font-weight: 700;
+    .acct-bar .btn { width: 100%; min-height: 52px; font-size: 1rem; font-weight: 600;
                      display: flex; align-items: center; justify-content: center; }
   }
   @media (min-width: 768px) { .acct-phone-only { display: none !important; } }
@@ -39,14 +44,16 @@
 {% set maplink = map_link(account) %}
 <div class="acct">
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div class="rec-head">
+  <div class="rec-avatar" aria-hidden="true">{{ (account.company_name or '?')[:1]|upper }}{{ ((account.company_name or '').split()[1:2]|join)[:1]|upper }}</div>
   <div>
     <h1 class="mb-1">{{ account.company_name }}</h1>
     {% if account.archived_at %}
     <div class="alert alert-warning py-2 px-3 mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-      <span>🗄 <strong>Archived</strong> {{ account.archived_at|dt }}{% if account.archive_reason %}: {{ account.archive_reason }}{% endif %}.
+      <span><strong>Archived</strong> {{ account.archived_at|dt }}{% if account.archive_reason %}: {{ account.archive_reason }}{% endif %}.
         Hidden from your lists and skipped by imports.</span>
       <form method="post" action="{{ url_for('restore_account', account_id=account.id) }}">
-        <button class="btn btn-sm btn-success">↩ Restore</button>
+        <button class="btn btn-sm btn-primary">{{ icon('undo-2') }}Restore</button>
       </form>
     </div>
     {% endif %}
@@ -57,18 +64,19 @@
       {% if account.matching_properties %}<span class="badge text-bg-warning">{{ account.matching_properties }} matching building{{ 's' if account.matching_properties != 1 }}</span>{% endif %}
       {% if account.num_properties %}<span class="badge text-bg-light border">{{ account.num_properties }} owned</span>{% endif %}
       {% if visits %}<span class="badge {{ 'text-bg-success' if visits[0].outcome in ('Met decision-maker', 'Meeting booked') else 'text-bg-light border' }}"
-            title="{{ visits|length }} door knock{{ 's' if visits|length != 1 }}">🚪 Visited {{ visits[0].created_at|d }}{% if visits[0].outcome %} · {{ visits[0].outcome }}{% endif %}</span>
-      {% else %}<span class="badge text-bg-light border">🚪 Never visited</span>{% endif %}
+            title="{{ visits|length }} door knock{{ 's' if visits|length != 1 }}">{{ icon('door-open') }}Visited {{ visits[0].created_at|d }}{% if visits[0].outcome %} · {{ visits[0].outcome }}{% endif %}</span>
+      {% else %}<span class="badge text-bg-light border">{{ icon('door-open') }}Never visited</span>{% endif %}
       <span class="ms-1">Last touch {{ last_touch|d if last_touch else 'never' }}</span>
       {% if account.website %}<span class="ms-1"><a href="{{ account.website if '://' in account.website else 'https://' + account.website }}" target="_blank" rel="noopener">{{ account.website|replace('https://', '')|replace('http://', '') }}</a></span>{% endif %}
     </div>
   </div>
+  </div>
   <div class="acct-actions">
-    {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>
-    <a {{ text_to(phone) }} class="btn btn-sm btn-outline-success">💬 Text</a>{% endif %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>
+    <a {{ text_to(phone) }} class="btn btn-sm btn-outline-success">{{ icon('message-square') }}Text</a>{% endif %}
     <div class="btn-group">
-      <button type="button" class="btn btn-sm btn-outline-dark dropdown-toggle" data-bs-toggle="dropdown"
-              data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">🚪 Door knock</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
+              data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">{{ icon('door-open') }}Door knock</button>
       <div class="dropdown-menu dropdown-menu-end p-2" style="min-width: 16rem">
         <form method="post" action="{{ url_for('log_interaction', account_id=account.id) }}">
           <input type="hidden" name="interaction_type" value="Door Knock">
@@ -84,22 +92,22 @@
     </div>
     {# Desktop shows the rest inline; phones tuck them under More. #}
     <span class="acct-desk-only d-inline-flex flex-wrap gap-1">
-      {% if account.email and not account.email_bounced %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-primary">✉️ Email</a>{% endif %}
-      <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-outline-primary">📄 Scripts</a>
-      {% if maplink %}<a {{ maplink }} class="btn btn-sm btn-outline-secondary" title="{{ account_address(account) }}">📍 Map</a>{% endif %}
-      <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary">🔎 ZoomInfo</a>
+      {% if account.email and not account.email_bounced %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-outline-primary">{{ icon('mail') }}Email</a>{% endif %}
+      <a href="{{ url_for('account_scripts', account_id=account.id) }}" class="btn btn-sm btn-outline-primary">{{ icon('file-text') }}Scripts</a>
+      {% if maplink %}<a {{ maplink }} class="btn btn-sm btn-outline-secondary" title="{{ account_address(account) }}">{{ icon('map-pin') }}Map</a>{% endif %}
+      <a {{ zoominfo_link(account) }} class="btn btn-sm btn-outline-secondary">{{ icon('search') }}ZoomInfo</a>
       <a href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}"
-         target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">LinkedIn</a>
+         target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">{{ icon('external-link') }}LinkedIn</a>
     </span>
     <div class="btn-group acct-phone-only">
       <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
               data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false">More</button>
       <ul class="dropdown-menu dropdown-menu-end">
-        {% if account.email and not account.email_bounced %}<li><a class="dropdown-item" {{ mail_to(account.email) }}>✉️ Email</a></li>
+        {% if account.email and not account.email_bounced %}<li><a class="dropdown-item" {{ mail_to(account.email) }}>{{ icon('mail') }}Email</a></li>
         {% else %}<li><span class="dropdown-item-text text-body-secondary">{{ 'Email bounced' if account.email_bounced else 'No email on file' }}</span></li>{% endif %}
-        <li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=account.id) }}">📄 Scripts</a></li>
-        {% if maplink %}<li><a class="dropdown-item" {{ maplink }}>📍 Map</a></li>{% endif %}
-        <li><a class="dropdown-item" {{ zoominfo_link(account) }}>🔎 ZoomInfo</a></li>
+        <li><a class="dropdown-item" href="{{ url_for('account_scripts', account_id=account.id) }}">{{ icon('file-text') }}Scripts</a></li>
+        {% if maplink %}<li><a class="dropdown-item" {{ maplink }}>{{ icon('map-pin') }}Map</a></li>{% endif %}
+        <li><a class="dropdown-item" {{ zoominfo_link(account) }}>{{ icon('search') }}ZoomInfo</a></li>
         <li><a class="dropdown-item" href="https://www.linkedin.com/search/results/companies/?keywords={{ account.company_name|urlencode }}" target="_blank" rel="noopener">LinkedIn</a></li>
       </ul>
     </div>
@@ -110,13 +118,13 @@
 {% if not account.archived_at %}
 <div class="card nextup p-3 mb-3" id="nextup">
   {% if in_research %}
-    <div class="what">🔎 Find someone to contact</div>
+    <div class="what">Find someone to contact</div>
     <p class="mb-2 small">Nobody here can be reached yet, so the cadence hasn't started. Add a
       decision-maker with an email or phone and it starts today.</p>
     <div class="d-flex flex-wrap gap-2">
-      <a {{ zoominfo_link(account) }} class="btn btn-primary">🔎 Look them up in ZoomInfo</a>
+      <a {{ zoominfo_link(account) }} class="btn btn-primary">{{ icon('search') }}Look them up in ZoomInfo</a>
       <a href="#add-contact" class="btn btn-outline-primary"
-         onclick="document.getElementById('add-contact').open=true">+ Add a contact</a>
+         onclick="document.getElementById('add-contact').open=true">{{ icon('plus') }}Add a contact</a>
       <form method="post" action="{{ url_for('start_cadence', account_id=account.id) }}">
         <button class="btn btn-outline-secondary" title="For example, to cold-call the main line before you have a name. Anything already logged still counts.">Start the cadence anyway</button>
       </form>
@@ -129,7 +137,7 @@
       <select name="contact_id" class="form-select" style="max-width: 20rem" aria-label="Next contact">
         {% for c in finished.next %}<option value="{{ c.id }}">{{ c.first_name }} {{ c.last_name }}{% if c.title %}, {{ c.title }}{% endif %}</option>{% endfor %}
       </select>
-      <button class="btn btn-primary">▶ Start the next person</button>
+      <button class="btn btn-primary">{{ icon('play') }}Start the next person</button>
     </form>
     {% else %}
     <p class="mb-2 small">Everyone on file has been tried. Rest the company, or add someone new and restart.</p>
@@ -147,8 +155,8 @@
     <div class="small mb-2">{{ account.first_name }} {{ account.last_name }}{% if account.title %}, {{ account.title }}{% endif %}{% if phone %} · {{ phone }}{% endif %}</div>
     {% if next_step.step_type in CALL_STEPS %}
       <div class="d-flex flex-wrap gap-2 mb-2">
-        {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call {{ account.first_name }}</a>{% endif %}
-        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-outline-primary">📄 Call script</a>
+        {% if phone %}<a {{ dial(phone) }} class="btn btn-success">{{ icon('phone') }}Call {{ account.first_name }}</a>{% endif %}
+        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-outline-primary">{{ icon('file-text') }}Call script</a>
       </div>
       <form method="post" action="{{ url_for('quick_log') }}">
         <input type="hidden" name="account_id" value="{{ account.id }}">
@@ -174,8 +182,8 @@
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <input type="hidden" name="step_type" value="{{ next_step.step_type }}">
         <input type="hidden" name="next" value="{{ url_for('account_detail', account_id=account.id) }}">
-        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-primary">✉️ Write the email</a>
-        <button class="btn btn-outline-success">✓ Log it as sent</button>
+        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-primary">{{ icon('mail') }}Write the email</a>
+        <button class="btn btn-outline-success">{{ icon('check') }}Log it as sent</button>
         <button class="btn btn-outline-secondary" formaction="{{ url_for('dismiss_reminder') }}"
                 title="Clear without logging (you can undo)">Skip</button>
         <button class="btn btn-outline-danger" formaction="{{ url_for('email_bounced', account_id=account.id) }}"
@@ -220,7 +228,7 @@
         {% if account.notes %}<div class="col-12"><dt>Notes</dt><dd class="small" style="white-space: pre-line">{{ account.notes }}</dd></div>{% endif %}
       </dl>
       <details id="edit-info">
-        <summary class="btn btn-outline-primary btn-sm">✎ Edit account &amp; primary contact</summary>
+        <summary class="btn btn-outline-primary btn-sm">Edit account &amp; primary contact</summary>
       <form method="post" action="{{ url_for('edit_account', account_id=account.id) }}" id="infoform" class="mt-3"
             data-in-cadence="{{ '1' if in_cadence else '0' }}">
         <div class="row g-2">
@@ -240,7 +248,7 @@
           <div class="col-3"><input name="state" class="form-control form-control-sm" value="{{ account.state or '' }}" placeholder="State"></div>
           <div class="col-4"><input name="zip" class="form-control form-control-sm" value="{{ account.zip or '' }}" placeholder="Zip"></div>
           <div class="col-12">
-            <label class="form-label small mb-0" title="The 🔎 ZoomInfo button opens this page">ZoomInfo company page</label>
+            <label class="form-label small mb-0" title="The ZoomInfo button opens this page">ZoomInfo company page</label>
             <input name="zoominfo_url" class="form-control form-control-sm" value="{{ account.zoominfo_url or '' }}"
                    placeholder="Filled in from ZoomInfo uploads and pastes, or paste the company page's address here">
           </div>
@@ -261,7 +269,7 @@
             <input name="num_properties" type="number" min="0" class="form-control form-control-sm" value="{{ account.num_properties if account.num_properties is not none }}">
           </div>
           <div class="col-3">
-            <label class="form-label small mb-0" title="Properties that fit your criteria (pre-1980s)">🎯 Matching</label>
+            <label class="form-label small mb-0" title="Properties that fit your criteria (pre-1980s)">Matching buildings</label>
             <input name="matching_properties" type="number" min="0" class="form-control form-control-sm" value="{{ account.matching_properties if account.matching_properties is not none }}">
           </div>
           <div class="col-12">
@@ -325,23 +333,23 @@
       <div class="d-flex gap-2 flex-wrap">
         <form method="post" action="{{ url_for('restart_cadence', account_id=account.id) }}"
               onsubmit="return confirm('Restart the cadence from today? Status resets to Prospecting / None-In Cadence.')">
-          <button class="btn btn-sm btn-outline-primary">↻ Restart Cadence</button>
+          <button class="btn btn-sm btn-outline-primary">{{ icon('rotate-ccw') }}Restart Cadence</button>
         </form>
         <details>
-          <summary class="btn btn-sm btn-outline-danger">🗄 Archive / Remove</summary>
+          <summary class="btn btn-sm btn-outline-danger">Archive / Remove</summary>
           <div class="mt-2 p-2 border rounded bg-light" style="min-width: 280px;">
             <form method="post" action="{{ url_for('archive_account', account_id=account.id) }}">
               <label class="form-label small mb-0">Why are you removing it?</label>
               <select name="archive_reason" class="form-select form-select-sm mb-2">
                 {% for r in ARCHIVE_REASONS %}<option>{{ r }}</option>{% endfor %}
               </select>
-              <button class="btn btn-sm btn-warning w-100">🗄 Archive (keeps history, blocks re-import)</button>
+              <button class="btn btn-sm btn-warning w-100">{{ icon('archive') }}Archive (keeps history, blocks re-import)</button>
             </form>
             <div class="form-text mb-2">Archiving hides it from every list and stops future
               imports from adding it back. You can restore it any time.</div>
             <form method="post" action="{{ url_for('delete_account', account_id=account.id) }}"
                   onsubmit="return confirm('Permanently delete this account and all of its history? A future import CAN add this company again — archive instead if you want it blocked.')">
-              <button class="btn btn-sm btn-outline-danger w-100">🗑 Delete permanently</button>
+              <button class="btn btn-sm btn-outline-danger w-100">{{ icon('trash-2') }}Delete permanently</button>
             </form>
           </div>
         </details>
@@ -351,28 +359,28 @@
     {% if project %}
     <div class="card p-3 mb-3 border-success">
       <div class="d-flex justify-content-between align-items-center">
-        <h2 class="h5 mb-0">🏗 Project</h2>
-        <a href="{{ url_for('project_detail', project_id=project.id) }}" class="btn btn-sm btn-success">Open: {{ project.name }}</a>
+        <h2 class="h5 mb-0">Project</h2>
+        <a href="{{ url_for('project_detail', project_id=project.id) }}" class="btn btn-sm btn-primary">Open: {{ project.name }}</a>
       </div>
       <div class="small text-body-secondary mt-1">Status: {{ project.status }}{% if project.contract_amount %} · Contract {{ project.contract_amount|money }}{% endif %}</div>
     </div>
     {% elif account.pipeline_milestone == 'Closed Won' %}
     <div class="card p-3 mb-3 border-success">
-      <h2 class="h5">🏆 Deal won: start the project</h2>
+      <h2 class="h5">Deal won: start the project</h2>
       <form method="post" action="{{ url_for('new_project') }}" class="d-flex gap-2 flex-wrap align-items-center">
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <div class="input-group input-group-sm" style="max-width: 220px;">
           <span class="input-group-text">$</span>
           <input name="contract_amount" class="form-control" placeholder="Contract amount">
         </div>
-        <button class="btn btn-sm btn-success">+ Create Project</button>
+        <button class="btn btn-sm btn-primary">{{ icon('plus') }}Create Project</button>
       </form>
       <div class="form-text">Creates the job checklist (deposit → crew → completion → final payment → warranty) and invoice tracking.</div>
     </div>
     {% endif %}
 
     <div class="card p-3 mb-3">
-      <h2 class="h5">📑 Roof Reports / Bids</h2>
+      <h2 class="h5">Roof Reports / Bids</h2>
       {% if bids %}
       <ul class="list-group list-group-flush mb-2">
         {% for b in bids %}
@@ -382,24 +390,24 @@
             {% if b.roof_size_sqft %}· {{ '{:,}'.format(b.roof_size_sqft) }} sq ft{% endif %}
             {% if b.price %}· {{ b.price|money }}{% endif %}
           </span>
-          <a href="{{ url_for('bid_report', bid_id=b.id) }}" target="_blank" class="btn btn-sm btn-warning">📑 Report</a>
+          <a href="{{ url_for('bid_report', bid_id=b.id) }}" target="_blank" class="btn btn-sm btn-warning">{{ icon('file-text') }}Report</a>
         </li>
         {% endfor %}
       </ul>
       {% endif %}
       <details>
-      <summary class="btn btn-sm btn-outline-primary mb-2">+ New roof report</summary>
+      <summary class="btn btn-sm btn-outline-primary mb-2">{{ icon('plus') }}New roof report</summary>
       <form method="post" action="{{ url_for('new_bid', account_id=account.id) }}" class="row g-2">
         <div class="col-12 col-md-6"><input name="roof_address" class="form-control form-control-sm" placeholder="Roof address (auto-fills from notes)"></div>
         <div class="col-6 col-md-3"><input name="roof_size_sqft" type="number" min="0" class="form-control form-control-sm" placeholder="Sq ft"></div>
-        <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">+ New Report</button></div>
+        <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">{{ icon('plus') }}New Report</button></div>
       </form>
       <div class="form-text">Creates a roof report with your full proposal: CEO letter, process, spec, materials quote (computed from square footage), warranty, site assessment photos, and signature page.</div>
       </details>
     </div>
 
     <div class="card p-3 mb-3">
-      <h2 class="h5">📅 Follow-Up</h2>
+      <h2 class="h5">Follow-Up</h2>
       {% if account.next_follow_up %}
       <p class="mb-2">Next follow-up: <strong class="{{ 'overdue' if account.next_follow_up <= today }}">{{ account.next_follow_up|d }}</strong>
         {% if account.follow_up_note %}<br><span class="small text-body-secondary">{{ account.follow_up_note }}</span>{% endif %}</p>
@@ -431,12 +439,7 @@
         {% for s in steps %}
         <li class="list-group-item d-flex justify-content-between align-items-center px-0">
           <span>
-            {% if s.state == 'done' %}✅
-            {% elif s.state in ('skipped', 'no_email') %}⏭️
-            {% elif s.state == 'due' %}🔴
-            {% elif s.state == 'inactive' %}⏸️
-            {% elif s.state == 'waiting' %}⏳
-            {% else %}⚪{% endif %}
+            <span class="dot me-1 {{ {'done': 'dot-done', 'skipped': 'dot-skip', 'no_email': 'dot-skip', 'due': 'dot-due', 'waiting': 'dot-wait'}.get(s.state, '') }}"></span>
             <strong>Day {{ s.day }}:</strong> {{ s.step_type }}
           </span>
           <span class="small text-body-secondary">
@@ -459,7 +462,7 @@
       <div class="mt-2">
       <form method="post" action="{{ url_for('upload_account_contacts', account_id=account.id) }}"
             enctype="multipart/form-data" class="mb-2">
-        <label class="form-label small fw-semibold mb-1">📥 Upload a ZoomInfo export for this company</label>
+        <label class="form-label small fw-semibold mb-1">Upload a ZoomInfo export for this company</label>
         <div class="d-flex gap-2 flex-wrap align-items-center">
           <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control form-control-sm" style="max-width: 20rem" required>
           <button class="btn btn-sm btn-primary">Add everyone in the file</button>
@@ -502,7 +505,7 @@
           <div class="col-12">
             <textarea name="notes" rows="2" class="form-control form-control-sm" placeholder="What happened? (optional)"></textarea>
           </div>
-          <div class="col-12"><button class="btn btn-success">+ Log it</button></div>
+          <div class="col-12"><button class="btn btn-success">{{ icon('plus') }}Log it</button></div>
         </div>
       </form>
     </div>
@@ -526,9 +529,9 @@
               </div>
             </div>
             <div class="d-flex gap-1 flex-wrap">
-              {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>{% endif %}
+              {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>{% endif %}
               <a href="#edit-info" class="btn btn-sm btn-outline-primary"
-                 onclick="document.getElementById('edit-info').open=true">✎ Edit</a>
+                 onclick="document.getElementById('edit-info').open=true">{{ icon('pencil') }}Edit</a>
             </div>
           </div>
         </li>
@@ -552,7 +555,7 @@
             </div>
             <div class="d-flex gap-1 flex-wrap align-items-start">
               {% set cphone = c.mobile_phone or c.work_phone %}
-              {% if cphone %}<a {{ dial(cphone) }} class="btn btn-sm btn-outline-success">📞 Call</a>{% endif %}
+              {% if cphone %}<a {{ dial(cphone) }} class="btn btn-sm btn-outline-success">{{ icon('phone') }}Call</a>{% endif %}
               <div class="btn-group">
                 <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"
                         data-bs-popper-config='{"strategy":"fixed"}' aria-expanded="false"
@@ -562,14 +565,14 @@
                   <li><form method="post" action="{{ url_for('next_contact', account_id=account.id) }}"
                         onsubmit="return confirm('End {{ account.first_name }}\'s turn (no reply) and start {{ c.first_name }}\'s cadence today?')">
                     <input type="hidden" name="contact_id" value="{{ c.id }}">
-                    <button class="dropdown-item">▶ Switch the cadence to {{ c.first_name or 'them' }}</button></form></li>
+                    <button class="dropdown-item">{{ icon('play') }}Switch the cadence to {{ c.first_name or 'them' }}</button></form></li>
                   {% endif %}
                   <li><form method="post" action="{{ url_for('promote_contact', account_id=account.id, contact_id=c.id) }}">
-                    <button class="dropdown-item">★ Make primary</button></form></li>
+                    <button class="dropdown-item">{{ icon('star') }}Make primary</button></form></li>
                   <li><hr class="dropdown-divider"></li>
                   <li><form method="post" action="{{ url_for('delete_contact', account_id=account.id, contact_id=c.id) }}"
                         onsubmit="return confirm('Remove {{ c.first_name }} from this account?')">
-                    <button class="dropdown-item text-danger">✕ Remove contact</button></form></li>
+                    <button class="dropdown-item text-danger">{{ icon('x') }}Remove contact</button></form></li>
                 </ul>
               </div>
             </div>
@@ -577,7 +580,7 @@
         </li>
         {% endfor %}
         {% if not contacts and not (account.first_name or account.last_name or account.email) %}
-        <li class="list-group-item px-0 text-body-secondary small">No contacts yet — use the 🔎 ZoomInfo button above to find decision-makers, then add them here.</li>
+        <li class="list-group-item px-0 text-body-secondary small">No contacts yet — use the ZoomInfo button above to find decision-makers, then add them here.</li>
         {% endif %}
       </ul>
       {# ---- Pick people off a pasted company employee list ---- #}
@@ -645,7 +648,7 @@
           {% endfor %}
           </tbody>
         </table>
-        <button class="btn btn-sm btn-success" id="rosteradd" disabled>+ Add Selected</button>
+        <button class="btn btn-sm btn-primary" id="rosteradd" disabled>{{ icon('plus') }}Add Selected</button>
         <a href="{{ url_for('account_detail', account_id=account.id) }}"
            class="btn btn-sm btn-outline-secondary">Cancel</a>
       </form>
@@ -676,7 +679,7 @@
 
       {% set pre = contact_prefill | default({}) %}
       <details class="mt-2" id="add-contact" {{ 'open' if pre or not (account.first_name or account.last_name or account.email) }}>
-        <summary class="btn btn-sm btn-outline-primary">+ Add a contact</summary>
+        <summary class="btn btn-sm btn-outline-primary">{{ icon('plus') }}Add a contact</summary>
         <form method="post" action="{{ url_for('add_contact', account_id=account.id) }}" class="mt-2">
           {# After a preview the boxes below are the truth: don't let the paste
              re-fill something the user deliberately cleared. #}
@@ -691,7 +694,7 @@
               <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
                 <button class="btn btn-sm btn-outline-primary"
                         formaction="{{ url_for('parse_contact', account_id=account.id) }}"
-                        formnovalidate>📋 Read the paste</button>
+                        formnovalidate>{{ icon('clipboard-paste') }}Read the paste</button>
                 <span class="small text-body-secondary">fills the boxes below so you can check it first</span>
               </div>
               <details class="small mt-2">
@@ -742,7 +745,7 @@ Direct Phone: 713-555-0199</pre>
               <div class="d-flex gap-2 align-items-center mt-1 flex-wrap">
                 <button class="btn btn-sm btn-outline-primary"
                         formaction="{{ url_for('roster_contacts', account_id=account.id) }}"
-                        formnovalidate>👥 Find people</button>
+                        formnovalidate>{{ icon('users') }}Find people</button>
                 <span class="small text-body-secondary">lists everyone so you can tick the few that fit</span>
               </div>
               <hr class="my-2">
@@ -755,7 +758,7 @@ Direct Phone: 713-555-0199</pre>
             <div class="col-6"><input name="mobile_phone" type="tel" class="form-control form-control-sm" placeholder="Mobile phone" value="{{ pre.get('mobile_phone', '') }}"></div>
             <div class="col-12"><input name="linkedin_url" class="form-control form-control-sm" placeholder="LinkedIn profile URL" value="{{ pre.get('linkedin_url', '') }}"></div>
             <div class="col-12 d-flex align-items-center gap-2">
-              <button class="btn btn-sm btn-success">+ Add Contact</button>
+              <button class="btn btn-sm btn-primary">{{ icon('plus') }}Add Contact</button>
               <label class="small"><input type="checkbox" name="set_primary" value="1"> Make primary</label>
             </div>
           </div>
@@ -794,7 +797,7 @@ Direct Phone: 713-555-0199</pre>
             <small class="text-body-secondary">
               {{ i.created_at|dt }}
               <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-decoration-none" aria-label="Edit this entry"
-                 onclick="document.getElementById('edit-{{ i.id }}').toggleAttribute('open')">✎ Edit</button>
+                 onclick="document.getElementById('edit-{{ i.id }}').toggleAttribute('open')">{{ icon('pencil') }}Edit</button>
             </small>
           </div>
           {% if i.notes %}<div class="small mt-1">{{ i.notes }}</div>{% endif %}
@@ -836,13 +839,13 @@ Direct Phone: 713-555-0199</pre>
 </div>
 {# Thumb bar (phones): call and log without scrolling. #}
 <nav class="acct-bar" aria-label="Quick actions">
-  {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call</a>{% endif %}
+  {% if phone %}<a {{ dial(phone) }} class="btn btn-success">{{ icon('phone') }}Call</a>{% endif %}
   {% if next_step and next_step.state == 'due' and not in_research and not account.archived_at %}
   <a href="#nextup" class="btn btn-outline-success"
-     onclick="document.getElementById('nextup').scrollIntoView({behavior:'smooth'}); return false;">✓ Log {{ 'outcome' if next_step.step_type in CALL_STEPS else 'it' }}</a>
+     onclick="document.getElementById('nextup').scrollIntoView({behavior:'smooth'}); return false;">{{ icon('check') }}Log {{ 'outcome' if next_step.step_type in CALL_STEPS else 'it' }}</a>
   {% else %}
   <a href="#log" class="btn btn-outline-success"
-     onclick="document.getElementById('log').scrollIntoView({behavior:'smooth'}); return false;">✓ Log</a>
+     onclick="document.getElementById('log').scrollIntoView({behavior:'smooth'}); return false;">{{ icon('check') }}Log</a>
   {% endif %}
 </nav>
 </div>{# /.acct #}

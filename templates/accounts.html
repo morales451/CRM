@@ -1,69 +1,75 @@
 {% extends "base.html" %}
 {% block title %}Accounts — Roof CRM{% endblock %}
 {% block content %}
+{% set filters_on = status or milestone or visited or min_matching or (sort and sort != 'priority') %}
 {% set filters = {'q': q, 'status': status, 'milestone': milestone, 'visited': visited or none,
                   'min_matching': min_matching, 'sort': sort,
                   'view': view if view in ('archived', 'research') else none} %}
-<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h1 class="mb-0">Accounts <span class="text-muted fs-5">({{ total }})</span>
-    {% if total_matching %}<span class="badge text-bg-warning fs-6" title="Total buildings matching your criteria in this view">🎯 {{ total_matching }} buildings</span>{% endif %}
-  </h1>
-  <div class="d-flex gap-2 align-items-center flex-wrap">
-    <div class="btn-group btn-group-sm" role="group">
-      <a href="{{ url_for('accounts') }}" class="btn {{ 'btn-primary' if view == 'active' else 'btn-outline-secondary' }}">Active</a>
-      <a href="{{ url_for('accounts', view='research') }}" class="btn {{ 'btn-info' if view == 'research' else 'btn-outline-secondary' }}"
-         title="Accounts with nobody to contact yet — their cadence starts when you add one">🔎 Research{% if research_count %} ({{ research_count }}){% endif %}</a>
-      <a href="{{ url_for('accounts', view='archived') }}" class="btn {{ 'btn-warning' if view == 'archived' else 'btn-outline-secondary' }}">🗄 Archived{% if archived_count %} ({{ archived_count }}){% endif %}</a>
-    </div>
-    {% if view != 'archived' %}<a href="{{ url_for('door_knock_list', **filters) }}" class="btn btn-outline-success btn-sm"
-       title="These accounts with their office address, sorted by zip for planning a route (never-visited unless you filter otherwise)">⬇ Door-knock list</a>{% endif %}
-    <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
+<div class="page-head mb-2">
+  <div>
+    <h1>Accounts <span class="text-muted fw-normal">{{ total }}</span></h1>
+    {% if total_matching %}<div class="sub" title="Total buildings matching your criteria in this view">{{ total_matching }} matching buildings in this view</div>{% endif %}
+  </div>
+  <div class="actions">
+    {% if view != 'archived' %}<a href="{{ url_for('door_knock_list', **filters) }}" class="btn btn-outline-secondary btn-sm"
+       title="These accounts with their office address, sorted by zip for planning a route (never-visited unless you filter otherwise)">{{ icon('download') }}Door-knock list</a>{% endif %}
+    <a href="{{ url_for('new_account') }}" class="btn btn-primary btn-sm">{{ icon('plus') }}Add account</a>
   </div>
 </div>
+<nav class="viewtabs mb-3" aria-label="Account views">
+  <a href="{{ url_for('accounts') }}" class="{{ 'active' if view == 'active' }}">Active</a>
+  <a href="{{ url_for('accounts', view='research') }}" class="{{ 'active' if view == 'research' }}"
+     title="Accounts with nobody to contact yet — their cadence starts when you add one">Research{% if research_count %} <span class="count">{{ research_count }}</span>{% endif %}</a>
+  <a href="{{ url_for('accounts', view='archived') }}" class="{{ 'active' if view == 'archived' }}">Archived{% if archived_count %} <span class="count">{{ archived_count }}</span>{% endif %}</a>
+</nav>
 
-<form method="get" class="card p-2 mb-3">
+<form method="get" class="card p-2 mb-3 filterbar">
   <div class="row g-2">
     {% if view in ('archived', 'research') %}<input type="hidden" name="view" value="{{ view }}">{% endif %}
-    <div class="col-12 col-md-4">
+    <div class="col-12 col-md-4 d-flex gap-2">
       <input type="search" name="q" value="{{ q }}" class="form-control form-control-sm"
-             placeholder="Search company, any contact, title, phone, notes…">
+             placeholder="Search company, contact, phone, notes…" aria-label="Search accounts">
+      <button type="button" class="btn btn-sm btn-outline-secondary d-md-none" data-bs-toggle="collapse"
+              data-bs-target="#morefilters" aria-expanded="{{ 'true' if filters_on else 'false' }}" aria-controls="morefilters">{{ icon('filter') }}Filters</button>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-12 col-md-8 collapse d-md-block {{ 'show' if filters_on }}" id="morefilters"><div class="row g-2">
+    <div class="col-6 col-md-4">
       <select name="status" class="form-select form-select-sm">
         <option value="">All Statuses</option>
         {% for s in STATUSES %}<option value="{{ s }}" {{ 'selected' if s == status }}>{{ s }}</option>{% endfor %}
       </select>
     </div>
-    <div class="col-6 col-md-3">
+    <div class="col-6 col-md-4">
       <select name="milestone" class="form-select form-select-sm">
         <option value="">All Milestones</option>
         {% for m in MILESTONES %}<option value="{{ m }}" {{ 'selected' if m == milestone }}>{{ m }}</option>{% endfor %}
       </select>
     </div>
-    <div class="col-6 col-md-2">
+    <div class="col-6 col-md-4">
       <div class="input-group input-group-sm" title="Only show accounts with at least this many matching buildings">
-        <span class="input-group-text">🎯 ≥</span>
+        <span class="input-group-text">Bldgs ≥</span>
         <input type="number" min="0" name="min_matching" value="{{ min_matching }}" class="form-control" placeholder="any">
       </div>
     </div>
-    <div class="col-6 col-md-2">
+    <div class="col-6 col-md-4">
       <select name="visited" class="form-select form-select-sm" title="Door knocks">
-        <option value="">🚪 Any</option>
-        <option value="no" {{ 'selected' if visited == 'no' }}>🚪 Never visited</option>
-        <option value="yes" {{ 'selected' if visited == 'yes' }}>🚪 Visited</option>
+        <option value="">Door knock: any</option>
+        <option value="no" {{ 'selected' if visited == 'no' }}>Never visited</option>
+        <option value="yes" {{ 'selected' if visited == 'yes' }}>Visited</option>
       </select>
     </div>
-    <div class="col-6 col-md-2">
+    <div class="col-6 col-md-4">
       <select name="sort" class="form-select form-select-sm" title="Sort order">
-        <option value="priority" {{ 'selected' if sort == 'priority' }}>🎯 Most buildings</option>
+        <option value="priority" {{ 'selected' if sort == 'priority' }}>Most buildings</option>
         <option value="name" {{ 'selected' if sort == 'name' }}>A–Z</option>
         <option value="recent" {{ 'selected' if sort == 'recent' }}>Recent activity</option>
       </select>
     </div>
-    <div class="col-12 col-md-2 d-flex gap-1">
+    <div class="col-12 col-md-4 d-flex gap-1">
       <button class="btn btn-sm btn-primary flex-fill">Filter</button>
       <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-outline-secondary">Clear</a>
     </div>
+  </div></div>
   </div>
 </form>
 
@@ -76,10 +82,10 @@
     </span>
     <span class="btn-group btn-group-sm">
       <a class="btn btn-outline-secondary {{ 'disabled' if page <= 1 }}"
-         href="{{ url_for('accounts', page=page - 1, **filters) }}">← Prev</a>
+         href="{{ url_for('accounts', page=page - 1, **filters) }}">{{ icon('chevron-left') }}Prev</a>
       <span class="btn btn-outline-secondary disabled">Page {{ page }} of {{ pages }}</span>
       <a class="btn btn-outline-secondary {{ 'disabled' if page >= pages }}"
-         href="{{ url_for('accounts', page=page + 1, **filters) }}">Next →</a>
+         href="{{ url_for('accounts', page=page + 1, **filters) }}">Next{{ icon('chevron-right') }}</a>
     </span>
   </div>
   {% endif %}
@@ -92,7 +98,7 @@
   find a decision-maker in ZoomInfo, add them — and that account's cadence starts the
   same day. <em>Restart cadence from today</em> in the bulk actions starts one anyway.
   <div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
-    <a href="{{ url_for('zoominfo_list', **filters) }}" class="btn btn-sm btn-primary">⬇ Download for ZoomInfo ({{ total }})</a>
+    <a href="{{ url_for('zoominfo_list', **filters) }}" class="btn btn-sm btn-primary">{{ icon('download') }}Download for ZoomInfo ({{ total }})</a>
     <span><strong>Doing a lot at once?</strong> Upload this file to ZoomInfo as a company list,
       search contacts at those companies by level, export them, and upload that file on the
       <a href="{{ url_for('import_page') }}#contacts">Import page</a>. Uses your current
@@ -112,14 +118,14 @@
     <select name="action" class="form-select form-select-sm" style="max-width: 15rem" id="bulkaction">
       <option value="">Choose an action…</option>
       {% if view == 'archived' %}
-      <option value="restore">↩ Restore to working list</option>
-      <option value="delete">🗑 Delete permanently</option>
+      <option value="restore">Restore to working list</option>
+      <option value="delete">Delete permanently</option>
       {% else %}
       <option value="status">Set Prospecting Status</option>
       <option value="milestone">Set Pipeline Milestone</option>
       <option value="followup">Set follow-up date</option>
       <option value="restart_cadence">Restart cadence from today</option>
-      <option value="archive">🗄 Archive</option>
+      <option value="archive">Archive</option>
       {% endif %}
     </select>
     <select name="value" class="form-select form-select-sm d-none" style="max-width: 18rem" id="bulkvalue"></select>
@@ -138,8 +144,8 @@
     <table class="table table-hover mb-0">
       <thead class="table-light"><tr>
         <th style="width:2.2rem"><input type="checkbox" class="form-check-input" id="checkall" title="Select every account on this page"></th>
-        <th>Company</th><th title="Buildings matching your criteria">🎯</th><th>Contact</th><th class="d-none d-md-table-cell">Phone</th>
-        <th>Status</th><th class="d-none d-sm-table-cell">Milestone</th>
+        <th>Company</th><th title="Buildings matching your criteria" class="text-end">Bldgs</th><th class="d-none d-sm-table-cell">Contact</th><th class="d-none d-md-table-cell">Phone</th>
+        <th class="d-none d-sm-table-cell">Status</th><th class="d-none d-md-table-cell">Milestone</th>
         {% if view == 'archived' %}<th>Archived</th><th></th>
         {% else %}<th class="d-none d-lg-table-cell">Last Activity</th>{% endif %}
       </tr></thead>
@@ -150,26 +156,27 @@
           <td>
             <a href="{{ url_for('account_detail', account_id=a.id) }}" class="fw-semibold text-decoration-none">{{ a.company_name }}</a>
             {% if a.city or a.zip %}<div class="small text-muted">{{ a.city }}{% if a.zip %} {{ a.zip }}{% endif %}
-              {% if a.last_visit %}<span class="text-success" title="Last door knock">· 🚪 {{ a.last_visit|d }}</span>{% endif %}</div>
-            {% elif a.last_visit %}<div class="small text-success">🚪 {{ a.last_visit|d }}</div>{% endif %}
+              {% if a.last_visit %}<span class="text-success" title="Last door knock">· {{ icon('door-open') }}{{ a.last_visit|d }}</span>{% endif %}</div>
+            {% elif a.last_visit %}<div class="small text-success">{{ icon('door-open') }}{{ a.last_visit|d }}</div>{% endif %}
+            {% if a.first_name or a.last_name %}<div class="small text-muted d-sm-none">{{ a.first_name }} {{ a.last_name }}</div>{% endif %}
             {% if match_hints and match_hints.get(a.id) %}
             <div class="small text-muted">matched contact: {{ match_hints[a.id] }}</div>
             {% endif %}
           </td>
-          <td>{% if a.matching_properties %}<span class="badge text-bg-warning" title="{{ a.matching_properties }} matching{% if a.num_properties %} of {{ a.num_properties }} owned{% endif %}">{{ a.matching_properties }}</span>{% else %}<span class="text-muted small">—</span>{% endif %}</td>
-          <td class="small">{{ a.first_name }} {{ a.last_name }}</td>
+          <td class="text-end fw-semibold">{% if a.matching_properties %}<span title="{{ a.matching_properties }} matching{% if a.num_properties %} of {{ a.num_properties }} owned{% endif %}">{{ a.matching_properties }}</span>{% else %}<span class="text-muted fw-normal">—</span>{% endif %}</td>
+          <td class="small d-none d-sm-table-cell">{{ a.first_name }} {{ a.last_name }}</td>
           <td class="small d-none d-md-table-cell">
             {% set phone = a.mobile_phone or a.work_phone %}
             {% if phone %}<a {{ dial(phone) }}>{{ phone }}</a>{% endif %}
           </td>
-          <td><span class="badge text-bg-{{ 'success' if a.prospecting_status.startswith('Interested') else 'danger' if a.prospecting_status == 'Not Interested' else 'warning' if a.prospecting_status == 'Might be Interested' else 'primary' }}">{{ a.prospecting_status }}</span></td>
-          <td class="small d-none d-sm-table-cell">{{ a.pipeline_milestone }}</td>
+          <td class="d-none d-sm-table-cell"><span class="badge text-bg-{{ 'success' if a.prospecting_status.startswith('Interested') else 'danger' if a.prospecting_status == 'Not Interested' else 'warning' if a.prospecting_status == 'Might be Interested' else 'primary' }}">{{ a.prospecting_status }}</span></td>
+          <td class="small d-none d-md-table-cell">{{ a.pipeline_milestone }}</td>
           {% if view == 'archived' %}
           <td class="small text-muted">{{ a.archived_at|d }}{% if a.archive_reason %}<div>{{ a.archive_reason }}</div>{% endif %}</td>
           <td class="text-end">
             <button class="btn btn-sm btn-outline-success"
                     formaction="{{ url_for('restore_account', account_id=a.id) }}"
-                    formnovalidate>↩ Restore</button>
+                    formnovalidate>{{ icon('undo-2') }}Restore</button>
           </td>
           {% else %}
           <td class="small text-muted d-none d-lg-table-cell">{{ a.last_activity|dt if a.last_activity else '—' }}</td>

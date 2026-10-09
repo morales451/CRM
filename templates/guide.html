@@ -2,19 +2,19 @@
 {% block title %}Guide — Roof CRM{% endblock %}
 {% block content %}
 <style>
-  .guide h2 { color: #1d4e89; border-bottom: 3px solid #1d4e89; padding-bottom: .25rem;
-              margin-top: 2.2rem; font-size: 1.35rem; scroll-margin-top: 1rem; }
-  .guide h3 { font-size: 1.05rem; margin-top: 1.2rem; }
-  .guide .toc a { text-decoration: none; }
-  .guide kbd { background: #1d4e89; color: #fff; border-radius: 4px; padding: .1rem .45rem;
-               font-size: .82em; }
-  .guide table td, .guide table th { padding: .35rem .6rem; }
-  .guide .tip { background: #e8f4fc; border-left: 4px solid #0088df; padding: .6rem .9rem;
-                border-radius: 4px; margin: .8rem 0; }
+  .guide { font-size: .9375rem; line-height: 1.65; }
+  .guide p, .guide li { max-width: 68ch; }
+  .guide h2 { border-bottom: 1px solid var(--line); padding-bottom: .5rem;
+              margin-top: 2.5rem; margin-bottom: 1rem; font-size: 1.25rem; scroll-margin-top: 4.5rem; }
+  .guide h3 { font-size: 1rem; margin-top: 1.5rem; scroll-margin-top: 4.5rem; }
+  .guide li { margin-bottom: .3rem; }
+  .guide table td, .guide table th { padding: .45rem .7rem; }
+  .guide .tip { background: var(--accent-soft); border: 1px solid var(--accent-line); padding: .7rem 1rem;
+                border-radius: var(--radius); margin: 1rem 0; color: #0c3d63; }
 </style>
 
 <div class="guide" style="max-width: 900px;">
-<h1 class="mb-2">📖 Roof CRM Guide</h1>
+<h1 class="mb-2">Roof CRM guide</h1>
 <p class="text-muted">Everything the CRM does, organized the way you'll use it.</p>
 
 <div class="card p-3 toc">
@@ -65,9 +65,9 @@
 <h2 id="daily">2. The daily routine</h2>
 <ol>
   <li>Open the <a href="{{ url_for('dashboard') }}">Dashboard</a>. The top row tells you today's workload at a glance.</li>
-  <li>Hit <kbd>▶ Work the Queue</kbd> and go task by task: script on screen, call/email/text with one tap, log it, next.</li>
-  <li>Chase money: any invoice in the 💰 card is waiting on payment — overdue ones are red.</li>
-  <li>Glance at 🥶 Going Stale and give each one a follow-up date so it re-enters the flow.</li>
+  <li>Hit <kbd>Work the Queue</kbd> and go task by task: script on screen, call/email/text with one tap, log it, next.</li>
+  <li>Chase money: any invoice in the card is waiting on payment — overdue ones are red.</li>
+  <li>Glance at Going Stale and give each one a follow-up date so it re-enters the flow.</li>
 </ol>
 <div class="tip">Everything in this CRM flows from one habit: <strong>log every touch</strong>. Logged interactions clear reminders, feed the timeline, drive Insights, and keep deals from going stale.</div>
 
@@ -82,21 +82,21 @@
     Accounts page (100 per page) and on an account's history (25 entries, with
     <em>show all</em>). This is what keeps a click instant once you're past a few
     hundred accounts.</li>
-  <li><strong>🎯 / 📅 toggle</strong> (top right) — choose whether today's work is ordered by matching buildings or by due date. See <a href="#priority">Priority</a>.</li>
-  <li><strong>📌 Due Reminders</strong> — cold-cadence steps due today (or overdue), with each account's 🎯 matching-building count. Each row: 📄 Script opens the personalized script, ✓ Log records the step (clears the reminder), ✕ Skip clears without logging. A reminder stays pinned until you do one of those.</li>
-  <li><strong>💰 Outstanding Invoices</strong> — every sent, unpaid invoice; overdue first in red; ✓ Mark Paid on the spot.</li>
-  <li><strong>📅 Follow-Ups Due</strong> — accounts whose follow-up date has arrived, with the note you left yourself, snooze buttons (+1d/+3d/+1w) and ✓ Done.</li>
-  <li><strong>🥶 Going Stale</strong> — pipeline deals with no logged touch in 14+ days and no follow-up scheduled. One tap sets "follow up today."</li>
-  <li><strong>🎯 Top Priority Accounts</strong> — your highest-potential live accounts by matching buildings.</li>
-  <li><strong>🕘 Recent Activity</strong> — your last 10 logged interactions.</li>
+  <li><strong>Biggest first / Oldest first toggle</strong> (top right) — choose whether today's work is ordered by matching buildings or by due date. See <a href="#priority">Priority</a>.</li>
+  <li><strong>Due Reminders</strong> — cold-cadence steps due today (or overdue), with each account's matching-building count. Each row: Script opens the personalized script, Log records the step (clears the reminder), Skip clears without logging. A reminder stays pinned until you do one of those.</li>
+  <li><strong>Outstanding Invoices</strong> — every sent, unpaid invoice; overdue first in red; Mark Paid on the spot.</li>
+  <li><strong>Follow-Ups Due</strong> — accounts whose follow-up date has arrived, with the note you left yourself, snooze buttons (+1d/+3d/+1w) and Done.</li>
+  <li><strong>Going Stale</strong> — pipeline deals with no logged touch in 14+ days and no follow-up scheduled. One tap sets "follow up today."</li>
+  <li><strong>Top Priority Accounts</strong> — your highest-potential live accounts by matching buildings.</li>
+  <li><strong>Recent Activity</strong> — your last 10 logged interactions.</li>
 </ul>
 
 <h2 id="queue">4. Work the Queue</h2>
 <p>One task at a time, combining cadence steps and follow-ups in your chosen order
-(🎯 Priority by default — biggest matching portfolios first; see <a href="#priority">Priority</a>). For a cadence task you get the account's info, contact buttons, and every matching script (call script + voicemail + text together for call days) with Copy buttons and one-tap <em>Open in Email app / Dial / Open in Messages</em>. Then:</p>
+(Biggest first by default — biggest matching portfolios first; see <a href="#priority">Priority</a>). For a cadence task you get the account's info, contact buttons, and every matching script (call script + voicemail + text together for call days) with Copy buttons and one-tap <em>Open in Email app / Dial / Open in Messages</em>. Then:</p>
 <ul>
-  <li><kbd>✓ Log … &amp; Next</kbd> — records the step and advances.</li>
-  <li><kbd>✕ Skip this step</kbd> — clears the step without logging it.</li>
+  <li><kbd>Log … &amp; Next</kbd> — records the step and advances.</li>
+  <li><kbd>Skip this step</kbd> — clears the step without logging it.</li>
   <li><kbd>Skip for now →</kbd> — leaves the task in place and shows the next one; <kbd>← Back</kbd> steps back.</li>
 </ul>
 <p><strong>Call steps get outcome buttons</strong>, right under the account so you
@@ -107,11 +107,11 @@ One tap logs the call and moves on. See <a href="#outcomes">call outcomes</a>.</
 <kbd>S</kbd> skip the step, <kbd>N</kbd> or <kbd>→</kbd> next task, <kbd>P</kbd> or
 <kbd>←</kbd> previous, <kbd>1</kbd>–<kbd>8</kbd> call outcome, <kbd>E</kbd> exit, <kbd>?</kbd> for the list. They're ignored
 while you're typing in a box.</p>
-<p>Follow-up tasks show your note, a quick log form, snooze buttons, and ✓ Done.</p>
+<p>Follow-up tasks show your note, a quick log form, snooze buttons, and Done.</p>
 
 <h2 id="outcomes">4b. Call outcomes</h2>
 <ul>
-  <li>Logging a call — from the queue, the dashboard's <em>✓ Log call</em> menu, or the
+  <li>Logging a call — from the queue, the dashboard's <em>Log call</em> menu, or the
     account page — records how it went: <strong>No answer, Voicemail, Gatekeeper,
     Spoke, Meeting booked, Not interested, Bad number</strong>.</li>
   <li>Three of them also move the account for you:
@@ -123,7 +123,7 @@ while you're typing in a box.</p>
   <li>Every one-tap log is undoable — the log and whatever it changed. A mis-tap on
     "Not interested" mid-call-block is one click to take back.</li>
   <li>Outcomes show as badges on the account timeline and Recent Activity, can be
-    corrected afterwards from the timeline's ✎ editor, and go into the Excel export.</li>
+    corrected afterwards from the timeline's editor, and go into the Excel export.</li>
 </ul>
 
 <h2 id="import">5. Importing lists (CoStar etc.)</h2>
@@ -131,18 +131,18 @@ while you're typing in a box.</p>
   <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
   <li><strong>Pacing:</strong> set "Start N /business day" — about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
   <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, missing property counts are backfilled onto existing accounts, and anything you <a href="#archive">archived</a> stays out.</li>
-  <li>Imported accounts capture address/city/zip into Notes, the website into its own field (contact uploads match on it), the criteria-matching property count (🎯), and total properties owned. Rows with a named person plus an email or phone go straight into the cadence; the rest wait in <a href="{{ url_for('accounts', view='research') }}">Research</a> until you add someone.</li>
+  <li>Imported accounts capture address/city/zip into Notes, the website into its own field (contact uploads match on it), the criteria-matching property count, and total properties owned. Rows with a named person plus an email or phone go straight into the cadence; the rest wait in <a href="{{ url_for('accounts', view='research') }}">Research</a> until you add someone.</li>
 </ul>
 
 <h2 id="priority">6. Priority: biggest portfolios first</h2>
-<p>Accounts carry two property counts from your CoStar import: <strong>🎯 matching</strong>
+<p>Accounts carry two property counts from your CoStar import: <strong>matching</strong>
 (buildings that fit your criteria — the "# Properties (in search)" column) and total owned.
 The matching count is the money number, so the CRM sorts your work by it.</p>
 <ul>
-  <li><strong>Dashboard toggle:</strong> <kbd>🎯 Priority</kbd> (default) works the accounts with the most matching buildings first; <kbd>📅 Due date</kbd> is the classic oldest-first order. Your choice is saved and also drives <em>Work the Queue</em>, so the biggest opportunities get your freshest hours.</li>
-  <li><strong>🎯 column</strong> on every due reminder, follow-up and stale row, plus a <em>Buildings in today's tasks</em> tile totalling the opportunity sitting in your queue right now.</li>
-  <li><strong>🎯 Top Priority Accounts</strong> card lists your eight highest-potential live accounts (matching count, total owned, status, last touch) — the shortlist worth extra effort.</li>
-  <li><strong>Accounts page:</strong> sort by <em>🎯 Most buildings</em> (default), and filter with <em>🎯 ≥ N</em> to see only accounts above a threshold — e.g. type 10 to work only double-digit portfolios. The header badge totals the matching buildings in the current view.</li>
+  <li><strong>Dashboard toggle:</strong> <kbd>Biggest first</kbd> (default) works the accounts with the most matching buildings first; <kbd>Oldest first</kbd> is the classic oldest-first order. Your choice is saved and also drives <em>Work the Queue</em>, so the biggest opportunities get your freshest hours.</li>
+  <li><strong>Matching column</strong> on every due reminder, follow-up and stale row, plus a <em>Buildings in today's tasks</em> tile totalling the opportunity sitting in your queue right now.</li>
+  <li><strong>Top Priority Accounts</strong> card lists your eight highest-potential live accounts (matching count, total owned, status, last touch) — the shortlist worth extra effort.</li>
+  <li><strong>Accounts page:</strong> sort by <em>Most buildings</em> (default), and filter with <em>≥ N</em> to see only accounts above a threshold — e.g. type 10 to work only double-digit portfolios. The header badge totals the matching buildings in the current view.</li>
   <li>Scripts already cite this number: <code>{matching_properties}</code> is what Email 1 means by "roughly N properties built before the 1980s."</li>
 </ul>
 <div class="tip">A prospect with 40 matching buildings is worth many calls; one with a single building is worth one email. Priority order makes that automatic instead of something you have to remember.</div>
@@ -150,18 +150,18 @@ The matching count is the money number, so the CRM sorts your work by it.</p>
 <h2 id="archive">6b. Archiving: removing accounts for good</h2>
 <p>When a company isn't worth your time — bad data, wrong company, do-not-contact, already has a
 contractor — <strong>archive</strong> it instead of deleting it. On the account page open
-<kbd>🗄 Archive / Remove</kbd>, pick a reason, and it's gone from your working life:</p>
+<kbd>Archive / Remove</kbd>, pick a reason, and it's gone from your working life:</p>
 <ul>
   <li>Hidden from the dashboard, queue, accounts list, pipeline, insights and recent activity.</li>
   <li>Its cadence stops and any follow-up is cleared.</li>
   <li><strong>Future imports skip it.</strong> Re-upload the same CoStar list and it will not come
     back; the import summary tells you how many rows were skipped because you archived them.</li>
   <li>Nothing is lost — interactions, bids and projects stay attached. Find it under
-    <a href="{{ url_for('accounts', view='archived') }}">Accounts → 🗄 Archived</a> and hit
-    <kbd>↩ Restore</kbd> to put it back on the list.</li>
+    <a href="{{ url_for('accounts', view='archived') }}">Accounts → Archived</a> and hit
+    <kbd>Restore</kbd> to put it back on the list.</li>
 </ul>
 <div class="tip"><strong>Archive vs delete:</strong> archiving is the one you want almost always —
-it remembers the company so it can't sneak back in on the next import. <kbd>🗑 Delete permanently</kbd>
+it remembers the company so it can't sneak back in on the next import. <kbd>Delete permanently</kbd>
 erases the account and its history completely, which also means the CRM forgets it ever existed, so a
 future import <em>can</em> add that company again.</div>
 
@@ -191,7 +191,7 @@ future import <em>can</em> add that company again.</div>
     buttons offer it, and the cadence skips its email steps and keeps the calls and texts on
     schedule. Contacts with no email at all are handled the same way. Changing the email address,
     or switching the cadence to another person, clears the bounce. It can be undone.</li>
-  <li><strong>🔎 Research: no clock until there's someone to contact.</strong> An
+  <li><strong>Research: no clock until there's someone to contact.</strong> An
     account only starts its cadence once it has a named person with an email or phone
     — the first step is an email, and a switchboard number can't receive one. Until
     then it waits on the <a href="{{ url_for('accounts', view='research') }}">Research
@@ -225,8 +225,8 @@ future import <em>can</em> add that company again.</div>
 </table>
 <ul>
   <li>Applies only while an account is <strong>Prospecting</strong> + <strong>None / In Cadence</strong>. Change either (interested, not interested, any milestone) and all its reminders vanish instantly; change back and they reappear — nothing is ever stored stale.</li>
-  <li>Each account page shows its cadence progress (✅ logged, ⏭️ skipped, 🔴 due, ⚪ upcoming).</li>
-  <li><strong>↻ Restart Cadence</strong> (account page, or in bulk from the Accounts list) starts a fresh cadence from today for re-engaging a cold prospect — old cadence steps are kept in history as notes, so the new cycle starts at Email 1 again. Undoable.</li>
+  <li>Each account page shows its cadence progress (a green dot is logged, a red dot is due, a hollow dot was skipped, grey is upcoming).</li>
+  <li><strong>Restart Cadence</strong> (account page, or in bulk from the Accounts list) starts a fresh cadence from today for re-engaging a cold prospect — old cadence steps are kept in history as notes, so the new cycle starts at Email 1 again. Undoable.</li>
 </ul>
 
 <h2 id="contacts">8. Contacts &amp; ZoomInfo</h2>
@@ -237,10 +237,10 @@ future import <em>can</em> add that company again.</div>
   Fifty companies take about the same time as one.</p>
 <ol>
   <li><strong>CRM → ZoomInfo.</strong> Open
-    <a href="{{ url_for('accounts', view='research') }}">Accounts → 🔎 Research</a>
-    and press <strong>⬇ Download for ZoomInfo</strong>. You get a CSV of those companies
-    with their website and address, biggest portfolios first. A search or 🎯 filter on the
-    page narrows the file the same way, so <em>🎯 ≥ 5</em> gives you just the big owners.</li>
+    <a href="{{ url_for('accounts', view='research') }}">Accounts → Research</a>
+    and press <strong>Download for ZoomInfo</strong>. You get a CSV of those companies
+    with their website and address, biggest portfolios first. A search or filter on the
+    page narrows the file the same way, so <em>≥ 5</em> gives you just the big owners.</li>
   <li><strong>In ZoomInfo:</strong> upload that CSV as a <em>company</em> list (Lists →
     import/upload). ZoomInfo matches each row to its company, using the website when it
     has one.</li>
@@ -268,9 +268,9 @@ future import <em>can</em> add that company again.</div>
     that firm's own staff onto the owner's account. An account gets a website from your
     CoStar list, from you, or from the first export that matches it by name.</li>
   <li>The first person on an account becomes its primary and the rest go under Contacts.
-    Change the primary any time with ★ on the account page.</li>
+    Change the primary any time with Make primary on the account page.</li>
   <li>Direct lines with an extension, like ZoomInfo's <code>(713) 555-0100 ext. 32</code>,
-    dial correctly: 📞 dials the number, pauses, then keys the extension. If someone has no
+    dial correctly: the Call button dials the number, pauses, then keys the extension. If someone has no
     direct line, the company's HQ phone from the export is used.</li>
   <li>The account's cadence starts (it leaves Research), people already on the account are
     skipped, archived companies are left alone, and the website is saved onto the account
@@ -281,22 +281,22 @@ future import <em>can</em> add that company again.</div>
 
 <h3>One company at a time</h3>
 <ul>
-  <li><strong>Exported the people for one company?</strong> On that account, use <em>📥 Upload a
+  <li><strong>Exported the people for one company?</strong> On that account, use <em>Upload a
     ZoomInfo export for this company</em> in the Contacts card, choose the file, and press <em>Add
     everyone in the file</em>. There's no copying and pasting, and the company name in the file
     doesn't have to match. People already on the account are skipped, and it can be undone.</li>
-  <li><strong>🔎 ZoomInfo opens the company's own ZoomInfo page</strong> once the CRM knows
+  <li><strong>ZoomInfo opens the company's own ZoomInfo page</strong> once the CRM knows
     it. It learns the page from a ZoomInfo upload (the export's company columns), from pasting
     a ZoomInfo page, or from you pasting the address into <em>ZoomInfo company page</em> under
     Account Info. Re-uploading an old export fills it in for accounts you already have. Until
     then, the button searches for the company. It opens signed in as long as you're signed in
     to ZoomInfo in that browser.</li>
   <li>Each account has a <strong>primary contact</strong> (fills scripts, emails, invoices) plus unlimited additional people.</li>
-  <li>On an account page: 🔎 ZoomInfo / in LinkedIn buttons jump to research for that company; the <em>+ Add Contact</em> form is right below. The first person you add becomes primary automatically; ★ promotes anyone else to primary (the old primary moves down, nothing is lost).</li>
+  <li>On an account page: ZoomInfo / in LinkedIn buttons jump to research for that company; the <em>+ Add Contact</em> form is right below. The first person you add becomes primary automatically; <em>Make primary</em> (in a contact's More menu) promotes anyone else to primary (the old primary moves down, nothing is lost).</li>
   <li><strong>Paste a whole ZoomInfo page instead of typing anything.</strong>
     On the contact's page press <kbd>Ctrl</kbd>+<kbd>A</kbd> then
     <kbd>Ctrl</kbd>+<kbd>C</kbd>. In the CRM open <em>+ Add Contact</em>, paste into
-    the box and press <strong>📋 Read the paste</strong>. The boxes below fill in so
+    the box and press <strong>Read the paste</strong>. The boxes below fill in so
     you can check them before pressing Add Contact.
     <ul>
       <li>No careful selecting needed — menus, buttons and the colleagues listed
@@ -339,7 +339,7 @@ future import <em>can</em> add that company again.</div>
         is the step that matters: a collapsed row has nothing to give.</li>
       <li><kbd>Ctrl</kbd>+<kbd>A</kbd>, <kbd>Ctrl</kbd>+<kbd>C</kbd> once.</li>
       <li>In the CRM: <em>+ Add Contact</em> → <em>Or paste a company employee
-        list</em> → <strong>👥 Find people</strong>.</li>
+        list</em> → <strong>Find people</strong>.</li>
     </ol>
     Everyone on the page is listed with their title, management level and — for the
     rows you expanded — their email, work phone and mobile. <strong>Nothing is ticked
@@ -375,9 +375,9 @@ future import <em>can</em> add that company again.</div>
   <li><strong>"Not interested" or "Wrong person" on a call</strong> ends that <em>person's</em> turn,
     not the company's. The next person becomes the primary contact, their cadence starts today,
     and the old steps stay in the history.</li>
-  <li><strong>Cadence finished with no reply:</strong> the dashboard's <em>🔁 Cadence finished</em>
-    card and the account page offer the next person, and one tap starts them. ▶ Next beside any
-    untried person switches early, if you'd rather not wait.</li>
+  <li><strong>Cadence finished with no reply:</strong> the dashboard's <em>Cadence finished</em>
+    card and the account page offer the next person, and one tap starts them. <em>Switch the cadence</em> in any
+    untried person's More menu switches early, if you'd rather not wait.</li>
   <li><strong>Email 1 for the second person onward</strong> uses the <em>Email 1 (next contact)</em>
     template, which mentions the first person: "I'd reached out to Danny about…". It only appears
     once someone has been tried. Edit it on the Templates page, where <code>{previous_contact}</code>
@@ -385,7 +385,7 @@ future import <em>can</em> add that company again.</div>
   <li><strong>Nobody left:</strong> if the last person says "Not interested", the company is marked
     Not Interested. A finished cadence with nobody left offers <em>Rest 90 days</em>. Either way it
     comes back as a follow-up in 90 days, noted "start again with the most senior person".</li>
-  <li>If someone refers you ("talk to Gerald"), add Gerald, then press ▶ Next beside him. A
+  <li>If someone refers you ("talk to Gerald"), add Gerald, then choose <em>Switch the cadence to Gerald</em> in their More menu. A
     referral is the one time you go straight to the next person mid-cadence.</li>
   <li>Every step here can be undone from the Undo bar.</li>
 </ul>
@@ -395,17 +395,17 @@ future import <em>can</em> add that company again.</div>
   everything filled in, so calls come from your number and emails come from your inbox.
   Choose the apps under <a href="{{ url_for('templates_page') }}">Templates → Your Info</a>.</p>
 <ul>
-  <li><strong>📞 / 💬 → Phone's own dialer</strong> (the default): rings straight from the phone
+  <li><strong>Call and Text → Phone's own dialer</strong> (the default): rings straight from the phone
     you're holding, and "ext. 32" is dialed for you.</li>
-  <li><strong>📞 / 💬 → Google Voice:</strong> opens voice.google.com ready to call or text the
+  <li><strong>Call and Text → Google Voice:</strong> opens voice.google.com ready to call or text the
     number, so the other person sees your Google Voice number, not your cell. It works on the
     computer and in the phone's browser. Google Voice can't dial an extension for you, so key it in
     when the call connects. A text opens with no message written, so copy the script with its
     Copy button first.
     <em>Android shortcut:</em> in the Google Voice app's settings, set calls to go through Google
-    Voice. Then you can leave the CRM on "Phone's own dialer", and every 📞 still goes out on your
+    Voice. Then you can leave the CRM on "Phone's own dialer", and every Call still goes out on your
     Google Voice number, extension included.</li>
-  <li><strong>✉️ → Gmail or Outlook in the browser:</strong> opens a new message with the subject
+  <li><strong>Email → Gmail or Outlook in the browser:</strong> opens a new message with the subject
     and body already written, in a new tab. On an iPhone it opens the Gmail or Outlook app's new-message screen instead. Nothing is sent until you press Send. "Default mail
     app" uses whatever your computer or phone opens for email links.</li>
   <li><strong>Two Gmail accounts?</strong> Put the CRM one in <em>Send CRM email from</em>. On the
@@ -418,7 +418,7 @@ future import <em>can</em> add that company again.</div>
     signature</em>, and it's added to the end of every email template. It replaces a template's
     closing name lines, so your name appears only once. On an iPhone, clear Mail's own signature
     (Settings → Apps → Mail → Signature) so "Sent from my iPhone" isn't added after it.</li>
-  <li><strong>No ✉️ button?</strong> The account has no email on file. The page now says
+  <li><strong>No Email button?</strong> The account has no email on file. The page now says
     <em>No email on file</em>, and the scripts page says what to add. Fill it in under Account
     Info, or upload the person from ZoomInfo.</li>
   <li>Set <em>Your phone</em> on the same page to your Google Voice number, because it's the
@@ -433,14 +433,14 @@ future import <em>can</em> add that company again.</div>
     from your CoStar import, from a ZoomInfo contact upload (the company's street, city, state and
     zip), or from you. Addresses older imports put in Notes were moved into these fields
     automatically.</li>
-  <li>The account page shows <strong>🚪 Never visited</strong> or <strong>🚪 Visited</strong> with the
-    date and how it went, plus <strong>📍 Map</strong> for directions.</li>
-  <li><strong>🚪 Door knock</strong> logs a visit in two taps: Met decision-maker, Left info,
+  <li>The account page shows <strong>Never visited</strong> or <strong>Visited</strong> with the
+    date and how it went, plus <strong>Map</strong> for directions.</li>
+  <li><strong>Door knock</strong> logs a visit in two taps: Met decision-maker, Left info,
     Gatekeeper, Closed / no access, Wrong address, Meeting booked or Not interested, with an
     optional note. Meeting booked and Not interested move the deal exactly as they do on a call.
     Visits appear in the history like everything else.</li>
-  <li><strong>Planning a day out:</strong> on Accounts, set the 🚪 filter to <em>Never visited</em>
-    (add 🎯 ≥ 5 for the big owners, or search a zip such as 77006), then press <strong>⬇ Door-knock
+  <li><strong>Planning a day out:</strong> on Accounts, set the filter to <em>Never visited</em>
+    (add ≥ 5 for the big owners, or search a zip such as 77006), then press <strong>Door-knock
     list</strong>. You get a spreadsheet of those offices sorted by zip, so neighbouring offices sit
     together, with the contact, phone and building count for each.</li>
 </ul>
@@ -456,7 +456,7 @@ future import <em>can</em> add that company again.</div>
 <h2 id="followups">10. Follow-ups &amp; stale deals</h2>
 <ul>
   <li>Set a follow-up date + note on any account (quick buttons: Tomorrow / +3 days / +1 week). Due follow-ups pin to the Dashboard and Queue until done or snoozed — this is how warm prospects outside the cold cadence stay visible.</li>
-  <li>Pipeline deals with no touch in 14+ days and no follow-up set get flagged 🥶 on the Dashboard.</li>
+  <li>Pipeline deals with no touch in 14+ days and no follow-up set get flagged as Going stale on the Dashboard.</li>
 </ul>
 
 <h2 id="pipeline">11. Pipeline board</h2>
@@ -464,14 +464,14 @@ future import <em>can</em> add that company again.</div>
 
 <h2 id="bids">12. Roof reports / bids</h2>
 <ul>
-  <li>On an account page, <strong>📑 Roof Reports / Bids → + New Report</strong> (the address auto-fills from the imported notes).</li>
+  <li>On an account page, <strong>Roof Reports / Bids → + New Report</strong> (the address auto-fills from the imported notes).</li>
   <li>Fill in roof size, non-coated deductions, surface type, warranty years, price, assessment date, and observations (one per line — they become the report's bullet list).</li>
   <li><strong>Photos:</strong> upload straight from your phone — auto-resized, auto-rotated, converted to compact JPEGs. Captions print beside each photo in the two-per-row survey grid.</li>
-  <li><strong>📑 Open Report</strong> generates the full branded proposal in plain English, matching your current template: cover, CEO letter personalized to the contact, the four-step project journey plus the three-phase on-roof work table, roof facts, site assessment + photo survey, a <em>Your Project At A Glance</em> summary box, the coating steps with a "why it matters" line on each, a <strong>materials quote computed from the square footage</strong> (1.25 gal/sq basecoat, 2 gal/sq topcoat, +5% waste, rounded to 5-gal pails), <em>Your Investment</em> in words and figures, both warranties plus Material Plus, next steps, and the acceptance/signature page. Print / Save as PDF from the browser.</li>
+  <li><strong>Open Report</strong> generates the full branded proposal in plain English, matching your current template: cover, CEO letter personalized to the contact, the four-step project journey plus the three-phase on-roof work table, roof facts, site assessment + photo survey, a <em>Your Project At A Glance</em> summary box, the coating steps with a "why it matters" line on each, a <strong>materials quote computed from the square footage</strong> (1.25 gal/sq basecoat, 2 gal/sq topcoat, +5% waste, rounded to 5-gal pails), <em>Your Investment</em> in words and figures, both warranties plus Material Plus, next steps, and the acceptance/signature page. Print / Save as PDF from the browser.</li>
   <li><strong>Products:</strong> pick the topcoat, basecoat and butter grade per bid — Henry Prograde names are the defaults, Enduraroof equivalents are the alternates, and the list only ever shows products that belong to the chosen system. The proposal names the exact products, and the warranty holder and primer names follow the brand you picked (Prograde → Henry Company; Enduraroof → Enduraroof).</li>
   <li><strong>Only real combinations:</strong> the system, roof category and warranty dropdowns filter each other, so you can't build a job that doesn't exist (aluminum is 10-year only, on capsheet or metal; reinforced acrylic isn't offered over metal or sprayfoam). If a saved bid somehow holds an impossible combination it's snapped to the nearest real one with a notice, and a report with no computable spec prints a red warning instead of inventing one.</li>
-  <li><strong>🧮 Warranty Calculator (built in):</strong> pick the coating system (Silicone / Acrylic / Aluminum), the roof category (Capsheet / Single-Ply / Sprayfoam / Metal) and the warranty length, and the report quotes the manufacturer's real application rates for that exact combination — e.g. silicone on capsheet is 2 gal/square of topcoat for 10 years but 2.5 for 15 and 3 for 20. Add linear feet for butter-grade mastic, waste/stretch %, and flag a failed adhesion test or rust to add primer. The editor shows the full materials plan (rates, gallons, pails) plus a 10/15/20-year comparison so you can price options.</li>
-  <li><strong>💵 Suggested price:</strong> the editor prices the job from your per-sq-ft rules — capsheet $4.50/sq ft for a 10-year system, $4.65 at 15 and $4.75 at 20; every other surface $4.00 / $4.15 / $4.25 — multiplied by the coated (net) area. <kbd>Use this price</kbd> drops it into the quote, and if your quote differs you'll see by what percentage. Edit the rates any time under 💵 Pricing on the <a href="{{ url_for('templates_page') }}">Templates</a> page.</li>
+  <li><strong>Warranty Calculator (built in):</strong> pick the coating system (Silicone / Acrylic / Aluminum), the roof category (Capsheet / Single-Ply / Sprayfoam / Metal) and the warranty length, and the report quotes the manufacturer's real application rates for that exact combination — e.g. silicone on capsheet is 2 gal/square of topcoat for 10 years but 2.5 for 15 and 3 for 20. Add linear feet for butter-grade mastic, waste/stretch %, and flag a failed adhesion test or rust to add primer. The editor shows the full materials plan (rates, gallons, pails) plus a 10/15/20-year comparison so you can price options.</li>
+  <li><strong>Suggested price:</strong> the editor prices the job from your per-sq-ft rules — capsheet $4.50/sq ft for a 10-year system, $4.65 at 15 and $4.75 at 20; every other surface $4.00 / $4.15 / $4.25 — multiplied by the coated (net) area. <kbd>Use this price</kbd> drops it into the quote, and if your quote differs you'll see by what percentage. Edit the rates any time under Pricing on the <a href="{{ url_for('templates_page') }}">Templates</a> page.</li>
   <li>Warranty length flows through the whole document — set it to 10 and every mention (glance box, top coat spec, warranty section) says 10 years.</li>
 </ul>
 
@@ -479,8 +479,8 @@ future import <em>can</em> add that company again.</div>
 <ul>
   <li>Move a deal to <strong>Closed Won</strong> and its account page offers <em>Create Project</em> (the <a href="{{ url_for('projects') }}">Projects</a> page also lists won deals missing one).</li>
   <li>Every project starts with the standard job checklist — contract → deposit → materials → crew → job → walkthrough → final payment → warranty. Tap to check off (timestamped), add or remove steps, watch the progress bar.</li>
-  <li><strong>Invoices:</strong> add as Draft → <kbd>Mark Sent</kbd> (stamps the date; due date defaults to +30 days) → <kbd>✓ Paid</kbd>. Sent invoices pin to the Dashboard until paid; past-due ones show <span class="badge text-bg-danger">Overdue</span>.</li>
-  <li><strong>🖨 on any invoice row</strong> prints a branded invoice — logo, your info, bill-to with the customer's address, PAID/OVERDUE stamps, and your payment terms (late fee, card fee, lien waivers) in the footer. Print or save as PDF to email.</li>
+  <li><strong>Invoices:</strong> add as Draft → <kbd>Mark Sent</kbd> (stamps the date; due date defaults to +30 days) → <kbd>Paid</kbd>. Sent invoices pin to the Dashboard until paid; past-due ones show <span class="badge text-bg-danger">Overdue</span>.</li>
+  <li><strong>The printer button on any invoice row</strong> prints a branded invoice — logo, your info, bill-to with the customer's address, PAID/OVERDUE stamps, and your payment terms (late fee, card fee, lien waivers) in the footer. Print or save as PDF to email.</li>
   <li>Money rolls up everywhere: per project, across the Projects page, and on Insights (contracted / invoiced / collected / outstanding).</li>
 </ul>
 
@@ -498,9 +498,9 @@ future import <em>can</em> add that company again.</div>
 
 <h2 id="undo">14b. Undo &amp; fixing mistakes</h2>
 <ul>
-  <li><strong>Undo bar.</strong> Delete an account, contact, roof report, photo, project, task or invoice — or apply any bulk action — and a bar appears at the top of the page saying what just happened, with an <em>↶ Undo</em> button. Undo puts everything back: the account <em>and</em> its contacts, history, bids, projects, invoices and photo files. The bar shows for 15 minutes after the action, and each record can only be replayed once.</li>
+  <li><strong>Undo bar.</strong> Delete an account, contact, roof report, photo, project, task or invoice — or apply any bulk action — and a bar appears at the top of the page saying what just happened, with an <em>Undo</em> button. Undo puts everything back: the account <em>and</em> its contacts, history, bids, projects, invoices and photo files. The bar shows for 15 minutes after the action, and each record can only be replayed once.</li>
   <li>Deleted bid photos wait in a trash folder for 7 days so an undo can restore the images themselves, not just their database rows. After that they're cleared automatically on startup.</li>
-  <li><strong>Fixing a logged interaction.</strong> On the account timeline, the ✎ next to any entry opens an editor: change the type, the notes, or the <strong>date</strong>, or delete the entry. The date matters — reminders are worked out from what's logged, so correcting the date corrects the cadence. Deleting a logged cadence step brings its reminder back.</li>
+  <li><strong>Fixing a logged interaction.</strong> On the account timeline, the Edit button next to any entry opens an editor: change the type, the notes, or the <strong>date</strong>, or delete the entry. The date matters — reminders are worked out from what's logged, so correcting the date corrects the cadence. Deleting a logged cadence step brings its reminder back.</li>
   <li><strong>Duplicate accounts.</strong> Imports now treat “Boxer Property Corp” and “Boxer Property, Corp.” as the same company, so a re-pull from CoStar can't create a second account or un-archive one you removed. Whenever an import row is matched to an account spelled differently, the summary lists the pair so you can check it. Duplicates created before that are listed at the bottom of the Import page. Pick the one to keep — the one that's been worked most is pre-selected — and press <strong>Merge</strong>: people, history, roof reports, projects and checked-off steps all move onto it, gaps in its details are filled from the others, their notes are appended (labelled), and the duplicates are removed. Undo puts every piece back, photos and invoices included. An archived duplicate never blocks imports for the live company.</li>
 </ul>
 
@@ -510,7 +510,7 @@ future import <em>can</em> add that company again.</div>
   <li>A dated backup is saved to <code>backups/</code> automatically once a day (even if the app runs for weeks), newest 14 kept.</li>
   <li><strong>Off-machine:</strong> set the backup folder on the Import page to a synced folder (OneDrive/Google Drive/Dropbox) and every daily backup is mirrored there. <strong>Download Full Backup</strong> grabs a snapshot from any device.</li>
   <li><strong>Restore:</strong> stop the app, copy a backup file over <code>crm.db</code>, start again.</li>
-  <li><strong>📊 Export Everything (Excel)</strong> on the Import or Insights page builds one
+  <li><strong>Export Everything (Excel)</strong> on the Import or Insights page builds one
     workbook with a summary tab plus accounts, contacts, full interaction history, roof reports
     (including computed rates and suggested prices), projects, invoices and today's tasks — every
     sheet frozen and filterable. The birds-eye view of the whole business.</li>
@@ -542,7 +542,7 @@ file(s)</em>. Offline? It says so and starts the version you have.</p>
 <p class="muted">One-time catch: a copy older than this feature doesn't have the updater yet, so it
 needs one last zip download. After that you won't need a zip again.</p>
 <div class="tip"><strong>Belt and braces:</strong> before any update, hit
-<kbd>⬇ Download Full Backup</kbd> on the <a href="{{ url_for('import_page') }}">Import</a> page, or
+<kbd>Download Full Backup</kbd> on the <a href="{{ url_for('import_page') }}">Import</a> page, or
 just confirm your off-machine backup folder is set. Takes five seconds and makes an update
 completely reversible.</div>
 <p class="muted">Want your data somewhere else (a synced drive, say)? Set an environment variable

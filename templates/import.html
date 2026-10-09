@@ -4,7 +4,7 @@
 <h1 class="mb-3">Import</h1>
 
 <div class="card p-3 mb-3">
-  <h5>Import Accounts <span class="text-muted fs-6">(prospecting list)</span></h5>
+  <h2 class="h5">Import Accounts <span class="text-muted fs-6">(prospecting list)</span></h2>
   <p class="mb-2">Upload your prospecting list (e.g. <code>HTX_Office_5kto10k.xlsx</code>). Accepts <strong>.xlsx</strong> and <strong>.csv</strong>.</p>
   <form method="post" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-center">
     <input type="file" name="file" accept=".xlsx,.xls,.csv" class="form-control" style="max-width: 420px;" required>
@@ -32,7 +32,7 @@
 </div>
 
 <div class="card p-3 mb-3" id="contacts">
-  <h5>Import Contacts <span class="text-muted fs-6">(ZoomInfo export)</span></h5>
+  <h2 class="h5">Import Contacts <span class="text-muted fs-6">(ZoomInfo export)</span></h2>
   <p class="mb-2 small">Upload a ZoomInfo contact export as it comes — no editing. Each person is
     matched to your accounts by company name (LLC/Inc/LP and the like are ignored), and when the
     name doesn't match, by web domain: the export's Email Domain/Website against each account's
@@ -66,7 +66,7 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h5>Re-Pace Cadence</h5>
+  <h2 class="h5">Re-Pace Cadence</h2>
   <p class="small text-muted mb-2">Imported a big list without pacing and now face a wall of Day-1 tasks?
     This re-staggers the cadence start dates of all <strong>untouched</strong> in-cadence accounts
     (no interactions logged, no steps checked off) at N per business day starting tomorrow.
@@ -99,19 +99,19 @@
 </div>
 
 <div class="card p-3 mb-3">
-  <h5>Export & Backup</h5>
+  <h2 class="h5">Export & Backup</h2>
   <p class="small text-muted mb-2">Your entire CRM lives in the single file <code>crm.db</code>; a dated copy is
     saved automatically to the <code>backups/</code> folder each day the app starts (newest 14 kept).
     Download your data as spreadsheets any time. <strong>Export Everything</strong> builds one Excel
     workbook with a summary tab plus accounts, contacts, full interaction history, roof reports,
     projects, invoices and today's tasks — a birds-eye view of the whole business.</p>
   <div class="d-flex gap-2 flex-wrap mb-3">
-    <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-success">📊 Export Everything (Excel)</a>
-    <a href="{{ url_for('download_backup') }}" class="btn btn-sm btn-primary">⬇ Download Full Backup (.db)</a>
-    <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">⬇ Export Accounts (CSV)</a>
-    <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">⬇ Export Interaction History (CSV)</a>
+    <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-outline-secondary">{{ icon('download') }}Export Everything (Excel)</a>
+    <a href="{{ url_for('download_backup') }}" class="btn btn-sm btn-primary">{{ icon('download') }}Download Full Backup (.db)</a>
+    <a href="{{ url_for('export_accounts') }}" class="btn btn-sm btn-outline-primary">{{ icon('download') }}Export Accounts (CSV)</a>
+    <a href="{{ url_for('export_interactions') }}" class="btn btn-sm btn-outline-primary">{{ icon('download') }}Export Interaction History (CSV)</a>
   </div>
-  <h6>Off-Machine Backup Folder</h6>
+  <h3 class="h6">Off-Machine Backup Folder</h3>
   <p class="small text-muted mb-2">Point this at a folder that syncs off this computer — OneDrive, Google Drive, or Dropbox
     (e.g. <code>C:\Users\alexi\OneDrive\CRM Backups</code>). The daily backup is copied there automatically,
     so a dead laptop can't take your pipeline with it.</p>
@@ -125,7 +125,7 @@
 
 {% if contact_result %}
 <div class="card p-3 mb-3">
-  <h5>Contact Import Summary</h5>
+  <h2 class="h5">Contact Import Summary</h2>
   <ul class="mb-2">
     <li><strong>{{ contact_result.attached }}</strong> contact(s) attached to {{ contact_result.companies_matched }} account(s)</li>
     {% if contact_result.cadence_started %}
@@ -159,7 +159,7 @@
   </details>
   {% endif %}
   {% if contact_result.unmatched %}
-  <h6>⚠️ Companies not found in your accounts ({{ contact_result.unmatched|length }})</h6>
+  <h3 class="h6">Companies not found in your accounts ({{ contact_result.unmatched|length }})</h3>
   <p class="small text-muted mb-1">These rows were skipped — the company name didn't match any account.
     Re-upload with “Open a new account for any company I don't have yet” ticked to bring them in.</p>
   <ul class="small">
@@ -174,7 +174,7 @@
 
 {% if result %}
 <div class="card p-3">
-  <h5>Import Summary</h5>
+  <h2 class="h5">Import Summary</h2>
   <ul class="mb-2">
     <li><strong>{{ result.imported }}</strong> account(s) imported
       {% if result.to_research %}
@@ -212,7 +212,7 @@
     <li>{{ result.skipped_blank }} skipped (blank company name)</li>
     <li>{{ result.total_rows }} row(s) in file</li>
   </ul>
-  <h6>Column Mapping</h6>
+  <h3 class="h6">Column Mapping</h3>
   <ul class="small mb-0">
     {% for field, col in result.mapped_columns.items() %}
     <li><code>{{ col }}</code> → {{ field.replace('_', ' ') }}</li>
@@ -230,7 +230,7 @@
 
 {% if duplicates %}
 <div class="card p-3 mt-3 border border-warning">
-  <h5 id="duplicates">⚠️ Possible duplicate accounts ({{ duplicates|length }})</h5>
+  <h2 class="h5" id="duplicates">Possible duplicate accounts ({{ duplicates|length }})</h2>
   <p class="small text-muted mb-2">These accounts are the same company once legal suffixes
     (LLC, Inc, LP, Corp, P.C.) and punctuation are ignored. Pick the one to keep and press
     <strong>Merge</strong>: everything on the others — people, history, roof reports,
@@ -251,7 +251,7 @@
         {% if a.suggested %}<span class="badge text-bg-light border">suggested</span>{% endif %}
         <span class="small text-muted">
           — {{ a.prospecting_status }} / {{ a.pipeline_milestone }}
-          {% if a.matching_properties %} · 🎯 {{ a.matching_properties }}{% endif %}
+          {% if a.matching_properties %} · {{ icon('target') }}{{ a.matching_properties }}{% endif %}
           · {{ a.touches }} touch{{ 'es' if a.touches != 1 }}
           · {{ a.people }} {{ 'person' if a.people == 1 else 'people' }}
           {% if a.first_name or a.last_name %}({{ a.first_name }} {{ a.last_name }}){% endif %}
@@ -260,7 +260,7 @@
       </span>
     </label>
     {% endfor %}
-    <button class="btn btn-sm btn-outline-primary mt-1">⇢ Merge into the selected account</button>
+    <button class="btn btn-sm btn-outline-primary mt-1">{{ icon('arrow-right') }}Merge into the selected account</button>
   </form>
   {% endfor %}
 </div>

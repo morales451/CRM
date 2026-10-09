@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} — Roof CRM{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+<div class="page-head align-items-start">
   <div>
     <h1 class="mb-1">{{ project.name }}</h1>
     <div class="text-muted small">
@@ -11,22 +11,22 @@
   </div>
   <div class="text-nowrap">
     {% set phone = project.mobile_phone or project.work_phone %}
-    {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>{% endif %}
-    {% if project.email %}<a {{ mail_to(project.email) }} class="btn btn-sm btn-primary">✉️ Email</a>{% endif %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>{% endif %}
+    {% if project.email %}<a {{ mail_to(project.email) }} class="btn btn-sm btn-primary">{{ icon('mail') }}Email</a>{% endif %}
   </div>
 </div>
 
 <div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ project.contract_amount|money }}</div><div class="text-muted small">Contract</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ money.invoiced|money }}</div><div class="text-muted small">Invoiced</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ money.paid|money }}</div><div class="text-muted small">Paid</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value {{ 'overdue' if money.outstanding }}">{{ money.outstanding|money }}</div><div class="text-muted small">Outstanding</div>
   </div></div>
 </div>
@@ -72,7 +72,7 @@
       <hr>
       <form method="post" action="{{ url_for('delete_project', project_id=project.id) }}"
             onsubmit="return confirm('Delete this project, its checklist, and its invoices? This cannot be undone.')">
-        <button class="btn btn-sm btn-outline-danger">🗑 Delete Project</button>
+        <button class="btn btn-sm btn-outline-danger">{{ icon('trash-2') }}Delete Project</button>
       </form>
     </div>
 
@@ -87,19 +87,19 @@
         <li class="list-group-item px-0 d-flex justify-content-between align-items-center">
           <form method="post" action="{{ url_for('toggle_project_task', project_id=project.id, task_id=t.id) }}" class="d-inline flex-grow-1">
             <button class="btn btn-sm p-0 border-0 text-start w-100 {{ 'text-decoration-line-through text-muted' if t.done }}">
-              {{ '✅' if t.done else '⬜' }} {{ t.title }}
+              {{ icon('square-check' if t.done else 'square') }}{{ t.title }}
               {% if t.done and t.done_at %}<span class="small text-muted">— {{ t.done_at|dt }}</span>{% endif %}
             </button>
           </form>
           <form method="post" action="{{ url_for('delete_project_task', project_id=project.id, task_id=t.id) }}" class="d-inline">
-            <button class="btn btn-sm btn-outline-danger border-0" title="Remove task">✕</button>
+            <button class="btn btn-sm btn-outline-danger border-0 btn-icon" title="Remove task" aria-label="Remove task">{{ icon('x') }}</button>
           </form>
         </li>
         {% endfor %}
       </ul>
       <form method="post" action="{{ url_for('add_project_task', project_id=project.id) }}" class="d-flex gap-2 mt-2">
         <input name="title" class="form-control form-control-sm" placeholder="Add a task…" required>
-        <button class="btn btn-sm btn-success">+ Add</button>
+        <button class="btn btn-sm btn-primary">{{ icon('plus') }}Add</button>
       </form>
     </div>
   </div>
@@ -131,7 +131,7 @@
               <td class="small {{ 'overdue' if overdue }}">{{ i.due_date|d if i.due_date else '—' }}</td>
               <td class="text-end text-nowrap">
                 <a href="{{ url_for('print_invoice', invoice_id=i.id) }}" target="_blank"
-                   class="btn btn-sm btn-outline-secondary" title="Printable invoice">🖨</a>
+                   class="btn btn-sm btn-outline-secondary btn-icon" title="Printable invoice" aria-label="Printable invoice">{{ icon('printer') }}</a>
                 {% if i.status == 'Draft' %}
                 <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
                   <input type="hidden" name="status" value="Sent">
@@ -141,12 +141,12 @@
                 {% if i.status != 'Paid' %}
                 <form method="post" action="{{ url_for('invoice_status', invoice_id=i.id) }}" class="d-inline">
                   <input type="hidden" name="status" value="Paid">
-                  <button class="btn btn-sm btn-success">✓ Paid</button>
+                  <button class="btn btn-sm btn-outline-success">{{ icon('check') }}Paid</button>
                 </form>
                 {% endif %}
                 <form method="post" action="{{ url_for('delete_invoice', invoice_id=i.id) }}" class="d-inline"
                       onsubmit="return confirm('Delete this invoice?')">
-                  <button class="btn btn-sm btn-outline-danger">✕</button>
+                  <button class="btn btn-sm btn-outline-danger btn-icon" aria-label="Delete invoice">{{ icon('x') }}</button>
                 </form>
               </td>
             </tr>
@@ -166,7 +166,7 @@
               <input name="amount" class="form-control" placeholder="Amount" required></div>
           </div>
           <div class="col-6 col-md-3"><input type="date" name="due_date" class="form-control form-control-sm" title="Due date (optional — defaults to 30 days after sending)"></div>
-          <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">+ Add Draft</button></div>
+          <div class="col-6 col-md-3"><button class="btn btn-sm btn-primary w-100">{{ icon('plus') }}Add Draft</button></div>
           <div class="col-12"><input name="notes" class="form-control form-control-sm" placeholder="Note, e.g. 50% deposit (optional)"></div>
         </div>
       </form>

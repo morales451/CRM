@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Work Queue — Roof CRM{% endblock %}
+{% block body_class %}{{ 'has-actionbar' if task }}{% endblock %}
 {% block content %}
 {% if not task %}
-<div class="card p-4 text-center">
-  <h2>🎉 Queue clear!</h2>
-  <p class="text-muted mb-2">No cadence steps or follow-ups due right now.</p>
-  <a href="{{ url_for('dashboard') }}" class="btn btn-primary mx-auto" style="max-width:200px">← Back to Dashboard</a>
+<div class="card empty">
+  {{ icon('circle-check') }}
+  <h1 class="h3 text-body">Queue clear</h1>
+  <p class="mb-3">No cadence steps or follow-ups due right now.</p>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-primary mx-auto">{{ icon('chevron-left') }}Back to Today</a>
 </div>
 {% else %}
 <style>
@@ -19,7 +21,7 @@
     .q-contact .btn { min-height: 48px; min-width: 48px; display: inline-flex; align-items: center;
                       justify-content: center; font-size: 1rem; padding: .5rem .9rem; }
     .q-outcomes { display: grid !important; grid-template-columns: 1fr 1fr; gap: .5rem !important; }
-    .q-outcomes .btn { min-height: 52px; font-size: 1rem; font-weight: 600; border-width: 2px; }
+    .q-outcomes .btn { min-height: 52px; font-size: 1rem; font-weight: 550; }
     .q-page .form-control, .q-page .form-select { font-size: 16px; }   /* no iOS focus zoom */
     .q-page .form-control-sm { min-height: 44px; }
     .q-page textarea.form-control { max-height: 16rem; }
@@ -27,30 +29,36 @@
     .q-desk-only, .q-page kbd, #k-help-btn, #k-help { display: none !important; }
     .q-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
              padding: .6rem .75rem calc(.6rem + env(safe-area-inset-bottom));
-             background: #fff; border-top: 1px solid #d5dbe3;
-             box-shadow: 0 -4px 16px rgba(26, 26, 46, .08); }
+             background: var(--surface); border-top: 1px solid var(--line);
+             box-shadow: 0 -2px 10px rgba(16, 24, 40, .06); }
     .q-bar > *, .q-bar form { flex: 1 1 0; margin: 0; }
-    .q-bar .btn { width: 100%; min-height: 56px; font-size: 1.1rem; font-weight: 700;
+    .q-bar .btn { width: 100%; min-height: 52px; font-size: 1rem; font-weight: 600;
                   display: flex; align-items: center; justify-content: center; gap: .4rem; }
   }
   @media (hover: none) { .q-page kbd, #k-help-btn, #k-help { display: none !important; } }
 </style>
 <div class="q-page">
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 q-head">
-  <p class="mb-0 fw-semibold text-body-secondary">Task {{ pos + 1 }} of {{ total }}</p>
+  <div class="d-flex align-items-center gap-2">
+    <p class="mb-0 fw-semibold text-body-secondary">Task {{ pos + 1 }} of {{ total }}</p>
+    <div class="progress d-none d-sm-flex" style="width: 8rem; height: 6px" role="progressbar" aria-label="Queue position"
+         aria-valuenow="{{ pos + 1 }}" aria-valuemin="1" aria-valuemax="{{ total }}">
+      <div class="progress-bar" style="width: {{ ((pos + 1) * 100 / total)|round }}%"></div>
+    </div>
+  </div>
   <div class="d-flex gap-1 align-items-center flex-wrap">
     {% if pos > 0 %}
-    <a href="{{ url_for('queue', pos=pos - 1) }}" id="k-prev" class="btn btn-outline-secondary">← Back</a>
+    <a href="{{ url_for('queue', pos=pos - 1) }}" id="k-prev" class="btn btn-outline-secondary">{{ icon('chevron-left') }}Back</a>
     {% endif %}
     {% if pos + 1 < total %}
-    <a href="{{ url_for('queue', pos=pos + 1) }}" id="k-next" class="btn btn-outline-secondary">Skip for now →</a>
+    <a href="{{ url_for('queue', pos=pos + 1) }}" id="k-next" class="btn btn-outline-secondary">Skip for now{{ icon('chevron-right') }}</a>
     {% endif %}
     <a href="{{ url_for('dashboard') }}" id="k-exit" class="btn btn-outline-secondary">Exit</a>
-    <button type="button" class="btn btn-outline-secondary" id="k-help-btn" title="Keyboard shortcuts">⌨</button>
+    <button type="button" class="btn btn-outline-secondary" id="k-help-btn" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">{{ icon('keyboard') }}</button>
   </div>
 </div>
 
-<!-- Calling blocks go faster without the mouse; hidden until ? or the ⌨ button. -->
+<!-- Calling blocks go faster without the mouse; hidden until ? or the keyboard button. -->
 <div class="alert alert-secondary py-2 small d-none" id="k-help">
   <strong>Keyboard:</strong>
   <kbd>L</kbd> log &amp; next ·
@@ -69,7 +77,7 @@
       <h1 class="h3 mb-1"><a href="{{ url_for('account_detail', account_id=account.id) }}" class="text-decoration-none">{{ account.company_name }}</a></h1>
       <div class="small text-muted">
         {{ account.first_name }} {{ account.last_name }}{% if account.title %} · {{ account.title }}{% endif %}
-        {% if account.matching_properties %} · 🎯 {{ account.matching_properties }} matching{% endif %}
+        {% if account.matching_properties %} · {{ icon('target') }}{{ account.matching_properties }} matching{% endif %}
         {% if account.num_properties %} · {{ account.num_properties }} total properties{% endif %}
         {% if account.preferred_contact|pref %}<span class="badge text-bg-light border">{{ account.preferred_contact|pref }}</span>{% endif %}
       </div>
@@ -79,7 +87,7 @@
           {% if task.reminder.days_overdue > 0 %}<span class="overdue small">{{ task.reminder.days_overdue }}d overdue</span>{% endif %}
           {% if task.reminder.steps_behind > 1 %}<span class="small text-muted">· {{ task.reminder.steps_behind - 1 }} later step{{ 's' if task.reminder.steps_behind > 2 }} also waiting</span>{% endif %}
         {% else %}
-          <span class="badge text-bg-info fs-6">📅 Follow-up</span>
+          <span class="badge text-bg-info fs-6">{{ icon('calendar') }}Follow-up</span>
           <span class="small {{ 'overdue' if task.due < today }}">due {{ task.due|d }}</span>
           {% if task.note %}<div class="mt-1"><strong>Note:</strong> {{ task.note }}</div>{% endif %}
         {% endif %}
@@ -87,9 +95,9 @@
     </div>
     <div class="d-flex gap-1 flex-wrap q-contact">
       {% set phone = account.mobile_phone or account.work_phone %}
-      {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">📞 Call</a>
-      <a {{ text_to(phone) }} class="btn btn-sm btn-info" aria-label="Text {{ account.first_name or 'them' }}">💬 Text</a>{% endif %}
-      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary" aria-label="Email {{ account.first_name or 'them' }}">✉️ Email</a>{% endif %}
+      {% if phone %}<a {{ dial(phone) }} class="btn btn-sm btn-success">{{ icon('phone') }}Call</a>
+      <a {{ text_to(phone) }} class="btn btn-sm btn-info" aria-label="Text {{ account.first_name or 'them' }}">{{ icon('message-square') }}Text</a>{% endif %}
+      {% if account.email %}<a {{ mail_to(account.email) }} class="btn btn-sm btn-primary" aria-label="Email {{ account.first_name or 'them' }}">{{ icon('mail') }}Email</a>{% endif %}
     </div>
   </div>
   {% if account.notes %}
@@ -131,12 +139,12 @@
   <div class="card p-3 mb-3">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
       <h2 class="h5 mb-0">
-        {% if s.template.kind == 'email' %}✉️{% elif s.template.kind == 'text' %}💬{% else %}📞{% endif %}
+        {% if s.template.kind == 'email' %}{% elif s.template.kind == 'text' %}{% else %}{% endif %}
         {{ s.template.name }}
       </h2>
       {% if s.action_url %}
       <a {{ s.action_attrs }} class="btn btn-sm btn-primary">
-        {% if s.template.kind == 'email' %}✉️ Write this email{% elif s.template.kind == 'text' %}💬 Text this{% else %}📞 Dial{% endif %}
+        {% if s.template.kind == 'email' %}{{ icon('mail') }}Write this email{% elif s.template.kind == 'text' %}{{ icon('message-square') }}Text this{% else %}{{ icon('phone') }}Dial{% endif %}
         </a>
       {% else %}
         <a href="{{ url_for('account_detail', account_id=account.id) }}" class="btn btn-sm btn-outline-secondary"
@@ -144,7 +152,7 @@
       {% endif %}
     </div>
     {% if s.missing %}
-    <div class="alert alert-warning py-1 px-2 small mt-2 mb-0">⚠️ Missing: {{ s.missing|join(', ') }} —
+    <div class="alert alert-warning py-1 px-2 small mt-2 mb-0">{{ icon('triangle-alert') }}Missing: {{ s.missing|join(', ') }} —
       <a href="{{ url_for('account_detail', account_id=account.id) }}">fix on account page</a></div>
     {% endif %}
     {% if s.template.kind == 'email' %}
@@ -169,14 +177,14 @@
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-success q-desk-only" id="k-log">✓ Log “{{ task.reminder.step_type }}” & Next <kbd class="ms-1">L</kbd></button>
+        <button class="btn btn-success q-desk-only" id="k-log">{{ icon('check') }}Log “{{ task.reminder.step_type }}” & Next <kbd class="ms-1">L</kbd></button>
       </form>
       {% endif %}
       <form method="post" action="{{ url_for('dismiss_reminder') }}" class="d-inline">
         <input type="hidden" name="account_id" value="{{ account.id }}">
         <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-outline-secondary" id="k-skip">✕ Skip this step & Next <kbd class="ms-1">S</kbd></button>
+        <button class="btn btn-outline-secondary" id="k-skip">{{ icon('x') }}Skip this step & Next <kbd class="ms-1">S</kbd></button>
       </form>
     </div>
   </div>
@@ -192,7 +200,7 @@
           </select>
         </div>
         <div class="col-12 col-md-6"><input name="notes" class="form-control form-control-sm" placeholder="What happened?"></div>
-        <div class="col-12 col-md-2"><button class="btn btn-sm btn-success w-100">+ Log</button></div>
+        <div class="col-12 col-md-2"><button class="btn btn-sm btn-primary w-100">{{ icon('plus') }}Log</button></div>
       </div>
     </form>
   </div>
@@ -201,7 +209,7 @@
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
         <input type="hidden" name="clear" value="1">
         <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-        <button class="btn btn-success q-desk-only" id="k-log">✓ Done & Next <kbd class="ms-1">L</kbd></button>
+        <button class="btn btn-success q-desk-only" id="k-log">{{ icon('check') }}Done & Next <kbd class="ms-1">L</kbd></button>
       </form>
       {% for label, d in [('Snooze +1d', 1), ('+3d', 3), ('+1w', 7)] %}
       <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}" class="d-inline">
@@ -218,26 +226,26 @@
 {% set phone = account.mobile_phone or account.work_phone %}
 <nav class="q-bar" aria-label="Actions for this task">
   {% if task.kind == 'cadence' and task.reminder.step_type in CALL_STEPS %}
-    {% if phone %}<a {{ dial(phone) }} class="btn btn-success">📞 Call</a>{% endif %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-success">{{ icon('phone') }}Call</a>{% endif %}
     <a href="#outcomes" class="btn btn-outline-success"
-       onclick="document.getElementById('outcomes').scrollIntoView({behavior:'smooth', block:'start'}); return false;">✓ Log outcome</a>
+       onclick="document.getElementById('outcomes').scrollIntoView({behavior:'smooth', block:'start'}); return false;">{{ icon('check') }}Log outcome</a>
   {% elif task.kind == 'cadence' %}
     {% set first = scripts[0] if scripts else none %}
     {% if first and first.action_url %}
-      <a {{ first.action_attrs }} class="btn btn-primary">{% if first.template.kind == 'email' %}✉️ Write email{% elif first.template.kind == 'text' %}💬 Text{% else %}📞 Call{% endif %}</a>
-    {% elif phone %}<a {{ dial(phone) }} class="btn btn-outline-success">📞 Call</a>{% endif %}
+      <a {{ first.action_attrs }} class="btn btn-primary">{% if first.template.kind == 'email' %}{{ icon('mail') }}Write email{% elif first.template.kind == 'text' %}{{ icon('message-square') }}Text{% else %}{{ icon('phone') }}Call{% endif %}</a>
+    {% elif phone %}<a {{ dial(phone) }} class="btn btn-outline-success">{{ icon('phone') }}Call</a>{% endif %}
     <form method="post" action="{{ url_for('quick_log') }}">
       <input type="hidden" name="account_id" value="{{ account.id }}">
       <input type="hidden" name="step_type" value="{{ task.reminder.step_type }}">
       <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-      <button class="btn btn-success">✓ Log &amp; next</button>
+      <button class="btn btn-success">{{ icon('check') }}Log &amp; next</button>
     </form>
   {% else %}
-    {% if phone %}<a {{ dial(phone) }} class="btn btn-outline-success">📞 Call</a>{% endif %}
+    {% if phone %}<a {{ dial(phone) }} class="btn btn-outline-success">{{ icon('phone') }}Call</a>{% endif %}
     <form method="post" action="{{ url_for('set_followup', account_id=account.id) }}">
       <input type="hidden" name="clear" value="1">
       <input type="hidden" name="next" value="{{ url_for('queue', pos=pos) }}">
-      <button class="btn btn-success">✓ Done &amp; next</button>
+      <button class="btn btn-success">{{ icon('check') }}Done &amp; next</button>
     </form>
   {% endif %}
 </nav>
@@ -275,7 +283,7 @@ function copyField(id, btn) {
   if (el.setSelectionRange) el.setSelectionRange(0, el.value.length);
   try { document.execCommand('copy'); } catch (e) {}
   if (navigator.clipboard) navigator.clipboard.writeText(el.value).catch(() => {});
-  btn.textContent = 'Copied ✓';
+  btn.textContent = 'Copied';
   setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
 }
 </script>

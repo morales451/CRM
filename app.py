@@ -182,6 +182,21 @@ def email_link(email: str, subject: str = "", body: str = "") -> tuple[str, bool
     return f"mailto:{email}" + (f"?{query}" if query else ""), False
 
 
+_ICONS_SVG = Path(__file__).resolve().parent / "static" / "icons.svg"
+_ICON_NAMES = frozenset(re.findall(r'<symbol id="([\w-]+)"', _ICONS_SVG.read_text()))
+
+
+@app.template_global()
+def icon(name, label=""):
+    """A line icon from static/icons.svg: {{ icon('phone') }}. Decorative
+    unless given a label (for icon-only buttons)."""
+    if name not in _ICON_NAMES:
+        raise ValueError(f"no icon named {name!r} in static/icons.svg")
+    href = url_for("static", filename="icons.svg") + "#" + name
+    a11y = f'role="img" aria-label="{escape(label)}"' if label else 'aria-hidden="true"'
+    return Markup(f'<svg class="ic" {a11y}><use href="{href}"></use></svg>')
+
+
 @app.template_global()
 def zoominfo_link(acct):
     """The account's own ZoomInfo company page once it's known (saved from a

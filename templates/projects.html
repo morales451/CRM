@@ -1,28 +1,28 @@
 {% extends "base.html" %}
 {% block title %}Projects — Roof CRM{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+<div class="page-head">
   <h1 class="mb-0">Projects</h1>
 </div>
 
 <div class="row g-2 mb-3">
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ contracted|money }}</div><div class="text-muted small">Contracted</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ totals.invoiced|money }}</div><div class="text-muted small">Invoiced</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ totals.paid|money }}</div><div class="text-muted small">Collected</div>
   </div></div>
-  <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+  <div class="col-6 col-md-3"><div class="card kpi h-100">
     <div class="stat-value">{{ totals.outstanding|money }}</div><div class="text-muted small">Outstanding</div>
   </div></div>
 </div>
 
 {% if eligible %}
 <div class="card p-3 mb-3 border-success">
-  <h5 class="mb-2">🏆 Won deals without a project</h5>
+  <h5 class="mb-2">Won deals without a project</h5>
   <form method="post" action="{{ url_for('new_project') }}" class="d-flex gap-2 flex-wrap align-items-center">
     <select name="account_id" class="form-select form-select-sm" style="max-width: 320px;" required>
       {% for a in eligible %}<option value="{{ a.id }}">{{ a.company_name }}</option>{% endfor %}
@@ -31,7 +31,7 @@
       <span class="input-group-text">$</span>
       <input name="contract_amount" class="form-control" placeholder="Contract amount (optional)">
     </div>
-    <button class="btn btn-sm btn-success">+ Create Project</button>
+    <button class="btn btn-sm btn-primary">{{ icon('plus') }}Create Project</button>
   </form>
   <div class="form-text">Creates the project with the standard job checklist (contract → deposit → crew → completion → final payment → warranty).</div>
 </div>

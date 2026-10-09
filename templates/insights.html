@@ -2,56 +2,55 @@
 {% block title %}Insights — Roof CRM{% endblock %}
 {% block content %}
 <style>
-  .viz { --viz-hue: #2a78d6; }
+  .viz { --viz-hue: var(--accent); }
   .hbar-row { display: flex; align-items: center; gap: .5rem; margin-bottom: 6px; }
-  .hbar-label { width: 42%; min-width: 130px; font-size: .82rem; color: #52514e;
+  .hbar-label { width: 42%; min-width: 130px; font-size: .82rem; color: var(--muted);
                 text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hbar-track { flex: 1; }
   .hbar { height: 18px; background: var(--viz-hue); border-radius: 0 4px 4px 0; min-width: 2px; }
   .hbar-zero { background: none; }
-  .hbar-value { font-size: .82rem; color: #0b0b0b; font-weight: 600; white-space: nowrap; }
+  .hbar-value { font-size: .82rem; color: var(--ink); font-weight: 600; white-space: nowrap; }
   .cols { display: flex; align-items: flex-end; gap: 2px; height: 150px; }
   .col-slot { flex: 1; display: flex; flex-direction: column; justify-content: flex-end;
               align-items: center; height: 100%; }
   .col-bar { width: 70%; max-width: 24px; background: var(--viz-hue);
              border-radius: 4px 4px 0 0; }
-  .col-value { font-size: .78rem; color: #0b0b0b; font-weight: 600; margin-bottom: 2px; }
-  .col-label { font-size: .72rem; color: #52514e; margin-top: 4px; white-space: nowrap; }
-  .cols-baseline { border-top: 1px solid #e4e4e2; margin-top: 0; }
-  .tile-delta-up { color: #008300; }
-  .tile-delta-down { color: #b3261e; }
+  .col-value { font-size: .78rem; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+  .col-label { font-size: .72rem; color: var(--muted); margin-top: 4px; white-space: nowrap; }
+  .cols-baseline { border-top: 1px solid var(--line); margin-top: 0; }
+  .tile-delta-up { color: var(--green); }
+  .tile-delta-down { color: var(--red); }
 </style>
 
-<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <h1 class="mb-0">Insights</h1>
-  <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-success">📊 Export Everything (Excel)</a>
+<div class="page-head">
+  <h1>Insights</h1>
+  <a href="{{ url_for('export_workbook') }}" class="btn btn-sm btn-outline-secondary">{{ icon('download') }}Export Everything (Excel)</a>
 </div>
 
 <div class="viz">
   <div class="row g-2 mb-4">
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ tiles.tasks_due }}</div><div class="text-muted small">Tasks due today</div>
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ tiles.this_week }}</div>
-      <div class="text-muted small">Touches this week
-        {% if tiles.week_delta != 0 %}
-        <span class="{{ 'tile-delta-up' if tiles.week_delta > 0 else 'tile-delta-down' }}">
-          {{ '▲' if tiles.week_delta > 0 else '▼' }} {{ tiles.week_delta|abs }} vs last wk</span>
-        {% endif %}
-      </div>
+      <div class="text-muted small">Touches this week</div>
+      {% if tiles.week_delta != 0 %}
+      <div class="small {{ 'tile-delta-up' if tiles.week_delta > 0 else 'tile-delta-down' }}">
+        {{ '▲' if tiles.week_delta > 0 else '▼' }} {{ tiles.week_delta|abs }} vs last week</div>
+      {% endif %}
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ tiles.active_prospects }}</div><div class="text-muted small">Active prospects</div>
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ tiles.in_cadence }}</div><div class="text-muted small">In cold cadence</div>
       {% if tiles.research %}<div class="small"><a href="{{ url_for('accounts', view='research') }}">+{{ tiles.research }} in Research</a></div>{% endif %}
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ tiles.won }}</div><div class="text-muted small">Closed won</div>
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ tiles.win_rate ~ '%' if tiles.win_rate is not none else '—' }}</div>
       <div class="text-muted small">Win rate {{ '(no closed deals yet)' if tiles.win_rate is none }}</div>
     </div></div>
@@ -59,19 +58,19 @@
 
   {% if money %}
   <div class="row g-2 mb-4">
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ money.active_projects }}</div><div class="text-muted small">Active projects</div>
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value">{{ money.contracted|money }}</div><div class="text-muted small">Contracted</div>
     </div></div>
-    <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-3"><div class="card kpi h-100">
       <div class="stat-value">{{ money.invoiced|money }}</div><div class="text-muted small">Invoiced</div>
     </div></div>
-    <div class="col-6 col-md-3"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-3"><div class="card kpi h-100">
       <div class="stat-value">{{ money.paid|money }}</div><div class="text-muted small">Collected</div>
     </div></div>
-    <div class="col-6 col-md-2"><div class="card text-center p-2 h-100">
+    <div class="col-6 col-md-2"><div class="card kpi h-100">
       <div class="stat-value {{ 'overdue' if money.outstanding }}">{{ money.outstanding|money }}</div><div class="text-muted small">Outstanding</div>
     </div></div>
   </div>
@@ -80,7 +79,7 @@
   <div class="card p-3 mb-3">
     <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2">
       <div>
-        <h5 class="mb-1">Daily activity</h5>
+        <h2 class="h5 mb-1">Daily activity</h2>
         <div class="text-muted small">
           Interactions logged per day, last 14 days.
           {% if activity.goal %}
@@ -121,7 +120,7 @@
   </div>
 
   <div class="card p-3 mb-3">
-    <h5 class="mb-1">Calls — last 30 days</h5>
+    <h2 class="h5 mb-1">Calls — last 30 days</h2>
     {% if calls.tagged %}
     <div class="text-muted small mb-3">From the {{ calls.tagged }} call{{ 's' if calls.tagged != 1 }}
       logged with an outcome{% if calls.total > calls.tagged %} ({{ calls.total - calls.tagged }}
@@ -152,7 +151,7 @@
   <div class="row g-3">
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">
-        <h5 class="mb-1">Weekly activity</h5>
+        <h2 class="h5 mb-1">Weekly activity</h2>
         <div class="text-muted small mb-3">Interactions logged per week, last 8 weeks</div>
         <div class="cols">
           {% for w in weekly %}
@@ -170,7 +169,7 @@
 
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">
-        <h5 class="mb-1">Pipeline</h5>
+        <h2 class="h5 mb-1">Pipeline</h2>
         <div class="text-muted small mb-3">Accounts at each milestone (cadence pool excluded)</div>
         {% for b in pipeline_bars %}
         <div class="hbar-row" title="{{ b.label }}: {{ b.count }} account(s)">
@@ -184,7 +183,7 @@
 
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">
-        <h5 class="mb-1">Cadence reach</h5>
+        <h2 class="h5 mb-1">Cadence reach</h2>
         <div class="text-muted small mb-3">Accounts that have received each cadence step</div>
         {% for b in cadence_bars %}
         <div class="hbar-row" title="{{ b.label }}: {{ b.count }} account(s){% if b.share is not none %} ({{ b.share }}% of all accounts){% endif %}">
@@ -198,7 +197,7 @@
 
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">
-        <h5 class="mb-1">Prospecting status</h5>
+        <h2 class="h5 mb-1">Prospecting status</h2>
         <div class="text-muted small mb-3">All accounts by status</div>
         {% for b in status_bars %}
         <div class="hbar-row" title="{{ b.label }}: {{ b.count }} account(s){% if b.share is not none %} ({{ b.share }}%){% endif %}">
@@ -212,7 +211,7 @@
 
     <div class="col-12 col-lg-6">
       <div class="card p-3 h-100">
-        <h5 class="mb-1">Activity mix</h5>
+        <h2 class="h5 mb-1">Activity mix</h2>
         <div class="text-muted small mb-3">Interactions by type, last 30 days</div>
         {% for b in type_bars %}
         <div class="hbar-row" title="{{ b.label }}: {{ b.count }} interaction(s)">

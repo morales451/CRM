@@ -30,7 +30,7 @@
             onclick="const t=document.getElementById('errdetail');t.select();
                      try{document.execCommand('copy')}catch(e){}
                      if(navigator.clipboard)navigator.clipboard.writeText(t.value).catch(()=>{});
-                     this.textContent='Copied ✓';
+                     this.textContent='Copied';
                      setTimeout(()=>{this.textContent='Copy details'},1500);
                      return false;">Copy details</button>
     <div class="form-text">Also saved to <code>{{ log_path }}</code></div>
