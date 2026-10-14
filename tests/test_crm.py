@@ -4057,7 +4057,7 @@ check("text: the screen names who to text and has the message ready",
 r = _call(_t1, "Spoke")
 _tp = client.get("/text-after-call").data.decode()
 check("text: after a conversation the 'after we spoke' text is used",
-      "Thanks for taking my call" in _tp and "just left you a" not in _tp)
+      "thanks for taking my call" in _tp and "just left you a" not in _tp)
 r = _call(_t1, "Bad number")
 check("text: no text after a bad number", not r.headers["Location"].endswith("/text-after-call"))
 r = _call(_t1, "No answer", nxt="https://example.com/")
