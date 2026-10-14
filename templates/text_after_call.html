@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Text {{ text.first_name or 'them' }} — Roof CRM{% endblock %}
+{% block body_class %}has-actionbar{% endblock %}
+{% block content %}
+<style>
+  .tac { max-width: 640px; }
+  .tac .who { font-size: 1.875rem; font-weight: 750; line-height: 1.1; letter-spacing: -.02em; }
+  .tac .num { font-size: 1.125rem; font-weight: 550; color: var(--ink-2); }
+  .tac textarea { font-size: 1rem; line-height: 1.5; }
+  .tac-bar { display: none; }
+  @media (max-width: 767.98px) {
+    .tac { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+    .tac-desk { display: none !important; }
+    .tac-bar { display: flex; gap: .5rem; position: fixed; left: 0; right: 0; bottom: 0; z-index: 1030;
+               padding: .6rem .75rem calc(.6rem + env(safe-area-inset-bottom));
+               background: var(--surface); border-top: 1px solid var(--line);
+               box-shadow: 0 -2px 10px rgba(16, 24, 40, .06); }
+    .tac-bar > * { flex: 1 1 0; }
+    .tac-bar > .bar-menu { flex: 0 0 56px; }
+    .tac-bar .btn { width: 100%; min-height: 52px; font-size: 1rem; font-weight: 600;
+                    display: flex; align-items: center; justify-content: center; gap: .4rem; }
+  }
+</style>
+
+<div class="tac">
+  <div class="text-body-secondary small mb-1">{{ text.company }}</div>
+  <h1 class="who mb-1">Now text {{ text.name or text.company }}</h1>
+  <div class="num mb-3">{{ text.phone }}{% if text.office_line %} <span class="small text-body-secondary fw-normal">· office line, it may not take texts</span>{% endif %}</div>
+
+  <div class="card p-3 mb-3">
+    <label for="tac-body" class="form-label">Message <span class="text-body-secondary fw-normal">(edit it here before you send)</span></label>
+    <textarea id="tac-body" class="form-control" rows="3">{{ text.body }}</textarea>
+    {% if text.missing %}<div class="form-text text-warning">Missing info shown in [brackets]: {{ text.missing|join(', ') }}.</div>{% endif %}
+    {% if google_voice %}<div class="form-text">Google Voice can't fill in the message, so Text copies it first. Paste it in Google Voice.</div>{% endif %}
+    <div class="d-flex flex-wrap gap-2 mt-3 tac-desk">
+      <a href="{{ sms_url }}" class="btn btn-primary js-text"{% if google_voice %} target="_blank" rel="noopener"{% endif %}>{{ icon('message-square-text') }}Text {{ text.first_name or 'them' }}</a>
+      <button type="button" class="btn btn-outline-secondary" id="tac-copy">{{ icon('copy') }}Copy</button>
+    </div>
+  </div>
+  <p class="small text-body-secondary">The text is added to {{ text.first_name or 'their' }}{{ "'s" if text.first_name }} history when you tap Text. Come back here and tap Next when it's sent, or Next to skip the text.</p>
+  <a href="{{ text.next }}" class="btn btn-success tac-desk" id="k-next">Next{{ icon('chevron-right') }}</a>
+</div>
+
+<nav class="tac-bar" aria-label="Text, then move on">
+  <button type="button" class="btn btn-outline-secondary bar-menu" data-bs-toggle="offcanvas" data-bs-target="#side"
+          aria-controls="side" aria-label="Menu">{{ icon('menu') }}</button>
+  <a href="{{ sms_url }}" class="btn btn-primary js-text"{% if google_voice %} target="_blank" rel="noopener"{% endif %}>{{ icon('message-square-text') }}Text</a>
+  <a href="{{ text.next }}" class="btn btn-outline-success">Next{{ icon('chevron-right') }}</a>
+</nav>
+
+<script>
+(function () {
+  const box = document.getElementById('tac-body');
+  // Show the whole message without scrolling inside the box.
+  const fit = () => { box.style.height = 'auto'; box.style.height = box.scrollHeight + 2 + 'px'; };
+  fit(); box.addEventListener('input', fit);
+  const base = {{ sms_url|tojson }};
+  const googleVoice = {{ 'true' if google_voice else 'false' }};
+  const logUrl = {{ url_for('log_text_sent', account_id=text.account_id)|tojson }};
+  let logged = false;
+  function copy() {
+    if (navigator.clipboard) navigator.clipboard.writeText(box.value).catch(() => {});
+  }
+  document.querySelectorAll('.js-text').forEach(a => {
+    a.addEventListener('click', () => {
+      // The phone's Messages app gets the message as you edited it.
+      if (!googleVoice) a.href = base + '?body=' + encodeURIComponent(box.value);
+      copy();
+      if (!logged) {
+        logged = true;
+        const fd = new FormData(); fd.append('body', box.value);
+        fetch(logUrl, {method: 'POST', body: fd, keepalive: true}).catch(() => {});
+      }
+      document.querySelectorAll('.js-text').forEach(b => b.classList.replace('btn-primary', 'btn-outline-primary'));
+    });
+  });
+  const cp = document.getElementById('tac-copy');
+  if (cp) cp.addEventListener('click', () => { copy(); cp.lastChild.textContent = 'Copied'; });
+})();
+</script>
+{% endblock %}

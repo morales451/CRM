@@ -296,6 +296,13 @@ def inject_constants():
         "CALL_OUTCOMES": CALL_OUTCOMES,
         "DOOR_OUTCOMES": DOOR_OUTCOMES,
         "CALL_STEPS": CALL_STEPS,
+        # What a script's main button says, by template kind: (icon, long, short).
+        "KIND_ACTION": {"email": ("mail", "Write this email", "Write email"),
+                        "text": ("message-square", "Text this", "Text"),
+                        "text_spoke": ("message-square", "Text this", "Text"),
+                        "linkedin": ("linkedin", "Open LinkedIn", "LinkedIn"),
+                        "call": ("phone", "Dial", "Call")},
+        "LINKEDIN_NOTE_LIMIT": LINKEDIN_NOTE_LIMIT,
         "today": today_iso(),
     }
 
@@ -712,8 +719,7 @@ def _finished_cadences(conn, account_id=None) -> list[dict]:
     out = []
     for r in rows:
         finished_steps = set(done.get(r["id"], {}))
-        if cadence.skips_email(r):
-            finished_steps |= set(cadence.EMAIL_STEPS)
+        finished_steps |= cadence.skipped_steps(r, done.get(r["id"], {}))
         if len(finished_steps) < n_steps or not done.get(r["id"]):
             continue
         if r["next_follow_up"] and r["next_follow_up"] > today_iso():
@@ -827,13 +833,88 @@ def quick_log():
             flash("That account no longer exists.", "danger")
             return redirect(request.form.get("next") or url_for("dashboard"))
         outcome = request.form.get("outcome", "")
+        # Worked out before logging: an outcome like "Wrong person" hands the
+        # account to the next contact, and the text goes to the one you called.
+        text = _text_after_call(conn, account_id, step_type, outcome)
         effect = _log_interaction(conn, account_id, step_type, notes, outcome)
         conn.commit()
     finally:
         conn.close()
     flash(f"Logged “{step_type}”" + (f" — {outcome}" if outcome in ALL_OUTCOMES else "")
           + "." + effect, "success")
-    return redirect(request.form.get("next") or url_for("dashboard"))
+    nxt = request.form.get("next") or url_for("dashboard")
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        nxt = url_for("dashboard")        # only ever back into this app
+    if text:
+        text["next"] = nxt
+        session[AFTER_CALL_KEY] = text
+        return redirect(url_for("text_after_call"))
+    return redirect(nxt)
+
+
+AFTER_CALL_KEY = "after_call_text"
+# After these a conversation happened, so the follow-up text says thanks
+# rather than "just left you a voicemail".
+SPOKE_OUTCOMES = ("Spoke", "Meeting booked", "Not interested", "Wrong person")
+
+
+def _text_after_call(conn, account_id, step_type, outcome):
+    """The text to send right after logging a call, or None.
+
+    Every call is followed by a text, whatever happened, except a bad number
+    (nothing to text) or a call with no number at all. The message comes from
+    the templates for that step: the "after we spoke" one when you reached
+    them, the regular one otherwise."""
+    if step_type not in CALL_STEPS or outcome not in CALL_OUTCOMES or outcome == "Bad number":
+        return None
+    acct = conn.execute("SELECT * FROM accounts WHERE id=?", (account_id,)).fetchone()
+    phone = (acct["mobile_phone"] or acct["work_phone"] or "").strip() if acct else ""
+    if not phone:
+        return None
+    rows = conn.execute("SELECT * FROM templates WHERE kind IN ('text', 'text_spoke') "
+                        "ORDER BY sort_order, id").fetchall()
+    want = "text_spoke" if outcome in SPOKE_OUTCOMES else "text"
+
+    def for_step(r):
+        return step_type in [s.strip() for s in (r["steps"] or "").split(",")]
+    pick = (next((r for r in rows if r["kind"] == want and for_step(r)), None)
+            or next((r for r in rows if r["kind"] == want), None)
+            or next((r for r in rows if for_step(r)), None)
+            or (rows[0] if rows else None))
+    body, missing = render_script(pick["body"], acct, _get_settings(conn)) if pick else ("", [])
+    return {"account_id": acct["id"], "company": acct["company_name"],
+            "first_name": acct["first_name"] or "",
+            "name": " ".join(x for x in (acct["first_name"], acct["last_name"]) if x),
+            "phone": phone, "office_line": not (acct["mobile_phone"] or "").strip(),
+            "body": body, "missing": missing, "outcome": outcome, "step": step_type}
+
+
+@app.route("/text-after-call")
+def text_after_call():
+    """Right after a call is logged: text the person, then move on."""
+    text = session.get(AFTER_CALL_KEY)
+    if not isinstance(text, dict) or not text.get("phone"):
+        return redirect(url_for("queue"))
+    url, external = phone_link(text["phone"], "text")
+    return render_template("text_after_call.html", text=text, sms_url=url,
+                           google_voice=external)
+
+
+@app.route("/accounts/<int:account_id>/texted", methods=["POST"])
+def log_text_sent(account_id):
+    """Record that the after-call text went out (sent from the Text button,
+    as it opens Messages, so there's nothing extra to tap)."""
+    body = request.form.get("body", "").strip()
+    conn = get_db()
+    try:
+        if _account_exists(conn, account_id):
+            conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, "
+                         "created_at) VALUES (?,?,?,?)",
+                         (account_id, "Text", body, now_iso()))
+            conn.commit()
+    finally:
+        conn.close()
+    return ("", 204)
 
 
 # ------------------------------------------------------- Follow-ups & queue
@@ -3311,6 +3392,26 @@ def save_settings():
     return redirect(request.form.get("next") or url_for("templates_page"))
 
 
+# Template kinds that open a text message. "text_spoke" is the one sent after
+# a call where you reached the person; plain "text" is for every other call.
+TEXT_KINDS = ("text", "text_spoke")
+# LinkedIn caps a connection-request note at 200 characters on a free account.
+LINKEDIN_NOTE_LIMIT = 200
+
+
+@app.template_global()
+def linkedin_link(acct) -> str:
+    """The primary contact's LinkedIn profile when it's on file (ZoomInfo
+    exports carry it), otherwise a LinkedIn people search for them."""
+    url = (acct["linkedin_url"] if "linkedin_url" in acct.keys() else "") or ""
+    if url.strip():
+        url = url.strip()
+        return url if "://" in url else "https://" + url
+    who = " ".join(x for x in (acct["first_name"], acct["last_name"],
+                               acct["company_name"]) if x)
+    return "https://www.linkedin.com/search/results/people/?keywords=" + quote(who)
+
+
 def _build_scripts(acct, settings, rows, step=""):
     """Render templates for an account, optionally filtered to a cadence step.
 
@@ -3333,9 +3434,12 @@ def _build_scripts(acct, settings, rows, step=""):
             action_url, external = email_link("" if bounced else acct["email"], subject, body)
             missing_target = ("" if action_url else
                               "working email address (it bounced)" if bounced else "email address")
-        elif t["kind"] == "text":
+        elif t["kind"] in TEXT_KINDS:
             action_url, external = phone_link(acct["mobile_phone"], "text", body)
             missing_target = "" if action_url else "mobile number"
+        elif t["kind"] == "linkedin":
+            action_url, external = linkedin_link(acct), True
+            missing_target = ""
         else:
             action_url, external = phone_link(
                 acct["work_phone"] or acct["mobile_phone"], "call")
@@ -3405,7 +3509,7 @@ def import_page():
                     # list turns into thousands of overdue tasks.
                     flash(f"All {result['imported']} accounts start their cadence "
                           f"today, so they'll all come due together. Use Re-Pace "
-                          f"Cadence below to spread them out — about a fifth of "
+                          f"Cadence below to spread them out — about a sixth of "
                           f"the touches you can do in a day, e.g. 10.", "warning")
             except ValueError as e:
                 flash(str(e), "danger")

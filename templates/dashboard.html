@@ -95,7 +95,7 @@
         </div>
       {% else %}
         <a href="{{ url_for('account_scripts', account_id=nxt.account_id, step=nxt.step_type) }}" class="btn btn-primary">
-          {% if 'Email' in nxt.step_type %}{{ icon('mail') }}Write the email{% else %}{{ icon('file-text') }}Open script{% endif %}</a>
+          {% if 'Email' in nxt.step_type %}{{ icon('mail') }}Write the email{% elif nxt.step_type == 'LinkedIn' %}{{ icon('linkedin') }}LinkedIn note{% else %}{{ icon('file-text') }}Open script{% endif %}</a>
         <button class="btn btn-outline-success">{{ icon('check') }}Log it</button>
       {% endif %}
     </form>
@@ -204,7 +204,7 @@
         {% if r.step_type in CALL_STEPS %}
         {% if phone %}<a {{ dial(phone) }} class="btn btn-success flex-fill">{{ icon('phone') }}Call</a>{% endif %}
         {% else %}
-        <a href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}" class="btn btn-primary flex-fill">{{ icon('mail' if 'Email' in r.step_type else 'file-text') }}{{ 'Write email' if 'Email' in r.step_type else 'Script' }}</a>
+        <a href="{{ url_for('account_scripts', account_id=r.account_id, step=r.step_type) }}" class="btn btn-primary flex-fill">{{ icon('mail' if 'Email' in r.step_type else 'linkedin' if r.step_type == 'LinkedIn' else 'file-text') }}{{ 'Write email' if 'Email' in r.step_type else 'LinkedIn' if r.step_type == 'LinkedIn' else 'Script' }}</a>
         {% endif %}
         {% if r.step_type in CALL_STEPS %}
         <div class="btn-group flex-fill">

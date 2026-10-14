@@ -144,7 +144,9 @@
         <select name="kind" class="form-select form-select-sm">
           <option value="email" {{ 'selected' if t.kind == 'email' }}>Email (opens email app)</option>
           <option value="call" {{ 'selected' if t.kind == 'call' }}>Call script (dial button)</option>
-          <option value="text" {{ 'selected' if t.kind == 'text' }}>Text message (opens Messages)</option>
+          <option value="text" {{ 'selected' if t.kind == 'text' }}>Text after a call (no answer or voicemail)</option>
+          <option value="text_spoke" {{ 'selected' if t.kind == 'text_spoke' }}>Text after a call where you spoke</option>
+          <option value="linkedin" {{ 'selected' if t.kind == 'linkedin' }}>LinkedIn connection note (opens their profile)</option>
         </select>
       </div>
       <div class="col-12">

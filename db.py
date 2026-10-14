@@ -106,10 +106,12 @@ PIPELINE_MILESTONES = [
 
 INTERACTION_TYPES = [
     "Email 1",
+    "LinkedIn",
     "Call & Text",
     "Call 2",
     "Email 2",
     "Breakup Email",
+    "Text",
     "General Note",
     "Meeting",
     "Door Knock",
@@ -479,6 +481,19 @@ Again, {my_name} at {my_phone}. Thanks.""",
                 "properties?",
     },
     {
+        "name": "Text after we spoke", "kind": "text_spoke",
+        "steps": "Call & Text,Call 2", "subject": "", "sort_order": 3,
+        "body": "Hi {first_name}, this is {my_name} with {my_company}, thanks for taking my call. "
+                "Here's my number so you have it. Happy to send photos of older roofs "
+                "we've restored, or take a look at one of {company}'s buildings.",
+    },
+    {
+        "name": "LinkedIn connection note", "kind": "linkedin",
+        "steps": "LinkedIn", "subject": "", "sort_order": 4,
+        "body": "Hi {first_name}, I work with Houston property owners on extending the life "
+                "of older commercial roofs without a tear-off. I'd be glad to connect.",
+    },
+    {
         "name": "Email 1", "kind": "email",
         "steps": "Email 1", "sort_order": 4,
         "subject": "{company}'s {matching_properties} older properties",
@@ -765,6 +780,20 @@ def init_db() -> list[str]:
                  t["sort_order"], now_iso()))
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES "
                      "('template_next_contact_v1', ?)", (now_iso(),))
+        # Same for the text after a conversation and the LinkedIn step's note.
+        for flag, name in (("template_text_spoke_v1", "Text after we spoke"),
+                           ("template_linkedin_v1", "LinkedIn connection note")):
+            if conn.execute("SELECT COUNT(*) FROM templates").fetchone()[0] \
+                    and not conn.execute("SELECT 1 FROM settings WHERE key=?",
+                                         (flag,)).fetchone():
+                t = next(t for t in SEED_TEMPLATES if t["name"] == name)
+                conn.execute(
+                    "INSERT INTO templates (name, kind, steps, subject, body, sort_order, "
+                    "updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (t["name"], t["kind"], t["steps"], t["subject"], t["body"],
+                     t["sort_order"], now_iso()))
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                         (flag, now_iso()))
         if conn.execute("SELECT COUNT(*) FROM templates").fetchone()[0] == 0:
             for t in SEED_TEMPLATES:
                 conn.execute(

@@ -24,6 +24,7 @@ from datetime import date, timedelta
 # (day number, interaction type) — Day 1 is the cadence start date itself.
 CADENCE_STEPS = [
     (1, "Email 1"),
+    (2, "LinkedIn"),
     (3, "Call & Text"),
     (6, "Call 2"),
     (8, "Email 2"),
@@ -78,13 +79,29 @@ def skips_email(acct) -> bool:
     return not email or bool(bounced)
 
 
+# Steps added to the cadence after it was in use. An account already past one
+# (a later step is done) skips it rather than having it turn up overdue.
+ADDED_STEPS = ("LinkedIn",)
+
+
+def skipped_steps(acct, done_on: dict[str, date]) -> frozenset:
+    """Steps this account doesn't do: emails when it can't be emailed, and a
+    newly added step it had already moved past when the step was added."""
+    skip = set(EMAIL_STEPS) if skips_email(acct) else set()
+    order = [st for _, st in CADENCE_STEPS]
+    for st in ADDED_STEPS:
+        if st not in done_on and any(s in done_on for s in order[order.index(st) + 1:]):
+            skip.add(st)
+    return frozenset(skip)
+
+
 def schedule(start: date, done_on: dict[str, date],
              skip: frozenset | set = frozenset()) -> dict[str, date]:
     """Due date of every step, given when the finished steps were done.
 
     Each step's due date is counted from the step before it: from the day
     that step was done if it's done, otherwise from its own due date. With
-    nothing done this is the plain Day 1/3/6/8/10 business-day schedule.
+    nothing done this is the plain Day 1/2/3/6/8/10 business-day schedule.
 
     Steps in `skip` (emails to someone who can't be emailed) take up no
     time: the step after them counts from the step before them, so a
@@ -257,7 +274,7 @@ def get_due_reminders(conn, account_id: int | None = None,
     reminders = []
     for acct in accounts:
         start = _parse_date(acct["cadence_start"])
-        skip = frozenset(EMAIL_STEPS) if skips_email(acct) else frozenset()
+        skip = skipped_steps(acct, done.get(acct["id"], {}))
         dues = schedule(start, done.get(acct["id"], {}), skip)
         for day, step_type in CADENCE_STEPS:
             if step_type in skip:
@@ -332,7 +349,7 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
         (account_id,))}
 
     done_on = _done_dates(conn, [account_id]).get(account_id, {})
-    skip = frozenset(EMAIL_STEPS) if skips_email(acct) else frozenset()
+    skip = skipped_steps(acct, done_on)
     dues = schedule(start, done_on, skip) if started else {}
     steps = []
     for day, step_type in CADENCE_STEPS:
@@ -345,6 +362,8 @@ def get_cadence_progress(conn, account_id: int) -> list[dict]:
             state = "inactive"
         elif not started:
             state = "waiting"          # in Research: no clock yet
+        elif step_type in skip and step_type in ADDED_STEPS:
+            state = "not_needed"       # added to the cadence after this account passed it
         elif step_type in skip:
             state = "no_email"         # can't be emailed: skipped automatically
         elif due <= now:

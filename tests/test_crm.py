@@ -91,8 +91,8 @@ conn.execute("UPDATE accounts SET cadence_start=? WHERE id=?", ("2026-10-05", ac
 conn.commit()
 # The engine still knows every outstanding step...
 all_steps = cadence.get_due_reminders(conn, acme["id"], collapse=False)
-check("cadence: backdated 7d → days 1,3,6,8 outstanding",
-      [r["step_type"] for r in all_steps] == ["Email 1", "Call & Text", "Call 2", "Email 2"],
+check("cadence: backdated 7d → days 1,2,3,6,8 outstanding",
+      [r["step_type"] for r in all_steps] == ["Email 1", "LinkedIn", "Call & Text", "Call 2", "Email 2"],
       [r["step_type"] for r in all_steps])
 # ...but you are only shown the one the account is actually waiting on.
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
@@ -100,7 +100,7 @@ check("cadence: only the next step is shown, not all four",
       [r["step_type"] for r in acme_rems] == ["Email 1"],
       [r["step_type"] for r in acme_rems])
 check("cadence: the row says how far behind the account is",
-      acme_rems[0]["steps_behind"] == 4, acme_rems[0])
+      acme_rems[0]["steps_behind"] == 5, acme_rems[0])
 check("cadence: overdue days computed", acme_rems[0]["days_overdue"] == 9, acme_rems[0])
 
 # ---- 3. Logging a step clears it, and the clock resets from that day
@@ -119,6 +119,11 @@ check("cadence: later steps chain on (Call 2 three business days later, then +2,
       [_prog[s]["due_date"] for s in ("Call 2", "Email 2", "Breakup Email")]
       == ["2026-10-21", "2026-10-23", "2026-10-27"],
       [_prog[s]["due_date"] for s in ("Call 2", "Email 2", "Breakup Email")])
+check("cadence: the LinkedIn step comes the business day after Email 1",
+      _prog["LinkedIn"]["due_date"] == "2026-10-15", _prog["LinkedIn"])
+conn.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+             "VALUES (?,?,?,?)", (acme["id"], "LinkedIn", "connected", "2026-10-15T09:00:00-05:00"))
+conn.commit()
 cadence.today = lambda: date(2026, 10, 16)
 acme_rems = cadence.get_due_reminders(conn, acme["id"])
 check("cadence: the next step comes due on its new date",
@@ -308,7 +313,7 @@ conn.close()
 # ---- 10. Outreach templates & scripts
 conn = db.get_db()
 n_templates = conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"]
-check("templates: 7 seeded", n_templates == 7, n_templates)
+check("templates: 9 seeded", n_templates == 9, n_templates)
 settings = {r["key"]: r["value"] for r in conn.execute("SELECT * FROM settings")}
 check("templates: settings seeded", settings.get("my_name") == "Alexis Morales"
       and settings.get("my_company") == "Silicone Roof Pros, Inc.")
@@ -317,7 +322,7 @@ conn.close()
 db.init_db()
 conn = db.get_db()
 check("templates: re-init does not re-seed",
-      conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"] == 7)
+      conn.execute("SELECT COUNT(*) c FROM templates").fetchone()["c"] == 9)
 conn.close()
 
 r = client.get("/templates")
@@ -2636,7 +2641,7 @@ check("business days: a weekend start still has Day 1 that day",
       cadence.step_due(date(2026, 10, 10), 1) == date(2026, 10, 10)
       and cadence.step_due(date(2026, 10, 10), 3) == date(2026, 10, 13))
 
-# Pacing produces a flat load: exactly 5x the daily starts, no Monday spike.
+# Pacing produces a flat load: exactly 6x the daily starts, no Monday spike.
 _starts, _d = [], date(2026, 10, 12)
 while len(_starts) < 200:
     if _d.weekday() < 5:
@@ -2648,8 +2653,8 @@ for _k in range(14, 28):
     if _t.weekday() < 5:
         _load.append(sum(1 for _s in _starts for _day, _ in cadence.CADENCE_STEPS
                          if cadence.step_due(_s, _day) == _t))
-check("business days: paced at 10/day, every working day carries exactly 50",
-      set(_load) == {50}, _load)
+check("business days: paced at 10/day, every working day carries exactly 60",
+      set(_load) == {60}, _load)
 
 # ---- 47. Research: no clock until there's someone to contact
 check("research: a named person with a phone is reachable",
@@ -2850,6 +2855,8 @@ def _call_acct(name):
     # Email 1 went out on the start day, so the call (two business days on) is due today.
     _oc.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
                 "VALUES (?,?,?,?)", (i, "Email 1", "", _two_bd_ago.isoformat() + "T09:00:00"))
+    _oc.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+                "VALUES (?,?,?,?)", (i, "LinkedIn", "", _two_bd_ago.isoformat() + "T09:05:00"))
     _oc.commit()
     return i
 
@@ -3174,14 +3181,14 @@ check("restart: restarting one account starts at Email 1 again",
       [x["step_type"] for x in cadence.get_due_reminders(_rs, account_id=_w1)] == ["Email 1"])
 check("restart: the old steps are kept as history",
       _rs.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
-                  "notes LIKE '[%previous cadence] sent'", (_w1,)).fetchone()[0] == 5)
+                  "notes LIKE '[%previous cadence] sent'", (_w1,)).fetchone()[0] == len(cadence.CADENCE_STEPS))
 client.post("/accounts/bulk", data={"action": "restart_cadence", "account_ids": [str(_w2)]})
 check("restart: a BULK restart starts at Email 1 too",
       [x["step_type"] for x in cadence.get_due_reminders(_rs, account_id=_w2)] == ["Email 1"])
 client.post("/undo/" + str(_rs.execute("SELECT MAX(id) m FROM undo_log").fetchone()["m"]))
 check("restart: undoing a bulk restart puts the logged steps back",
       _rs.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
-                  "interaction_type != 'General Note' AND notes='sent'", (_w2,)).fetchone()[0] == 5
+                  "interaction_type != 'General Note' AND notes='sent'", (_w2,)).fetchone()[0] == len(cadence.CADENCE_STEPS)
       and not cadence.get_due_reminders(_rs, account_id=_w2))
 
 # "Start anyway" on a Research account keeps progress (e.g. after a bad number)
@@ -3840,7 +3847,7 @@ check("finished: one tap starts the next person, the old one marked No reply",
 check("finished: the old steps are kept as history, the new cadence starts at Email 1",
       [x["step_type"] for x in cadence.get_due_reminders(_rt, account_id=_r3)] == ["Email 1"]
       and _rt.execute("SELECT COUNT(*) FROM interactions WHERE account_id=? AND "
-                      "interaction_type='General Note'", (_r3,)).fetchone()[0] == 5)
+                      "interaction_type='General Note'", (_r3,)).fetchone()[0] == len(cadence.CADENCE_STEPS))
 check("finished: it leaves the finished list", not _app_mod._finished_cadences(_rt, _r3))
 
 # Finished with nobody left -> rest
@@ -3898,8 +3905,9 @@ _apid = _ap.execute(
     " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
     " ('Act First Co','Ava','ava@x.com','713-555-0110','Unknown','Prospecting','None / In Cadence',?,?,?)",
     ((date.today() - timedelta(days=10)).isoformat(), _lts, _lts)).lastrowid
-_ap.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) VALUES (?,?,?,?)",
-            (_apid, "Email 1", "", (date.today() - timedelta(days=10)).isoformat() + "T09:00:00"))
+for _st in ("Email 1", "LinkedIn"):
+    _ap.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) VALUES (?,?,?,?)",
+                (_apid, _st, "", (date.today() - timedelta(days=10)).isoformat() + "T09:00:00"))
 _ap.commit()
 _pg = client.get(f"/accounts/{_apid}").data.decode()
 check("account: Next up names the due step with one-tap call outcomes",
@@ -3934,13 +3942,13 @@ check("bounce: before, Email 1 is due", [r["step_type"] for r in
       cadence.get_due_reminders(_bx, account_id=_bid)] == ["Email 1"])
 r = client.post(f"/accounts/{_bid}/email-bounced", data={}, follow_redirects=True)
 check("bounce: marking it says what happens", b"marked as bounced" in r.data)
-check("bounce: the email steps drop out and the call is due right away (no gap left)",
-      [r_["step_type"] for r_ in cadence.get_due_reminders(_bx, account_id=_bid)] == ["Call & Text"])
+check("bounce: the email steps drop out and the next touch is due right away (no gap left)",
+      [r_["step_type"] for r_ in cadence.get_due_reminders(_bx, account_id=_bid)] == ["LinkedIn"])
 _pr = {p_["step_type"]: p_ for p_ in cadence.get_cadence_progress(_bx, _bid)}
 check("bounce: progress shows the email steps skipped, calls still scheduled",
       _pr["Email 1"]["state"] == "no_email" and _pr["Email 2"]["state"] == "no_email"
       and _pr["Breakup Email"]["state"] == "no_email" and _pr["Call 2"]["state"] == "upcoming"
-      and _pr["Call 2"]["due_date"] == "2026-10-19", _pr)
+      and _pr["Call 2"]["due_date"] == "2026-10-20", _pr)
 cadence.today = _real_cadence_today
 _pg = client.get(f"/accounts/{_bid}").data.decode()
 check("bounce: the address is struck through and not offered as a link",
@@ -4008,6 +4016,8 @@ _qid = _qx.execute(
     " prospecting_status, pipeline_milestone, cadence_start, created_at, updated_at) VALUES"
     " ('Glance Call Co','Gerald','Hayes','Director, Construction','713-555-0141','Unknown','Prospecting',"
     "'None / In Cadence','2026-10-01',?,?)", (_qts, _qts)).lastrowid
+_qx.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+            "VALUES (?,'LinkedIn','','2026-10-01T09:00:00')", (_qid,))
 _qx.commit()
 _q = ""
 for _i in range(400):
@@ -4018,6 +4028,76 @@ check("queue: a call task leads with the person's name and title, large",
       '<div class="q-name">Gerald Hayes</div>' in _q
       and '<div class="q-title">Director, Construction</div>' in _q, "Glance Call Co" in _q)
 _qx.execute("DELETE FROM accounts WHERE id=?", (_qid,)); _qx.commit(); _qx.close()
+
+# ---- 74. Every call gets a text; LinkedIn is a cadence step
+_tx = db.get_db()
+_tts = db.now_iso()
+def _tx_acct(name, contacts=()):
+    a = _tx.execute(
+        "INSERT INTO accounts (company_name, first_name, last_name, email, mobile_phone, preferred_contact,"
+        " prospecting_status, pipeline_milestone, cadence_start, linkedin_url, created_at, updated_at) VALUES"
+        " (?,'Tess','Lane','tess@x.com','281-555-0151','Unknown','Prospecting','None / In Cadence',"
+        "'2026-10-01','',?,?)", (name, _tts, _tts)).lastrowid
+    for fn, ttl in contacts:
+        _tx.execute("INSERT INTO contacts (account_id, first_name, title, email, created_at) "
+                    "VALUES (?,?,?,?,?)", (a, fn, ttl, fn.lower() + "@x.com", _tts))
+    _tx.commit()
+    return a
+def _call(aid, outcome, nxt="/queue"):
+    return client.post("/reminders/quicklog", data={"account_id": aid, "step_type": "Call & Text",
+                                                    "outcome": outcome, "next": nxt})
+_t1 = _tx_acct("Text After Co")
+r = _call(_t1, "Voicemail")
+check("text: logging a call goes straight to texting them",
+      r.status_code == 302 and r.headers["Location"].endswith("/text-after-call"))
+_tp = client.get("/text-after-call").data.decode()
+check("text: the screen names who to text and has the message ready",
+      "Now text Tess Lane" in _tp and "just left you a" in _tp and "sms:" in _tp
+      and 'href="/queue"' in _tp)
+r = _call(_t1, "Spoke")
+_tp = client.get("/text-after-call").data.decode()
+check("text: after a conversation the 'after we spoke' text is used",
+      "Thanks for taking my call" in _tp and "just left you a" not in _tp)
+r = _call(_t1, "Bad number")
+check("text: no text after a bad number", not r.headers["Location"].endswith("/text-after-call"))
+r = _call(_t1, "No answer", nxt="https://example.com/")
+client.get("/text-after-call")
+check("text: Next only ever points back into the app",
+      'href="https://example.com/"' not in client.get("/text-after-call").data.decode())
+client.post(f"/accounts/{_t1}/texted", data={"body": "Hi Tess"})
+check("text: tapping Text records it in the history",
+      _tx.execute("SELECT notes FROM interactions WHERE account_id=? AND interaction_type='Text'",
+                  (_t1,)).fetchone()[0] == "Hi Tess")
+_t2 = _tx_acct("Text Rotate Co", [("Uma", "Director, Facilities")])
+_call(_t2, "Wrong person")
+_tp = client.get("/text-after-call").data.decode()
+check("text: after Wrong person the text still goes to the person you called",
+      "Now text Tess Lane" in _tp)
+# LinkedIn
+check("linkedin: it's Day 2 of the cadence", (2, "LinkedIn") in cadence.CADENCE_STEPS)
+_t3 = _tx_acct("Linked Co")
+_ta = _tx.execute("SELECT * FROM accounts WHERE id=?", (_t3,)).fetchone()
+check("linkedin: with no profile on file it searches for the person",
+      _app_mod.linkedin_link(_ta).startswith("https://www.linkedin.com/search/results/people/?keywords=Tess%20Lane%20Linked%20Co"))
+_tx.execute("UPDATE accounts SET linkedin_url='linkedin.com/in/tesslane' WHERE id=?", (_t3,)); _tx.commit()
+_ta = _tx.execute("SELECT * FROM accounts WHERE id=?", (_t3,)).fetchone()
+check("linkedin: with a profile on file it opens it",
+      _app_mod.linkedin_link(_ta) == "https://linkedin.com/in/tesslane")
+_sc = client.get(f"/accounts/{_t3}/scripts?step=LinkedIn").data.decode()
+check("linkedin: the step's script opens LinkedIn with a note under the size limit",
+      "Open LinkedIn" in _sc and "linkedin.com/in/tesslane" in _sc and "/200 characters" in _sc)
+_t4 = _tx_acct("Already Past Co")
+for _st in ("Email 1", "Call & Text"):
+    _tx.execute("INSERT INTO interactions (account_id, interaction_type, notes, created_at) "
+                "VALUES (?,?,'','2026-10-02T09:00:00')", (_t4, _st))
+_tx.commit()
+_steps = [x["step_type"] for x in cadence.get_due_reminders(_tx, account_id=_t4, collapse=False)]
+_pr4 = {p["step_type"]: p for p in cadence.get_cadence_progress(_tx, _t4)}
+check("linkedin: an account already past Day 2 isn't sent back for it",
+      "LinkedIn" not in _steps and _pr4["LinkedIn"]["state"] == "not_needed", (_steps, _pr4["LinkedIn"]))
+for _a in (_t1, _t2, _t3, _t4):
+    _tx.execute("DELETE FROM accounts WHERE id=?", (_a,))
+_tx.commit(); _tx.close()
 
 print()
 print(f"{'ALL TESTS PASSED' if not failures else f'{len(failures)} FAILURES: {failures}'}")

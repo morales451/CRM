@@ -158,7 +158,7 @@
       <h2 class="h5 mb-0">{{ s.template.name }}</h2>
       {% if s.action_url %}
       <a {{ s.action_attrs }} class="btn btn-sm {{ 'btn-primary q-desk-only' if loop.first else 'btn-outline-primary' }}">
-        {% if s.template.kind == 'email' %}{{ icon('mail') }}Write this email{% elif s.template.kind == 'text' %}{{ icon('message-square') }}Text this{% else %}{{ icon('phone') }}Dial{% endif %}
+        {% set ka = KIND_ACTION.get(s.template.kind, KIND_ACTION.call) %}{{ icon(ka[0]) }}{{ ka[1] }}
         </a>
       {% else %}
         <a href="{{ url_for('account_detail', account_id=account.id) }}" class="btn btn-sm btn-outline-secondary"
@@ -181,6 +181,10 @@
                 rows="{{ [s.body.count('\n') + 2, 14]|min }}">{{ s.body }}</textarea>
       <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy</button>
     </div>
+    {% if s.template.kind == 'linkedin' %}
+    <div class="form-text">Copy the note, then on LinkedIn tap <strong>Connect</strong> → <strong>Add a note</strong> and paste it.
+      <span class="{{ 'text-danger fw-semibold' if s.body|length > LINKEDIN_NOTE_LIMIT }}">{{ s.body|length }}/{{ LINKEDIN_NOTE_LIMIT }} characters</span>{% if s.body|length > LINKEDIN_NOTE_LIMIT %}, too long for a free LinkedIn account; shorten it on the Templates page{% endif %}.</div>
+    {% endif %}
   </div>
   {% endfor %}
 
@@ -248,7 +252,7 @@
   {% elif task.kind == 'cadence' %}
     {% set first = scripts[0] if scripts else none %}
     {% if first and first.action_url %}
-      <a {{ first.action_attrs }} class="btn btn-primary">{% if first.template.kind == 'email' %}{{ icon('mail') }}Write email{% elif first.template.kind == 'text' %}{{ icon('message-square') }}Text{% else %}{{ icon('phone') }}Call{% endif %}</a>
+      <a {{ first.action_attrs }} class="btn btn-primary">{% set ka = KIND_ACTION.get(first.template.kind, KIND_ACTION.call) %}{{ icon(ka[0]) }}{{ ka[2] }}</a>
     {% elif phone %}<a {{ dial(phone) }} class="btn btn-outline-success">{{ icon('phone') }}Call</a>{% endif %}
     <form method="post" action="{{ url_for('quick_log') }}">
       <input type="hidden" name="account_id" value="{{ account.id }}">
