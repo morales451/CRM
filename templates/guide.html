@@ -133,7 +133,7 @@ while you're typing in a box.</p>
 <h2 id="import">5. Importing lists (CoStar etc.)</h2>
 <ul>
   <li>Upload <code>.xlsx</code> or <code>.csv</code> on the <a href="{{ url_for('import_page') }}">Import</a> page. Columns are matched <em>by meaning</em>, not name or position — "Company", "Account Name", "Cell #", "# Properties (in search)", "Office Phone Number" all work. The summary shows exactly how each column mapped; ignored columns are listed.</li>
-  <li><strong>Pacing:</strong> set "Start N /business day" — about a sixth of the touches you can do in a day — each account brings six touches over ten business days, so at 10 a day you settle at exactly 60 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
+  <li><strong>Pacing:</strong> set "Start N /business day" — about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day — so a big list becomes a steady daily routine instead of hundreds of Day-1 tasks. Forgot? Use <strong>Re-Pace Cadence</strong> — it re-staggers all untouched in-cadence accounts and never moves anyone you've already contacted.</li>
   <li><strong>Safe re-uploads:</strong> duplicate companies are skipped, missing property counts are backfilled onto existing accounts, and anything you <a href="#archive">archived</a> stays out.</li>
   <li>Imported accounts capture address/city/zip into Notes, the website into its own field (contact uploads match on it), the criteria-matching property count, and total properties owned. Rows with a named person plus an email or phone go straight into the cadence; the rest wait in <a href="{{ url_for('accounts', view='research') }}">Research</a> until you add someone.</li>
 </ul>
@@ -180,15 +180,8 @@ future import <em>can</em> add that company again.</div>
 <ul>
   <li><strong>Counted in business days.</strong> Day 1 is the day the cadence starts;
     every later step counts working days, so nothing lands on a weekend and Monday
-    doesn't inherit the weekend's work. Started on a Friday: Email 1 Friday, LinkedIn Monday, the call
+    doesn't inherit the weekend's work. Started on a Friday: Email 1 Friday, the call
     Tuesday, Call 2 Friday, Email 2 Tuesday, the breakup Thursday.</li>
-  <li><strong>LinkedIn (Day 2).</strong> <em>Open LinkedIn</em> goes to the person's profile when
-    the ZoomInfo export had it, or a LinkedIn search for them otherwise. Copy the connection note,
-    tap <em>Connect</em> → <em>Add a note</em>, paste, send, then log it. Requests come from whichever
-    LinkedIn account you're signed into; a company page can't send connection requests, so use your
-    own profile with Silicone Roof Pros as your employer. Accounts that were already past Day 2
-    when this step was added skip it. Edit the note on the Templates page (200 characters max on a
-    free LinkedIn account).</li>
   <li><strong>Every call gets a text.</strong> Tap a call outcome and the next screen says
     <em>Now text</em> them, with the message already written: the regular text after no answer or a
     voicemail, <em>Text after we spoke</em> when you reached them. Edit it if you like, tap
@@ -196,7 +189,7 @@ future import <em>can</em> add that company again.</div>
     <strong>Next</strong>. The text goes into the account's history. No text is offered after
     <em>Bad number</em>. On Google Voice the message is copied for you to paste.</li>
   <li><strong>The clock resets every time you act.</strong> Each step is due a set
-    number of business days after the step before it: LinkedIn the next day, the call the day after that,
+    number of business days after the step before it: the call 2 days after Email 1,
     Call 2 3 days after the call, Email 2 2 days after that, and the breakup 2 days
     after Email 2. The count runs from the day you actually did the step (or skipped
     it). Send Email 1 a week late and the call is due two business days after you
@@ -227,7 +220,7 @@ future import <em>can</em> add that company again.</div>
     "+N more steps behind".</li>
   <li><strong>If everything is due at once</strong>, it's because a big import put
     every account on the same clock. <strong>Re-Pace Cadence</strong> on the Import
-    page re-staggers the untouched ones — pick about a sixth of the touches you can do in a day — each account brings six touches over ten business days, so at 10 a day you settle at exactly 60 tasks a day — and never moves an
+    page re-staggers the untouched ones — pick about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day — and never moves an
     account you've already contacted.</li>
 </ul>
 <table class="table table-sm w-auto">

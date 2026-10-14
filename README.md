@@ -241,8 +241,8 @@ computer's firewall (Windows will usually prompt you the first time — choose
   blocks imports for the live company.
   Imported accounts default to **Prospecting / None / In Cadence** and enter
   the cadence immediately — or use the **pacing option** to stagger starts
-  (about a sixth of your daily touch capacity, e.g. 10 a business day — each
-  account brings six touches over ten business days, so starts stack up) so a big list becomes a steady daily
+  (about a fifth of your daily touch capacity, e.g. 10 a business day — each
+  account brings five touches over ten business days, so starts stack up) so a big list becomes a steady daily
   routine instead of hundreds of Day-1 tasks at once. Forgot to pace? The
   **Re-Pace Cadence** tool on the Import page re-staggers all untouched
   in-cadence accounts after the fact.
@@ -272,7 +272,7 @@ the dashboard from 1.3 MB and ~950 ms of browser load down to 52 KB and ~50 ms.
 
 ## Cadence Logic
 
-Six steps over ten **business** days, computed from each account's cadence
+Five steps over ten **business** days, computed from each account's cadence
 start date. Day 1 is the start date itself; every later step counts working
 days, so nothing ever falls on a weekend and Monday doesn't inherit Saturday's
 and Sunday's work:
@@ -280,7 +280,6 @@ and Sunday's work:
 | Day | Step          | e.g. started Friday |
 |-----|---------------|---------------------|
 | 1   | Email 1       | Friday              |
-| 2   | LinkedIn      | Monday              |
 | 3   | Call & Text   | Tuesday             |
 | 6   | Call 2        | Friday              |
 | 8   | Email 2       | Tuesday             |
@@ -288,9 +287,6 @@ and Sunday's work:
 
 Rules:
 
-- **LinkedIn** (Day 2) opens the person's LinkedIn profile (from the ZoomInfo
-  export) or a LinkedIn search for them, with a short connection note to copy.
-  Accounts that were already past Day 2 when the step was added skip it.
 - **Every call is followed by a text.** Logging any call outcome except Bad
   number opens a "Now text them" screen with the message already written: the
   regular text template after no answer or a voicemail, the "Text after we
@@ -314,7 +310,7 @@ Rules:
   current step brings the next one forward.
 - Importing a big list without pacing puts every account on the same clock,
   so they all come due together. Use **Re-Pace Cadence** on the Import page
-  to stagger untouched accounts — pick about a sixth of the touches you can do in a day — each account brings six touches over ten business days, so at 10 a day you settle at exactly 60 tasks a day. It never moves
+  to stagger untouched accounts — pick about a fifth of the touches you can do in a day — each account brings five touches over ten business days, so at 10 a day you settle at exactly 50 tasks a day. It never moves
   anyone you have already contacted.
 - "Restart Cadence" on an account's detail page resets the clock to today —
   useful for re-engaging a cold prospect.

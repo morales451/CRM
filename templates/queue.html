@@ -181,10 +181,6 @@
                 rows="{{ [s.body.count('\n') + 2, 14]|min }}">{{ s.body }}</textarea>
       <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy</button>
     </div>
-    {% if s.template.kind == 'linkedin' %}
-    <div class="form-text">Copy the note, then on LinkedIn tap <strong>Connect</strong> → <strong>Add a note</strong> and paste it.
-      <span class="{{ 'text-danger fw-semibold' if s.body|length > LINKEDIN_NOTE_LIMIT }}">{{ s.body|length }}/{{ LINKEDIN_NOTE_LIMIT }} characters</span>{% if s.body|length > LINKEDIN_NOTE_LIMIT %}, too long for a free LinkedIn account; shorten it on the Templates page{% endif %}.</div>
-    {% endif %}
   </div>
   {% endfor %}
 

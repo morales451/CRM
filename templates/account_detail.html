@@ -185,18 +185,6 @@
           {% endfor %}
         </div>
       </form>
-    {% elif next_step.step_type == 'LinkedIn' %}
-      <div class="small mb-2">Send {{ account.first_name or 'them' }} a connection request with a short note, so your name is familiar before you call.</div>
-      <form method="post" action="{{ url_for('quick_log') }}" class="d-flex flex-wrap gap-2">
-        <input type="hidden" name="account_id" value="{{ account.id }}">
-        <input type="hidden" name="step_type" value="{{ next_step.step_type }}">
-        <input type="hidden" name="next" value="{{ url_for('account_detail', account_id=account.id) }}">
-        <a href="{{ linkedin_link(account) }}" target="_blank" rel="noopener" class="btn btn-primary">{{ icon('linkedin') }}Open {{ 'their profile' if account.linkedin_url else 'LinkedIn search' }}</a>
-        <a href="{{ url_for('account_scripts', account_id=account.id, step=next_step.step_type) }}" class="btn btn-outline-secondary">{{ icon('file-text') }}Connection note</a>
-        <button class="btn btn-outline-success">{{ icon('check') }}Log it as sent</button>
-        <button class="btn btn-outline-secondary" formaction="{{ url_for('dismiss_reminder') }}"
-                title="Clear without logging (you can undo)">Skip</button>
-      </form>
     {% else %}
       <form method="post" action="{{ url_for('quick_log') }}" class="d-flex flex-wrap gap-2">
         <input type="hidden" name="account_id" value="{{ account.id }}">
@@ -459,17 +447,16 @@
         {% for s in steps %}
         <li class="list-group-item d-flex justify-content-between align-items-center px-0">
           <span>
-            <span class="dot me-1 {{ {'done': 'dot-done', 'skipped': 'dot-skip', 'no_email': 'dot-skip', 'not_needed': 'dot-skip', 'due': 'dot-due', 'waiting': 'dot-wait'}.get(s.state, '') }}"></span>
+            <span class="dot me-1 {{ {'done': 'dot-done', 'skipped': 'dot-skip', 'no_email': 'dot-skip', 'due': 'dot-due', 'waiting': 'dot-wait'}.get(s.state, '') }}"></span>
             <strong>Day {{ s.day }}:</strong> {{ s.step_type }}
           </span>
           <span class="small text-body-secondary">
             {% if s.state == 'done' and s.done_on %}{{ s.done_on|d }} ·
-            {% elif s.due_date and s.state not in ('no_email', 'not_needed') %}{{ s.due_date|d }} ·{% endif %}
+            {% elif s.due_date and s.state != 'no_email' %}{{ s.due_date|d }} ·{% endif %}
             {% if s.state == 'done' %}Done
             {% elif s.state == 'waiting' %}Starts when a contact is added
             {% elif s.state == 'skipped' %}Checked off
             {% elif s.state == 'no_email' %}Skipped: {{ 'email bounced' if account.email_bounced else 'no email' }}
-            {% elif s.state == 'not_needed' %}Added after this account passed it
             {% elif s.state == 'due' %}<span class="overdue">Due</span>
             {% elif s.state == 'inactive' %}Cadence stopped
             {% else %}Upcoming{% endif %}

@@ -300,9 +300,7 @@ def inject_constants():
         "KIND_ACTION": {"email": ("mail", "Write this email", "Write email"),
                         "text": ("message-square", "Text this", "Text"),
                         "text_spoke": ("message-square", "Text this", "Text"),
-                        "linkedin": ("linkedin", "Open LinkedIn", "LinkedIn"),
                         "call": ("phone", "Dial", "Call")},
-        "LINKEDIN_NOTE_LIMIT": LINKEDIN_NOTE_LIMIT,
         "today": today_iso(),
     }
 
@@ -3395,23 +3393,6 @@ def save_settings():
 # Template kinds that open a text message. "text_spoke" is the one sent after
 # a call where you reached the person; plain "text" is for every other call.
 TEXT_KINDS = ("text", "text_spoke")
-# LinkedIn caps a connection-request note at 200 characters on a free account.
-LINKEDIN_NOTE_LIMIT = 200
-
-
-@app.template_global()
-def linkedin_link(acct) -> str:
-    """The primary contact's LinkedIn profile when it's on file (ZoomInfo
-    exports carry it), otherwise a LinkedIn people search for them."""
-    url = (acct["linkedin_url"] if "linkedin_url" in acct.keys() else "") or ""
-    if url.strip():
-        url = url.strip()
-        return url if "://" in url else "https://" + url
-    who = " ".join(x for x in (acct["first_name"], acct["last_name"],
-                               acct["company_name"]) if x)
-    return "https://www.linkedin.com/search/results/people/?keywords=" + quote(who)
-
-
 def _build_scripts(acct, settings, rows, step=""):
     """Render templates for an account, optionally filtered to a cadence step.
 
@@ -3437,9 +3418,6 @@ def _build_scripts(acct, settings, rows, step=""):
         elif t["kind"] in TEXT_KINDS:
             action_url, external = phone_link(acct["mobile_phone"], "text", body)
             missing_target = "" if action_url else "mobile number"
-        elif t["kind"] == "linkedin":
-            action_url, external = linkedin_link(acct), True
-            missing_target = ""
         else:
             action_url, external = phone_link(
                 acct["work_phone"] or acct["mobile_phone"], "call")
@@ -3509,7 +3487,7 @@ def import_page():
                     # list turns into thousands of overdue tasks.
                     flash(f"All {result['imported']} accounts start their cadence "
                           f"today, so they'll all come due together. Use Re-Pace "
-                          f"Cadence below to spread them out — about a sixth of "
+                          f"Cadence below to spread them out — about a fifth of "
                           f"the touches you can do in a day, e.g. 10.", "warning")
             except ValueError as e:
                 flash(str(e), "danger")

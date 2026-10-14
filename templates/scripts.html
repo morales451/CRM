@@ -55,12 +55,7 @@
   <div class="mt-2">
     <textarea id="body-{{ s.template.id }}" class="form-control" readonly
               rows="{{ [s.body.count('\n') + 2, 18]|min }}">{{ s.body }}</textarea>
-    <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy {{ 'email' if s.template.kind == 'email' else 'note' if s.template.kind == 'linkedin' else 'script' }}</button>
-  {% if s.template.kind == 'linkedin' %}
-    <div class="form-text">Copy the note, then on LinkedIn tap <strong>Connect</strong> → <strong>Add a note</strong> and paste it.
-      <span class="{{ 'text-danger fw-semibold' if s.body|length > LINKEDIN_NOTE_LIMIT }}">{{ s.body|length }}/{{ LINKEDIN_NOTE_LIMIT }} characters</span>{% if s.body|length > LINKEDIN_NOTE_LIMIT %}, too long for a free LinkedIn account; shorten it on the Templates page{% endif %}.</div>
-    {% endif %}
-
+    <button class="btn btn-sm btn-outline-secondary mt-1" onclick="copyField('body-{{ s.template.id }}', this)">Copy {{ 'email' if s.template.kind == 'email' else 'script' }}</button>
   </div>
 </div>
 {% else %}

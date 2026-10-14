@@ -16,7 +16,7 @@
     <div class="input-group input-group-sm" style="max-width: 260px;">
       <span class="input-group-text">Start</span>
       <input type="number" name="per_day" min="1" class="form-control" placeholder="all at once"
-             title="Leave empty to start every account today. For a big list, use about a sixth of the touches you can do in a day.">
+             title="Leave empty to start every account today. For a big list, use about a fifth of the touches you can do in a day.">
       <span class="input-group-text">/business day</span>
     </div>
     <button class="btn btn-primary">Upload & Import</button>
@@ -77,9 +77,9 @@
     (no interactions logged, no steps checked off) at N per business day starting tomorrow.
     Accounts you've already contacted keep their dates.</p>
   <p class="small mb-2"><strong>Pick N from the number of touches you can do in a day, divided by
-    six.</strong> Each account brings six touches over ten business days, so new starts stack
-    up: at 10 a day you settle at exactly 60 tasks a day, every working day. If you can manage
-    60 a day, start 10.</p>
+    five.</strong> Each account brings five touches over ten business days, so new starts stack
+    up: at 10 a day you settle at exactly 50 tasks a day, every working day. If you can manage
+    50 a day, start 10.</p>
   <form method="post" action="{{ url_for('repace') }}" class="d-flex gap-2 flex-wrap align-items-center"
         onsubmit="return confirm('Re-stagger cadence start dates for all untouched in-cadence accounts?')">
     <div class="input-group input-group-sm" style="max-width: 260px;">
